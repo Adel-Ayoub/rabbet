@@ -1,0 +1,24 @@
+# Build output
+/build/
+/build-*/
+/out/
+/cmake-build-*/
+
+# CMake artifacts
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+compile_commands.json
+
+# Editor / IDE
+.vscode/
+.idea/
+.cache/
+*.swp
+*~
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
