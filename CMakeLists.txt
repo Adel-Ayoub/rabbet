@@ -36,6 +36,12 @@ FetchContent_MakeAvailable(glfw)
 
 find_package(OpenGL REQUIRED)
 
+option(RABBET_BUILD_TESTS "Build the unit test suite" ON)
+
 add_subdirectory(third_party)
 add_subdirectory(rabbet)
 add_subdirectory(examples)
+
+if(RABBET_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
