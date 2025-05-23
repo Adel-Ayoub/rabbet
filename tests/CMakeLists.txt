@@ -1,8 +1,16 @@
-foreach(suite IN ITEMS entity pool scene)
-    add_executable(ecs_${suite}_tests ecs_${suite}_tests.cpp)
-    target_link_libraries(ecs_${suite}_tests PRIVATE Rabbet::Rabbet)
-    rb_target_warnings(ecs_${suite}_tests)
-    set_target_properties(ecs_${suite}_tests PROPERTIES
+set(RABBET_TEST_SUITES
+    ecs_entity
+    ecs_pool
+    ecs_scene
+    core_resource
+    core_runtime
+    core_module)
+
+foreach(suite IN LISTS RABBET_TEST_SUITES)
+    add_executable(${suite}_tests ${suite}_tests.cpp)
+    target_link_libraries(${suite}_tests PRIVATE Rabbet::Rabbet)
+    rb_target_warnings(${suite}_tests)
+    set_target_properties(${suite}_tests PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
-    add_test(NAME ecs_${suite} COMMAND ecs_${suite}_tests)
+    add_test(NAME ${suite} COMMAND ${suite}_tests)
 endforeach()
