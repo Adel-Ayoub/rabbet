@@ -1,11 +1,12 @@
 #include "rabbet/platform/Window.h"
 
+#include "rabbet/util/Log.h"
+
 #include <glad/glad.h>
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
-#include <cstdio>
 #include <utility>
 
 namespace rb {
@@ -15,7 +16,7 @@ namespace {
 int g_liveWindows = 0;
 
 void onGlfwError(int code, const char* description) {
-    std::fprintf(stderr, "[rabbet] GLFW error %d: %s\n", code, description);
+    log::error("GLFW error {}: {}", code, description);
 }
 
 void onFramebufferResize(GLFWwindow*, int width, int height) {
@@ -28,7 +29,7 @@ std::optional<Window> Window::create(const WindowConfig& config) {
     if (g_liveWindows == 0) {
         glfwSetErrorCallback(onGlfwError);
         if (glfwInit() != GLFW_TRUE) {
-            std::fprintf(stderr, "[rabbet] failed to initialize GLFW\n");
+            log::error("failed to initialize GLFW");
             return std::nullopt;
         }
     }
@@ -42,7 +43,7 @@ std::optional<Window> Window::create(const WindowConfig& config) {
     GLFWwindow* handle =
         glfwCreateWindow(config.width, config.height, config.title.c_str(), nullptr, nullptr);
     if (handle == nullptr) {
-        std::fprintf(stderr, "[rabbet] failed to create window\n");
+        log::error("failed to create window");
         if (g_liveWindows == 0) {
             glfwTerminate();
         }
@@ -52,7 +53,7 @@ std::optional<Window> Window::create(const WindowConfig& config) {
     glfwMakeContextCurrent(handle);
 
     if (gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)) == 0) {
-        std::fprintf(stderr, "[rabbet] failed to load OpenGL function pointers\n");
+        log::error("failed to load OpenGL function pointers");
         glfwDestroyWindow(handle);
         if (g_liveWindows == 0) {
             glfwTerminate();
@@ -69,6 +70,8 @@ std::optional<Window> Window::create(const WindowConfig& config) {
     glViewport(0, 0, fbWidth, fbHeight);
 
     ++g_liveWindows;
+    log::info("window created ({}x{}), OpenGL {}", fbWidth, fbHeight,
+              reinterpret_cast<const char*>(glGetString(GL_VERSION)));
     return Window(handle);
 }
 
@@ -101,6 +104,10 @@ void Window::destroy() noexcept {
 
 bool Window::shouldClose() const noexcept {
     return glfwWindowShouldClose(m_handle) != 0;
+}
+
+void Window::requestClose() const noexcept {
+    glfwSetWindowShouldClose(m_handle, GLFW_TRUE);
 }
 
 void Window::swapBuffers() const noexcept {

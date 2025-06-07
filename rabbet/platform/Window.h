@@ -26,6 +26,7 @@ public:
     ~Window();
 
     [[nodiscard]] bool shouldClose() const noexcept;
+    void requestClose() const noexcept;
     void swapBuffers() const noexcept;
     void pollEvents() const noexcept;
 
