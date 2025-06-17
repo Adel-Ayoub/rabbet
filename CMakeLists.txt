@@ -34,6 +34,22 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
+FetchContent_Declare(
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG 1.0.1
+    GIT_SHALLOW ON)
+set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLM_BUILD_LIBRARY OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glm)
+if(TARGET glm)
+    get_target_property(_glm_includes glm INTERFACE_INCLUDE_DIRECTORIES)
+    if(_glm_includes)
+        set_target_properties(glm PROPERTIES
+            INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_glm_includes}")
+    endif()
+endif()
+
 find_package(OpenGL REQUIRED)
 
 option(RABBET_BUILD_TESTS "Build the unit test suite" ON)
