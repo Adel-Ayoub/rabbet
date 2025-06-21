@@ -7,6 +7,7 @@ target_sources(rabbet
         platform/Input.cpp
         ecs/Scene.cpp
         core/Runtime.cpp
+        scene/TransformSystem.cpp
         util/Log.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
@@ -24,6 +25,9 @@ target_sources(rabbet
             core/Module.h
             core/Runtime.h
             core/Clock.h
+            scene/Transform.h
+            scene/WorldMatrix.h
+            scene/TransformSystem.h
             util/Log.h)
 
 target_include_directories(rabbet PUBLIC
@@ -33,6 +37,7 @@ target_link_libraries(rabbet
     PUBLIC
         glad
         glfw
+        glm::glm
         OpenGL::GL)
 
 target_compile_features(rabbet PUBLIC cxx_std_20)
