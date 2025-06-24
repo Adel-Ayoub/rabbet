@@ -6,7 +6,8 @@ set(RABBET_TEST_SUITES
     core_runtime
     core_module
     core_clock
-    util_log)
+    util_log
+    scene_transform)
 
 foreach(suite IN LISTS RABBET_TEST_SUITES)
     add_executable(${suite}_tests ${suite}_tests.cpp)
