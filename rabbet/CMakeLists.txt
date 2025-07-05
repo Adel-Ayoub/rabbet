@@ -8,6 +8,12 @@ target_sources(rabbet
         ecs/Scene.cpp
         core/Runtime.cpp
         scene/TransformSystem.cpp
+        render/Geometry.cpp
+        render/RenderDevice.cpp
+        render/gl/Device.cpp
+        render/gl/Shader.cpp
+        render/gl/Texture.cpp
+        render/gl/Mesh.cpp
         util/Log.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
@@ -28,6 +34,14 @@ target_sources(rabbet
             scene/Transform.h
             scene/WorldMatrix.h
             scene/TransformSystem.h
+            render/Vertex.h
+            render/MeshData.h
+            render/Geometry.h
+            render/RenderDevice.h
+            render/gl/Device.h
+            render/gl/Shader.h
+            render/gl/Texture.h
+            render/gl/Mesh.h
             util/Log.h)
 
 target_include_directories(rabbet PUBLIC
