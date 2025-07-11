@@ -1,48 +1,63 @@
 #include "rabbet/core/Clock.h"
-#include "rabbet/core/Module.h"
-#include "rabbet/core/Runtime.h"
-#include "rabbet/core/System.h"
-#include "rabbet/ecs/Scene.h"
 #include "rabbet/platform/Input.h"
 #include "rabbet/platform/Window.h"
+#include "rabbet/render/Geometry.h"
+#include "rabbet/render/RenderDevice.h"
+#include "rabbet/render/gl/Mesh.h"
+#include "rabbet/render/gl/Shader.h"
+#include "rabbet/render/gl/Texture.h"
 #include "rabbet/util/Log.h"
 
-#include <glad/glad.h>
+#include <glm/glm.hpp>
 
-#include <string_view>
+#include <cstddef>
+#include <vector>
 
 namespace {
 
-struct Position {
-    float x = 0.0f;
-    float y = 0.0f;
-};
+constexpr const char* kVertexSource = R"(#version 410 core
+layout(location = 0) in vec3 aPosition;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aUv;
+out vec2 vUv;
+void main() {
+    vUv = aUv;
+    gl_Position = vec4(aPosition, 1.0);
+}
+)";
 
-struct Velocity {
-    float dx = 0.0f;
-    float dy = 0.0f;
-};
+constexpr const char* kFragmentSource = R"(#version 410 core
+in vec2 vUv;
+out vec4 FragColor;
+uniform sampler2D uTexture;
+void main() {
+    FragColor = texture(uTexture, vUv);
+}
+)";
 
-class MovementSystem final : public rb::System {
-public:
-    void onUpdate(rb::Runtime& rt, float dt) override {
-        rt.scene().each<Position, Velocity>([dt](rb::Entity, Position& p, Velocity& v) {
-            p.x += v.dx * dt;
-            p.y += v.dy * dt;
-        });
+rb::gl::Texture makeCheckerTexture() {
+    constexpr int size = 64;
+    constexpr int tile = 8;
+    std::vector<std::byte> pixels(static_cast<std::size_t>(size) * static_cast<std::size_t>(size) *
+                                  4u);
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            const bool light = ((x / tile) + (y / tile)) % 2 == 0;
+            const std::byte shade = light ? std::byte{230} : std::byte{45};
+            const std::size_t i = (static_cast<std::size_t>(y) * static_cast<std::size_t>(size) +
+                                   static_cast<std::size_t>(x)) *
+                                  4u;
+            pixels[i + 0] = shade;
+            pixels[i + 1] = shade;
+            pixels[i + 2] = shade;
+            pixels[i + 3] = std::byte{255};
+        }
     }
-};
-
-class SandboxModule final : public rb::Module {
-public:
-    [[nodiscard]] std::string_view name() const override { return "sandbox"; }
-    void configure(rb::Runtime& rt) override {
-        rt.addSystem<MovementSystem>();
-        const rb::Entity mover = rt.scene().create();
-        rt.scene().add<Position>(mover, Position{0.0f, 0.0f});
-        rt.scene().add<Velocity>(mover, Velocity{1.0f, 0.5f});
-    }
-};
+    rb::gl::TextureConfig config;
+    config.generateMipmaps = false;
+    config.linearFilter = false;
+    return rb::gl::Texture::fromPixels(pixels, size, size, 4, config);
+}
 
 } // namespace
 
@@ -57,33 +72,41 @@ int main() {
         return 1;
     }
 
-    rb::Runtime runtime;
-    runtime.addResource<rb::Input>(window->handle());
-    runtime.loadModule<SandboxModule>();
-    runtime.start();
+    auto device = rb::createRenderDevice();
+    rb::log::info("render backend: {}", device->backendName());
+    device->setDepthTest(true);
 
-    rb::Input& input = runtime.resource<rb::Input>();
+    auto shader = rb::gl::Shader::fromSource(kVertexSource, kFragmentSource);
+    if (!shader) {
+        rb::log::error("sandbox: shader failed to build");
+        return 1;
+    }
+
+    const rb::gl::Mesh mesh = rb::gl::Mesh::create(rb::geometry::quad());
+    const rb::gl::Texture texture = makeCheckerTexture();
+
+    rb::Input input(window->handle());
     rb::FrameClock clock;
     while (!window->shouldClose()) {
         window->pollEvents();
         input.update();
-
         if (input.keyPressed(rb::Key::Escape)) {
             window->requestClose();
         }
-        if (input.keyPressed(rb::Key::Space)) {
-            rb::log::info("space pressed on frame {}", clock.frame());
-        }
 
-        const float dt = clock.tick();
-        runtime.tick(dt);
+        device->setViewport(window->width(), window->height());
+        device->setClearColor(glm::vec4(0.07f, 0.09f, 0.12f, 1.0f));
+        device->clear();
 
-        glClearColor(0.07f, 0.09f, 0.12f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        shader->bind();
+        shader->setInt("uTexture", 0);
+        texture.bind(0);
+        mesh.draw();
+
         window->swapBuffers();
+        clock.tick();
     }
 
-    runtime.stop();
-    rb::log::info("sandbox ran {} frames over {:.2f}s", clock.frame(), clock.elapsed());
+    rb::log::info("sandbox ran {} frames", clock.frame());
     return 0;
 }
