@@ -14,6 +14,8 @@ target_sources(rabbet
         render/gl/Shader.cpp
         render/gl/Texture.cpp
         render/gl/Mesh.cpp
+        render/RenderSystem.cpp
+        scene/CameraSystem.cpp
         util/Log.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
@@ -42,6 +44,12 @@ target_sources(rabbet
             render/gl/Shader.h
             render/gl/Texture.h
             render/gl/Mesh.h
+            render/RenderView.h
+            render/Viewport.h
+            render/Material.h
+            render/RenderSystem.h
+            scene/Camera.h
+            scene/CameraSystem.h
             util/Log.h)
 
 target_include_directories(rabbet PUBLIC
