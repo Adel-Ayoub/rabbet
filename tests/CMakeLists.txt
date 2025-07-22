@@ -8,6 +8,7 @@ set(RABBET_TEST_SUITES
     core_clock
     util_log
     scene_transform
+    scene_camera
     render_geometry)
 
 foreach(suite IN LISTS RABBET_TEST_SUITES)
