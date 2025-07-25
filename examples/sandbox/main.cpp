@@ -1,39 +1,45 @@
 #include "rabbet/core/Clock.h"
+#include "rabbet/core/Module.h"
+#include "rabbet/core/Runtime.h"
+#include "rabbet/core/System.h"
 #include "rabbet/platform/Input.h"
 #include "rabbet/platform/Window.h"
 #include "rabbet/render/Geometry.h"
+#include "rabbet/render/Material.h"
 #include "rabbet/render/RenderDevice.h"
+#include "rabbet/render/RenderSystem.h"
+#include "rabbet/render/Viewport.h"
 #include "rabbet/render/gl/Mesh.h"
-#include "rabbet/render/gl/Shader.h"
 #include "rabbet/render/gl/Texture.h"
+#include "rabbet/scene/Camera.h"
+#include "rabbet/scene/CameraSystem.h"
+#include "rabbet/scene/Transform.h"
+#include "rabbet/scene/TransformSystem.h"
 #include "rabbet/util/Log.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <cstddef>
+#include <string_view>
 #include <vector>
 
 namespace {
 
-constexpr const char* kVertexSource = R"(#version 410 core
-layout(location = 0) in vec3 aPosition;
-layout(location = 1) in vec3 aNormal;
-layout(location = 2) in vec2 aUv;
-out vec2 vUv;
-void main() {
-    vUv = aUv;
-    gl_Position = vec4(aPosition, 1.0);
-}
-)";
+struct Spin {
+    float speed = 1.0f;
+};
 
-constexpr const char* kFragmentSource = R"(#version 410 core
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uTexture;
-void main() {
-    FragColor = texture(uTexture, vUv);
-}
-)";
+class SpinSystem final : public rb::System {
+public:
+    void onUpdate(rb::Runtime& rt, float dt) override {
+        rt.scene().each<Spin, rb::Transform>([dt](rb::Entity, Spin& spin, rb::Transform& transform) {
+            const glm::quat step =
+                glm::angleAxis(spin.speed * dt, glm::normalize(glm::vec3(0.3f, 1.0f, 0.0f)));
+            transform.rotation = step * transform.rotation;
+        });
+    }
+};
 
 rb::gl::Texture makeCheckerTexture() {
     constexpr int size = 64;
@@ -59,6 +65,29 @@ rb::gl::Texture makeCheckerTexture() {
     return rb::gl::Texture::fromPixels(pixels, size, size, 4, config);
 }
 
+class CubeDemoModule final : public rb::Module {
+public:
+    [[nodiscard]] std::string_view name() const override { return "cube-demo"; }
+    void configure(rb::Runtime& rt) override {
+        rt.addSystem<SpinSystem>();
+        rt.addSystem<rb::TransformSystem>();
+        rt.addSystem<rb::CameraSystem>();
+        rt.addSystem<rb::RenderSystem>();
+
+        const rb::Entity camera = rt.scene().create();
+        rb::Transform cameraTransform;
+        cameraTransform.position = glm::vec3(0.0f, 0.0f, 3.0f);
+        rt.scene().add<rb::Transform>(camera, cameraTransform);
+        rt.scene().add<rb::Camera>(camera, rb::Camera{});
+
+        const rb::Entity cube = rt.scene().create();
+        rt.scene().add<rb::Transform>(cube, rb::Transform{});
+        rt.scene().add<Spin>(cube, Spin{1.0f});
+        rt.scene().add<rb::gl::Mesh>(cube, rb::gl::Mesh::create(rb::geometry::cube()));
+        rt.scene().add<rb::Material>(cube, rb::Material{makeCheckerTexture(), glm::vec3(1.0f)});
+    }
+};
+
 } // namespace
 
 int main() {
@@ -76,14 +105,10 @@ int main() {
     rb::log::info("render backend: {}", device->backendName());
     device->setDepthTest(true);
 
-    auto shader = rb::gl::Shader::fromSource(kVertexSource, kFragmentSource);
-    if (!shader) {
-        rb::log::error("sandbox: shader failed to build");
-        return 1;
-    }
-
-    const rb::gl::Mesh mesh = rb::gl::Mesh::create(rb::geometry::quad());
-    const rb::gl::Texture texture = makeCheckerTexture();
+    rb::Runtime runtime;
+    runtime.addResource<rb::Viewport>();
+    runtime.loadModule<CubeDemoModule>();
+    runtime.start();
 
     rb::Input input(window->handle());
     rb::FrameClock clock;
@@ -94,19 +119,20 @@ int main() {
             window->requestClose();
         }
 
-        device->setViewport(window->width(), window->height());
+        rb::Viewport& viewport = runtime.resource<rb::Viewport>();
+        viewport.width = window->width();
+        viewport.height = window->height();
+
+        device->setViewport(viewport.width, viewport.height);
         device->setClearColor(glm::vec4(0.07f, 0.09f, 0.12f, 1.0f));
         device->clear();
 
-        shader->bind();
-        shader->setInt("uTexture", 0);
-        texture.bind(0);
-        mesh.draw();
+        runtime.tick(clock.tick());
 
         window->swapBuffers();
-        clock.tick();
     }
 
+    runtime.stop();
     rb::log::info("sandbox ran {} frames", clock.frame());
     return 0;
 }
