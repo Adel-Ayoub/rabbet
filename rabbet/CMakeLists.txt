@@ -16,6 +16,8 @@ target_sources(rabbet
         render/gl/Mesh.cpp
         render/RenderSystem.cpp
         scene/CameraSystem.cpp
+        render/ImageLoader.cpp
+        render/ModelLoader.cpp
         util/Log.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
@@ -50,6 +52,10 @@ target_sources(rabbet
             render/RenderSystem.h
             scene/Camera.h
             scene/CameraSystem.h
+            render/Image.h
+            render/ImageLoader.h
+            render/Model.h
+            render/ModelLoader.h
             util/Log.h)
 
 target_include_directories(rabbet PUBLIC
@@ -60,7 +66,10 @@ target_link_libraries(rabbet
         glad
         glfw
         glm::glm
-        OpenGL::GL)
+        OpenGL::GL
+    PRIVATE
+        stb
+        assimp::assimp)
 
 target_compile_features(rabbet PUBLIC cxx_std_20)
 
