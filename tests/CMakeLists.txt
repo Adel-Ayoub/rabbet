@@ -9,7 +9,9 @@ set(RABBET_TEST_SUITES
     util_log
     scene_transform
     scene_camera
-    render_geometry)
+    render_geometry
+    render_image_loader
+    render_model_loader)
 
 foreach(suite IN LISTS RABBET_TEST_SUITES)
     add_executable(${suite}_tests ${suite}_tests.cpp)
