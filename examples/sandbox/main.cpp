@@ -5,7 +5,9 @@
 #include "rabbet/platform/Input.h"
 #include "rabbet/platform/Window.h"
 #include "rabbet/render/Geometry.h"
+#include "rabbet/render/ImageLoader.h"
 #include "rabbet/render/Material.h"
+#include "rabbet/render/ModelLoader.h"
 #include "rabbet/render/RenderDevice.h"
 #include "rabbet/render/RenderSystem.h"
 #include "rabbet/render/Viewport.h"
@@ -20,9 +22,14 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include <cstddef>
+#include <filesystem>
+#include <optional>
 #include <string_view>
-#include <vector>
+#include <utility>
+
+#ifndef RB_SANDBOX_ASSETS
+#define RB_SANDBOX_ASSETS "assets"
+#endif
 
 namespace {
 
@@ -41,33 +48,30 @@ public:
     }
 };
 
-rb::gl::Texture makeCheckerTexture() {
-    constexpr int size = 64;
-    constexpr int tile = 8;
-    std::vector<std::byte> pixels(static_cast<std::size_t>(size) * static_cast<std::size_t>(size) *
-                                  4u);
-    for (int y = 0; y < size; ++y) {
-        for (int x = 0; x < size; ++x) {
-            const bool light = ((x / tile) + (y / tile)) % 2 == 0;
-            const std::byte shade = light ? std::byte{230} : std::byte{45};
-            const std::size_t i = (static_cast<std::size_t>(y) * static_cast<std::size_t>(size) +
-                                   static_cast<std::size_t>(x)) *
-                                  4u;
-            pixels[i + 0] = shade;
-            pixels[i + 1] = shade;
-            pixels[i + 2] = shade;
-            pixels[i + 3] = std::byte{255};
-        }
+rb::gl::Mesh loadCubeMesh(const std::filesystem::path& assets) {
+    if (const std::optional<rb::Model> model = rb::loadModel(assets / "models" / "cube.obj");
+        model && !model->meshes.empty()) {
+        return rb::gl::Mesh::create(model->meshes.front().data);
     }
-    rb::gl::TextureConfig config;
-    config.generateMipmaps = false;
-    config.linearFilter = false;
-    return rb::gl::Texture::fromPixels(pixels, size, size, 4, config);
+    rb::log::warn("sandbox: using procedural cube (model load failed)");
+    return rb::gl::Mesh::create(rb::geometry::cube());
+}
+
+rb::gl::Texture loadCheckerTexture(const std::filesystem::path& assets) {
+    if (const std::optional<rb::Image> image = rb::loadImage(assets / "textures" / "checker.ppm")) {
+        return rb::gl::Texture::fromPixels(image->pixels, image->width, image->height,
+                                           image->channels);
+    }
+    rb::log::warn("sandbox: using a solid texture (image load failed)");
+    return rb::gl::Texture::solid(220, 180, 120);
 }
 
 class CubeDemoModule final : public rb::Module {
 public:
+    explicit CubeDemoModule(std::filesystem::path assets) : m_assets(std::move(assets)) {}
+
     [[nodiscard]] std::string_view name() const override { return "cube-demo"; }
+
     void configure(rb::Runtime& rt) override {
         rt.addSystem<SpinSystem>();
         rt.addSystem<rb::TransformSystem>();
@@ -82,10 +86,14 @@ public:
 
         const rb::Entity cube = rt.scene().create();
         rt.scene().add<rb::Transform>(cube, rb::Transform{});
-        rt.scene().add<Spin>(cube, Spin{1.0f});
-        rt.scene().add<rb::gl::Mesh>(cube, rb::gl::Mesh::create(rb::geometry::cube()));
-        rt.scene().add<rb::Material>(cube, rb::Material{makeCheckerTexture(), glm::vec3(1.0f)});
+        rt.scene().add<Spin>(cube, Spin{0.8f});
+        rt.scene().add<rb::gl::Mesh>(cube, loadCubeMesh(m_assets));
+        rt.scene().add<rb::Material>(cube,
+                                     rb::Material{loadCheckerTexture(m_assets), glm::vec3(1.0f)});
     }
+
+private:
+    std::filesystem::path m_assets;
 };
 
 } // namespace
@@ -107,7 +115,7 @@ int main() {
 
     rb::Runtime runtime;
     runtime.addResource<rb::Viewport>();
-    runtime.loadModule<CubeDemoModule>();
+    runtime.loadModule<CubeDemoModule>(std::filesystem::path{RB_SANDBOX_ASSETS});
     runtime.start();
 
     rb::Input input(window->handle());
