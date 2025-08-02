@@ -120,8 +120,20 @@ void Shader::setVec3(std::string_view name, const glm::vec3& value) {
     glUniform3fv(uniformLocation(name), 1, glm::value_ptr(value));
 }
 
+void Shader::setVec3Array(std::string_view name, std::span<const glm::vec3> values) {
+    if (values.empty()) {
+        return;
+    }
+    glUniform3fv(uniformLocation(name), static_cast<GLsizei>(values.size()),
+                 glm::value_ptr(values.front()));
+}
+
 void Shader::setVec4(std::string_view name, const glm::vec4& value) {
     glUniform4fv(uniformLocation(name), 1, glm::value_ptr(value));
+}
+
+void Shader::setMat3(std::string_view name, const glm::mat3& value) {
+    glUniformMatrix3fv(uniformLocation(name), 1, GL_FALSE, glm::value_ptr(value));
 }
 
 void Shader::setMat4(std::string_view name, const glm::mat4& value) {
