@@ -16,6 +16,7 @@ target_sources(rabbet
         render/gl/Mesh.cpp
         render/RenderSystem.cpp
         scene/CameraSystem.cpp
+        scene/LightSystem.cpp
         render/ImageLoader.cpp
         render/ModelLoader.cpp
         util/Log.cpp
@@ -52,6 +53,9 @@ target_sources(rabbet
             render/RenderSystem.h
             scene/Camera.h
             scene/CameraSystem.h
+            scene/Light.h
+            scene/LightSystem.h
+            render/Lighting.h
             render/Image.h
             render/ImageLoader.h
             render/Model.h
