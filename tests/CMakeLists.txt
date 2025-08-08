@@ -9,6 +9,7 @@ set(RABBET_TEST_SUITES
     util_log
     scene_transform
     scene_camera
+    scene_light
     render_geometry
     render_image_loader
     render_model_loader)
