@@ -15,6 +15,8 @@
 #include "rabbet/render/gl/Texture.h"
 #include "rabbet/scene/Camera.h"
 #include "rabbet/scene/CameraSystem.h"
+#include "rabbet/scene/Light.h"
+#include "rabbet/scene/LightSystem.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scene/TransformSystem.h"
 #include "rabbet/util/Log.h"
@@ -76,6 +78,7 @@ public:
         rt.addSystem<SpinSystem>();
         rt.addSystem<rb::TransformSystem>();
         rt.addSystem<rb::CameraSystem>();
+        rt.addSystem<rb::LightSystem>();
         rt.addSystem<rb::RenderSystem>();
 
         const rb::Entity camera = rt.scene().create();
@@ -90,6 +93,22 @@ public:
         rt.scene().add<rb::gl::Mesh>(cube, loadCubeMesh(m_assets));
         rt.scene().add<rb::Material>(cube,
                                      rb::Material{loadCheckerTexture(m_assets), glm::vec3(1.0f)});
+
+        const rb::Entity sun = rt.scene().create();
+        rb::DirectionalLight sunLight;
+        sunLight.direction = glm::normalize(glm::vec3(-0.5f, -0.9f, -0.6f));
+        sunLight.color = glm::vec3(1.0f, 0.95f, 0.85f);
+        sunLight.intensity = 0.9f;
+        rt.scene().add<rb::DirectionalLight>(sun, sunLight);
+
+        const rb::Entity lamp = rt.scene().create();
+        rb::Transform lampTransform;
+        lampTransform.position = glm::vec3(1.6f, 1.2f, 1.8f);
+        rt.scene().add<rb::Transform>(lamp, lampTransform);
+        rb::PointLight lampLight;
+        lampLight.color = glm::vec3(0.4f, 0.6f, 1.0f);
+        lampLight.intensity = 3.0f;
+        rt.scene().add<rb::PointLight>(lamp, lampLight);
     }
 
 private:
