@@ -1,5 +1,9 @@
 #include "rabbet/render/Geometry.h"
 
+#include <cmath>
+
+#include <glm/gtc/constants.hpp>
+
 namespace rb::geometry {
 
 MeshData triangle() {
@@ -58,6 +62,39 @@ MeshData cube() {
         }
         data.indices.insert(data.indices.end(),
                             {base, base + 1u, base + 2u, base + 2u, base + 3u, base});
+    }
+    return data;
+}
+
+MeshData sphere(unsigned int rings, unsigned int sectors) {
+    MeshData data;
+    const float radius = 0.5f;
+    const float pi = glm::pi<float>();
+    const float twoPi = glm::two_pi<float>();
+
+    data.vertices.reserve((rings + 1) * (sectors + 1));
+    for (unsigned int ring = 0; ring <= rings; ++ring) {
+        const float v = static_cast<float>(ring) / static_cast<float>(rings);
+        const float phi = v * pi;
+        for (unsigned int sector = 0; sector <= sectors; ++sector) {
+            const float u = static_cast<float>(sector) / static_cast<float>(sectors);
+            const float theta = u * twoPi;
+            const glm::vec3 normal{std::sin(phi) * std::cos(theta), std::cos(phi),
+                                   std::sin(phi) * std::sin(theta)};
+            data.vertices.push_back({radius * normal, normal, glm::vec2{u, v}});
+        }
+    }
+
+    data.indices.reserve(rings * sectors * 6);
+    const unsigned int stride = sectors + 1;
+    for (unsigned int ring = 0; ring < rings; ++ring) {
+        for (unsigned int sector = 0; sector < sectors; ++sector) {
+            const unsigned int i0 = ring * stride + sector;
+            const unsigned int i1 = i0 + 1;
+            const unsigned int i2 = i0 + stride;
+            const unsigned int i3 = i2 + 1;
+            data.indices.insert(data.indices.end(), {i0, i2, i1, i1, i2, i3});
+        }
     }
     return data;
 }

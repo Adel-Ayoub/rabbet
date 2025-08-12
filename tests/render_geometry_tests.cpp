@@ -1,6 +1,7 @@
 #include "rabbet/render/Geometry.h"
 #include "tests/Test.h"
 
+#include <cmath>
 #include <cstdint>
 
 static void primitiveCounts() {
@@ -36,9 +37,23 @@ static void quadIsUnitCentered() {
     CHECK(bounded);
 }
 
+static void sphereVerticesLieOnRadius() {
+    const rb::MeshData sphere = rb::geometry::sphere(8, 16);
+    CHECK(sphere.vertices.size() == 9u * 17u);
+    CHECK(sphere.indices.size() == 8u * 16u * 6u);
+    bool onSurface = true;
+    for (const rb::Vertex& v : sphere.vertices) {
+        const float radius = std::sqrt(v.position.x * v.position.x + v.position.y * v.position.y +
+                                       v.position.z * v.position.z);
+        onSurface = onSurface && std::fabs(radius - 0.5f) <= 1.0e-4f;
+    }
+    CHECK(onSurface);
+}
+
 int main() {
     primitiveCounts();
     cubeIndicesAreInRange();
     quadIsUnitCentered();
+    sphereVerticesLieOnRadius();
     return rbtest::summary("render_geometry");
 }
