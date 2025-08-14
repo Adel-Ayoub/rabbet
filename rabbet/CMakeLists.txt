@@ -50,6 +50,7 @@ target_sources(rabbet
             render/RenderView.h
             render/Viewport.h
             render/Material.h
+            render/PbrMaterial.h
             render/RenderSystem.h
             scene/Camera.h
             scene/CameraSystem.h

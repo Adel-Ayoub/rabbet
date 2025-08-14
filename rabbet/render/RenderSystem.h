@@ -13,7 +13,8 @@ public:
     void onUpdate(Runtime& runtime, float dt) override;
 
 private:
-    std::optional<gl::Shader> m_shader;
+    std::optional<gl::Shader> m_phong;
+    std::optional<gl::Shader> m_pbr;
 };
 
 } // namespace rb
