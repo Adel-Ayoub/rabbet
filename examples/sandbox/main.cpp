@@ -8,6 +8,7 @@
 #include "rabbet/render/ImageLoader.h"
 #include "rabbet/render/Material.h"
 #include "rabbet/render/ModelLoader.h"
+#include "rabbet/render/PbrMaterial.h"
 #include "rabbet/render/RenderDevice.h"
 #include "rabbet/render/RenderSystem.h"
 #include "rabbet/render/Viewport.h"
@@ -68,11 +69,11 @@ rb::gl::Texture loadCheckerTexture(const std::filesystem::path& assets) {
     return rb::gl::Texture::solid(220, 180, 120);
 }
 
-class CubeDemoModule final : public rb::Module {
+class ShowcaseModule final : public rb::Module {
 public:
-    explicit CubeDemoModule(std::filesystem::path assets) : m_assets(std::move(assets)) {}
+    explicit ShowcaseModule(std::filesystem::path assets) : m_assets(std::move(assets)) {}
 
-    [[nodiscard]] std::string_view name() const override { return "cube-demo"; }
+    [[nodiscard]] std::string_view name() const override { return "showcase"; }
 
     void configure(rb::Runtime& rt) override {
         rt.addSystem<SpinSystem>();
@@ -83,35 +84,52 @@ public:
 
         const rb::Entity camera = rt.scene().create();
         rb::Transform cameraTransform;
-        cameraTransform.position = glm::vec3(0.0f, 0.0f, 3.0f);
+        cameraTransform.position = glm::vec3(0.0f, 0.4f, 5.0f);
         rt.scene().add<rb::Transform>(camera, cameraTransform);
         rt.scene().add<rb::Camera>(camera, rb::Camera{});
 
         const rb::Entity cube = rt.scene().create();
-        rt.scene().add<rb::Transform>(cube, rb::Transform{});
+        rb::Transform cubeTransform;
+        cubeTransform.position = glm::vec3(-1.7f, 0.0f, 0.0f);
+        rt.scene().add<rb::Transform>(cube, cubeTransform);
         rt.scene().add<Spin>(cube, Spin{0.8f});
         rt.scene().add<rb::gl::Mesh>(cube, loadCubeMesh(m_assets));
         rt.scene().add<rb::Material>(cube,
                                      rb::Material{loadCheckerTexture(m_assets), glm::vec3(1.0f)});
 
+        addPbrSphere(rt, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.78f, 0.34f), 1.0f, 0.25f);
+        addPbrSphere(rt, glm::vec3(1.7f, 0.0f, 0.0f), glm::vec3(0.9f, 0.25f, 0.25f), 0.0f, 0.55f);
+
         const rb::Entity sun = rt.scene().create();
         rb::DirectionalLight sunLight;
         sunLight.direction = glm::normalize(glm::vec3(-0.5f, -0.9f, -0.6f));
         sunLight.color = glm::vec3(1.0f, 0.95f, 0.85f);
-        sunLight.intensity = 0.9f;
+        sunLight.intensity = 2.5f;
         rt.scene().add<rb::DirectionalLight>(sun, sunLight);
 
         const rb::Entity lamp = rt.scene().create();
         rb::Transform lampTransform;
-        lampTransform.position = glm::vec3(1.6f, 1.2f, 1.8f);
+        lampTransform.position = glm::vec3(2.0f, 2.0f, 2.5f);
         rt.scene().add<rb::Transform>(lamp, lampTransform);
         rb::PointLight lampLight;
-        lampLight.color = glm::vec3(0.4f, 0.6f, 1.0f);
-        lampLight.intensity = 3.0f;
+        lampLight.color = glm::vec3(0.5f, 0.7f, 1.0f);
+        lampLight.intensity = 6.0f;
         rt.scene().add<rb::PointLight>(lamp, lampLight);
     }
 
 private:
+    void addPbrSphere(rb::Runtime& rt, const glm::vec3& position, const glm::vec3& color,
+                      float metallic, float roughness) {
+        const rb::Entity entity = rt.scene().create();
+        rb::Transform transform;
+        transform.position = position;
+        rt.scene().add<rb::Transform>(entity, transform);
+        rt.scene().add<rb::gl::Mesh>(entity, rb::gl::Mesh::create(rb::geometry::sphere()));
+        rt.scene().add<rb::PbrMaterial>(
+            entity,
+            rb::PbrMaterial{rb::gl::Texture::solid(255, 255, 255), color, metallic, roughness, 1.0f});
+    }
+
     std::filesystem::path m_assets;
 };
 
@@ -134,7 +152,7 @@ int main() {
 
     rb::Runtime runtime;
     runtime.addResource<rb::Viewport>();
-    runtime.loadModule<CubeDemoModule>(std::filesystem::path{RB_SANDBOX_ASSETS});
+    runtime.loadModule<ShowcaseModule>(std::filesystem::path{RB_SANDBOX_ASSETS});
     runtime.start();
 
     rb::Input input(window->handle());
