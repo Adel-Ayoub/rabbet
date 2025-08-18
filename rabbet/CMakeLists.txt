@@ -14,6 +14,8 @@ target_sources(rabbet
         render/gl/Shader.cpp
         render/gl/Texture.cpp
         render/gl/Mesh.cpp
+        render/gl/DepthMap.cpp
+        render/Shadow.cpp
         render/RenderSystem.cpp
         scene/CameraSystem.cpp
         scene/LightSystem.cpp
@@ -47,6 +49,8 @@ target_sources(rabbet
             render/gl/Shader.h
             render/gl/Texture.h
             render/gl/Mesh.h
+            render/gl/DepthMap.h
+            render/Shadow.h
             render/RenderView.h
             render/Viewport.h
             render/Material.h

@@ -11,6 +11,7 @@ set(RABBET_TEST_SUITES
     scene_camera
     scene_light
     render_geometry
+    render_shadow
     render_image_loader
     render_model_loader)
 
