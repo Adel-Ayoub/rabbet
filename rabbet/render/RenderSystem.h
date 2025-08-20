@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "rabbet/core/System.h"
+#include "rabbet/render/gl/DepthMap.h"
 #include "rabbet/render/gl/Shader.h"
 
 namespace rb {
@@ -15,6 +16,8 @@ public:
 private:
     std::optional<gl::Shader> m_phong;
     std::optional<gl::Shader> m_pbr;
+    std::optional<gl::Shader> m_depth;
+    std::optional<gl::DepthMap> m_shadowMap;
 };
 
 } // namespace rb
