@@ -84,9 +84,19 @@ public:
 
         const rb::Entity camera = rt.scene().create();
         rb::Transform cameraTransform;
-        cameraTransform.position = glm::vec3(0.0f, 0.4f, 5.0f);
+        cameraTransform.position = glm::vec3(0.0f, 2.0f, 6.0f);
+        cameraTransform.rotation = glm::angleAxis(glm::radians(-16.0f), glm::vec3(1.0f, 0.0f, 0.0f));
         rt.scene().add<rb::Transform>(camera, cameraTransform);
         rt.scene().add<rb::Camera>(camera, rb::Camera{});
+
+        const rb::Entity floor = rt.scene().create();
+        rb::Transform floorTransform;
+        floorTransform.position = glm::vec3(0.0f, -1.0f, 0.0f);
+        floorTransform.scale = glm::vec3(14.0f, 0.3f, 14.0f);
+        rt.scene().add<rb::Transform>(floor, floorTransform);
+        rt.scene().add<rb::gl::Mesh>(floor, rb::gl::Mesh::create(rb::geometry::cube()));
+        rt.scene().add<rb::Material>(
+            floor, rb::Material{rb::gl::Texture::solid(170, 170, 175), glm::vec3(0.85f), 0.1f, 8.0f});
 
         const rb::Entity cube = rt.scene().create();
         rb::Transform cubeTransform;
