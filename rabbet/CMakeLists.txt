@@ -16,7 +16,10 @@ target_sources(rabbet
         render/gl/Mesh.cpp
         render/gl/DepthMap.cpp
         render/Shadow.cpp
+        render/Sky.cpp
+        render/gl/Cubemap.cpp
         render/RenderSystem.cpp
+        render/SkyboxSystem.cpp
         scene/CameraSystem.cpp
         scene/LightSystem.cpp
         render/ImageLoader.cpp
@@ -50,12 +53,16 @@ target_sources(rabbet
             render/gl/Texture.h
             render/gl/Mesh.h
             render/gl/DepthMap.h
+            render/gl/Cubemap.h
             render/Shadow.h
             render/RenderView.h
             render/Viewport.h
             render/Material.h
             render/PbrMaterial.h
             render/RenderSystem.h
+            render/Sky.h
+            render/Skybox.h
+            render/SkyboxSystem.h
             scene/Camera.h
             scene/CameraSystem.h
             scene/Light.h
