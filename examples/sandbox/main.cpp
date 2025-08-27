@@ -5,13 +5,18 @@
 #include "rabbet/platform/Input.h"
 #include "rabbet/platform/Window.h"
 #include "rabbet/render/Geometry.h"
+#include "rabbet/render/Image.h"
 #include "rabbet/render/ImageLoader.h"
 #include "rabbet/render/Material.h"
 #include "rabbet/render/ModelLoader.h"
 #include "rabbet/render/PbrMaterial.h"
 #include "rabbet/render/RenderDevice.h"
 #include "rabbet/render/RenderSystem.h"
+#include "rabbet/render/Sky.h"
+#include "rabbet/render/Skybox.h"
+#include "rabbet/render/SkyboxSystem.h"
 #include "rabbet/render/Viewport.h"
+#include "rabbet/render/gl/Cubemap.h"
 #include "rabbet/render/gl/Mesh.h"
 #include "rabbet/render/gl/Texture.h"
 #include "rabbet/scene/Camera.h"
@@ -25,6 +30,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <array>
+#include <cstddef>
 #include <filesystem>
 #include <optional>
 #include <string_view>
@@ -69,6 +76,49 @@ rb::gl::Texture loadCheckerTexture(const std::filesystem::path& assets) {
     return rb::gl::Texture::solid(220, 180, 120);
 }
 
+glm::vec3 skyFaceDirection(int face, float u, float v) {
+    const float uc = 2.0f * u - 1.0f;
+    const float vc = 2.0f * v - 1.0f;
+    switch (face) {
+        case 0: return {1.0f, -vc, -uc};
+        case 1: return {-1.0f, -vc, uc};
+        case 2: return {uc, 1.0f, vc};
+        case 3: return {uc, -1.0f, -vc};
+        case 4: return {uc, -vc, 1.0f};
+        default: return {-uc, -vc, -1.0f};
+    }
+}
+
+rb::gl::Cubemap makeSkyCubemap() {
+    constexpr int size = 64;
+    std::array<rb::Image, 6> faces;
+    for (int face = 0; face < 6; ++face) {
+        rb::Image image;
+        image.width = size;
+        image.height = size;
+        image.channels = 3;
+        image.pixels.resize(static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 3u);
+        for (int y = 0; y < size; ++y) {
+            for (int x = 0; x < size; ++x) {
+                const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(size);
+                const float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(size);
+                const glm::vec3 color = rb::skyColor(skyFaceDirection(face, u, v));
+                const std::size_t i = (static_cast<std::size_t>(y) * static_cast<std::size_t>(size) +
+                                       static_cast<std::size_t>(x)) *
+                                      3u;
+                image.pixels[i + 0] =
+                    static_cast<std::byte>(static_cast<unsigned char>(color.r * 255.0f));
+                image.pixels[i + 1] =
+                    static_cast<std::byte>(static_cast<unsigned char>(color.g * 255.0f));
+                image.pixels[i + 2] =
+                    static_cast<std::byte>(static_cast<unsigned char>(color.b * 255.0f));
+            }
+        }
+        faces[static_cast<std::size_t>(face)] = std::move(image);
+    }
+    return rb::gl::Cubemap::fromFaces(faces);
+}
+
 class ShowcaseModule final : public rb::Module {
 public:
     explicit ShowcaseModule(std::filesystem::path assets) : m_assets(std::move(assets)) {}
@@ -81,6 +131,10 @@ public:
         rt.addSystem<rb::CameraSystem>();
         rt.addSystem<rb::LightSystem>();
         rt.addSystem<rb::RenderSystem>();
+        rt.addSystem<rb::SkyboxSystem>();
+
+        rt.addResource<rb::Skybox>(
+            rb::Skybox{makeSkyCubemap(), rb::gl::Mesh::create(rb::geometry::cube())});
 
         const rb::Entity camera = rt.scene().create();
         rb::Transform cameraTransform;
