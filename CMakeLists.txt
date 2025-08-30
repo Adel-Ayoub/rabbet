@@ -92,3 +92,8 @@ add_subdirectory(examples)
 if(RABBET_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
+
+option(RABBET_BUILD_EDITOR "Build the ImGui editor" ON)
+if(RABBET_BUILD_EDITOR)
+    add_subdirectory(editor)
+endif()
