@@ -29,6 +29,7 @@ public:
     void requestClose() const noexcept;
     void swapBuffers() const noexcept;
     void pollEvents() const noexcept;
+    void setCursorCaptured(bool captured) const noexcept;
 
     [[nodiscard]] int width() const noexcept;
     [[nodiscard]] int height() const noexcept;

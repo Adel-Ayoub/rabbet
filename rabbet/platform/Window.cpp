@@ -118,6 +118,10 @@ void Window::pollEvents() const noexcept {
     glfwPollEvents();
 }
 
+void Window::setCursorCaptured(bool captured) const noexcept {
+    glfwSetInputMode(m_handle, GLFW_CURSOR, captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+}
+
 int Window::width() const noexcept {
     int w = 0;
     int h = 0;
