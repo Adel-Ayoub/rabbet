@@ -45,11 +45,13 @@ MeshData convertMesh(const aiMesh& mesh) {
 ModelMaterial convertMaterial(const aiMaterial& material) {
     ModelMaterial result;
     aiColor3D color{1.0f, 1.0f, 1.0f};
-    if (material.Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
+    if (material.Get(AI_MATKEY_BASE_COLOR, color) == AI_SUCCESS ||
+        material.Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
         result.baseColor = {color.r, color.g, color.b};
     }
     aiString texturePath;
-    if (material.GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {
+    if (material.GetTexture(aiTextureType_BASE_COLOR, 0, &texturePath) == AI_SUCCESS ||
+        material.GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {
         result.baseColorTexture = texturePath.C_Str();
     }
     return result;
