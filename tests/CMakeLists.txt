@@ -2,6 +2,10 @@ set(RABBET_TEST_SUITES
     ecs_entity
     ecs_pool
     ecs_scene
+    ecs_recycle
+    ecs_query
+    ecs_stress
+    ecs_pool_invariants
     core_resource
     core_runtime
     core_module
