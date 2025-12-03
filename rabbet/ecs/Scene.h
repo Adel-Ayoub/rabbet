@@ -82,6 +82,19 @@ public:
             return;
         }
 
+        if constexpr (sizeof...(Ts) == 1) {
+            // One component: walk its dense arrays directly, skipping the per-entity
+            // contains() test and the sparse get() indirection.
+            Pool<Ts...>* pool = std::get<0>(pools);
+            const std::span<const Entity::Index> owners = pool->entities();
+            const std::span<Ts...> components = pool->components();
+            for (std::size_t i = 0; i < components.size(); ++i) {
+                const Entity::Index e = owners[i];
+                fn(Entity{e, m_versions[e]}, components[i]);
+            }
+            return;
+        }
+
         IPool* driver = nullptr;
         const auto consider = [&driver](IPool* candidate) {
             if (driver == nullptr || candidate->size() < driver->size()) {
