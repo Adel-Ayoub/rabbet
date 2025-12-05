@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -9,6 +10,15 @@
 #include <glm/glm.hpp>
 
 namespace rb::gl {
+
+namespace detail {
+struct TransparentStringHash {
+    using is_transparent = void;
+    [[nodiscard]] std::size_t operator()(std::string_view value) const noexcept {
+        return std::hash<std::string_view>{}(value);
+    }
+};
+} // namespace detail
 
 class Shader {
 public:
@@ -39,7 +49,8 @@ private:
     void destroy() noexcept;
 
     unsigned int m_program = 0;
-    std::unordered_map<std::string, int> m_uniformCache;
+    std::unordered_map<std::string, int, detail::TransparentStringHash, std::equal_to<>>
+        m_uniformCache;
 };
 
 } // namespace rb::gl

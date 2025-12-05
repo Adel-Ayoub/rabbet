@@ -99,10 +99,10 @@ void Shader::bind() const noexcept {
 }
 
 int Shader::uniformLocation(std::string_view name) {
-    std::string key{name};
-    if (const auto it = m_uniformCache.find(key); it != m_uniformCache.end()) {
+    if (const auto it = m_uniformCache.find(name); it != m_uniformCache.end()) {
         return it->second;
     }
+    std::string key{name};
     const int location = glGetUniformLocation(m_program, key.c_str());
     m_uniformCache.emplace(std::move(key), location);
     return location;
