@@ -11,7 +11,12 @@ namespace rb {
 
 void LightSystem::onUpdate(Runtime& runtime, float) {
     if (!runtime.hasResource<Lighting>()) {
-        runtime.addResource<Lighting>();
+        Lighting& created = runtime.addResource<Lighting>();
+        created.directionalDirections.reserve(4);
+        created.directionalColors.reserve(4);
+        created.pointPositions.reserve(8);
+        created.pointColors.reserve(8);
+        created.pointAttenuations.reserve(8);
     }
     Lighting& lighting = runtime.resource<Lighting>();
     lighting.clear();

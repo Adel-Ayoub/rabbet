@@ -276,7 +276,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     const int hasShadow = shadows ? 1 : 0;
 
-    if (m_phong) {
+    if (m_phong && runtime.scene().count<Material>() > 0) {
         m_phong->bind();
         uploadLights(*m_phong, viewProjection, view.position, lighting);
         m_phong->setInt("uTexture", 0);
@@ -295,7 +295,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
             });
     }
 
-    if (m_pbr) {
+    if (m_pbr && runtime.scene().count<PbrMaterial>() > 0) {
         m_pbr->bind();
         uploadLights(*m_pbr, viewProjection, view.position, lighting);
         m_pbr->setInt("uAlbedoTex", 0);
