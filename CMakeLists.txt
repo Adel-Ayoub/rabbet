@@ -50,6 +50,22 @@ if(TARGET glm)
     endif()
 endif()
 
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW ON
+    FIND_PACKAGE_ARGS NAMES nlohmann_json)
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(nlohmann_json)
+if(TARGET nlohmann_json)
+    get_target_property(_nlohmann_includes nlohmann_json INTERFACE_INCLUDE_DIRECTORIES)
+    if(_nlohmann_includes)
+        set_target_properties(nlohmann_json PROPERTIES
+            INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_nlohmann_includes}")
+    endif()
+endif()
+
 # Keep first-party and fetched dependencies static; assimp would otherwise default to shared.
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
