@@ -26,6 +26,8 @@ public:
     [[nodiscard]] bool alive(Entity e) const noexcept;
     [[nodiscard]] std::size_t aliveCount() const noexcept { return m_aliveCount; }
 
+    [[nodiscard]] std::vector<Entity> entities() const;
+
     template <Component T, typename... Args>
     T& add(Entity e, Args&&... args) {
         assert(alive(e) && "add() called on a dead or invalid entity");

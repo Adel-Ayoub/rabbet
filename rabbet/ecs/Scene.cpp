@@ -35,4 +35,19 @@ bool Scene::alive(Entity e) const noexcept {
     return index < m_versions.size() && m_versions[index] == e.version();
 }
 
+std::vector<Entity> Scene::entities() const {
+    std::vector<bool> isFree(m_versions.size(), false);
+    for (const Entity::Index index : m_freeIndices) {
+        isFree[index] = true;
+    }
+    std::vector<Entity> result;
+    result.reserve(m_aliveCount);
+    for (Entity::Index index = 0; index < m_versions.size(); ++index) {
+        if (!isFree[index]) {
+            result.push_back(Entity{index, m_versions[index]});
+        }
+    }
+    return result;
+}
+
 } // namespace rb
