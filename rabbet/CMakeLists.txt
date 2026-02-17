@@ -25,6 +25,9 @@ target_sources(rabbet
         render/ImageLoader.cpp
         render/ModelLoader.cpp
         util/Log.cpp
+        serialize/ComponentRegistry.cpp
+        serialize/BuiltinComponents.cpp
+        serialize/SceneSerializer.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
         BASE_DIRS "${PROJECT_SOURCE_DIR}"
@@ -72,7 +75,12 @@ target_sources(rabbet
             render/ImageLoader.h
             render/Model.h
             render/ModelLoader.h
-            util/Log.h)
+            util/Log.h
+            scene/Name.h
+            serialize/JsonGlm.h
+            serialize/ComponentRegistry.h
+            serialize/BuiltinComponents.h
+            serialize/SceneSerializer.h)
 
 target_include_directories(rabbet PUBLIC
     "${PROJECT_SOURCE_DIR}")
@@ -83,6 +91,7 @@ target_link_libraries(rabbet
         glfw
         glm::glm
         OpenGL::GL
+        nlohmann_json::nlohmann_json
     PRIVATE
         stb
         assimp::assimp)
