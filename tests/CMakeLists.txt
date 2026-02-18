@@ -18,7 +18,8 @@ set(RABBET_TEST_SUITES
     render_shadow
     render_sky
     render_image_loader
-    render_model_loader)
+    render_model_loader
+    serialize_scene)
 
 foreach(suite IN LISTS RABBET_TEST_SUITES)
     add_executable(${suite}_tests ${suite}_tests.cpp)
