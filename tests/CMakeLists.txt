@@ -19,7 +19,10 @@ set(RABBET_TEST_SUITES
     render_sky
     render_image_loader
     render_model_loader
-    serialize_scene)
+    serialize_scene
+    assets_uuid
+    assets_manager
+    assets_meta)
 
 foreach(suite IN LISTS RABBET_TEST_SUITES)
     add_executable(${suite}_tests ${suite}_tests.cpp)

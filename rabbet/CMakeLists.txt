@@ -28,6 +28,8 @@ target_sources(rabbet
         serialize/ComponentRegistry.cpp
         serialize/BuiltinComponents.cpp
         serialize/SceneSerializer.cpp
+        core/Uuid.cpp
+        assets/AssetMeta.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
         BASE_DIRS "${PROJECT_SOURCE_DIR}"
@@ -80,7 +82,11 @@ target_sources(rabbet
             serialize/JsonGlm.h
             serialize/ComponentRegistry.h
             serialize/BuiltinComponents.h
-            serialize/SceneSerializer.h)
+            serialize/SceneSerializer.h
+            core/Uuid.h
+            assets/AssetHandle.h
+            assets/AssetManager.h
+            assets/AssetMeta.h)
 
 target_include_directories(rabbet PUBLIC
     "${PROJECT_SOURCE_DIR}")
