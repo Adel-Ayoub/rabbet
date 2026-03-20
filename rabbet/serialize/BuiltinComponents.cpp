@@ -10,6 +10,7 @@ void registerBuiltinComponents(ComponentRegistry& registry) {
     registry.add<Camera>("Camera");
     registry.add<DirectionalLight>("DirectionalLight");
     registry.add<PointLight>("PointLight");
+    registry.add<ModelRenderer>("ModelRenderer");
 }
 
 } // namespace rb

@@ -8,6 +8,10 @@
 #include "rabbet/render/Shadow.h"
 #include "rabbet/render/Viewport.h"
 #include "rabbet/render/gl/Mesh.h"
+#include "rabbet/render/ModelAsset.h"
+#include "rabbet/render/ModelRenderer.h"
+#include "rabbet/render/TextureAsset.h"
+#include "rabbet/assets/AssetManager.h"
 #include "rabbet/scene/WorldMatrix.h"
 #include "rabbet/util/Log.h"
 
@@ -252,6 +256,15 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
     const glm::mat4 viewProjection = view.projection * view.view;
     const Lighting* lighting = runtime.tryResource<Lighting>();
 
+    AssetManager* assets = runtime.tryResource<AssetManager>();
+    if (assets != nullptr) {
+        runtime.scene().each<ModelRenderer>([assets](Entity, ModelRenderer& renderer) {
+            if (!renderer.handle.valid()) {
+                renderer.handle = assets->find<ModelAsset>(renderer.model);
+            }
+        });
+    }
+
     const bool shadows = m_depth.has_value() && m_shadowMap.has_value() && lighting != nullptr &&
                          !lighting->directionalDirections.empty();
     glm::mat4 lightSpace{1.0f};
@@ -267,6 +280,19 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
             m_depth->setMat4("uModel", world.value);
             mesh.draw();
         });
+        if (assets != nullptr) {
+            runtime.scene().each<WorldMatrix, ModelRenderer>(
+                [this, assets](Entity, WorldMatrix& world, ModelRenderer& renderer) {
+                    const ModelAsset* model = assets->get<ModelAsset>(renderer.handle);
+                    if (model == nullptr) {
+                        return;
+                    }
+                    m_depth->setMat4("uModel", world.value);
+                    for (const ModelAsset::Submesh& submesh : model->submeshes) {
+                        submesh.mesh.draw();
+                    }
+                });
+        }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         if (const Viewport* viewport = runtime.tryResource<Viewport>()) {
             glViewport(0, 0, viewport->width, viewport->height);
@@ -312,6 +338,34 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                 m_pbr->setFloat("uAo", material.ao);
                 material.albedo.bind(0);
                 mesh.draw();
+            });
+    }
+
+    if (m_pbr && assets != nullptr && runtime.scene().count<ModelRenderer>() > 0) {
+        m_pbr->bind();
+        uploadLights(*m_pbr, viewProjection, view.position, lighting);
+        m_pbr->setInt("uAlbedoTex", 0);
+        m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
+        m_pbr->setInt("uHasShadowMap", hasShadow);
+        m_pbr->setMat4("uLightSpace", lightSpace);
+        runtime.scene().each<WorldMatrix, ModelRenderer>(
+            [this, assets](Entity, WorldMatrix& world, ModelRenderer& renderer) {
+                ModelAsset* model = assets->get<ModelAsset>(renderer.handle);
+                if (model == nullptr) {
+                    return;
+                }
+                m_pbr->setMat4("uModel", world.value);
+                m_pbr->setMat3("uNormalMatrix", normalMatrix(world.value));
+                for (const ModelAsset::Submesh& submesh : model->submeshes) {
+                    m_pbr->setVec3("uBaseColor", submesh.baseColor);
+                    m_pbr->setFloat("uMetallic", submesh.metallic);
+                    m_pbr->setFloat("uRoughness", submesh.roughness);
+                    m_pbr->setFloat("uAo", submesh.ao);
+                    if (TextureAsset* texture = assets->get<TextureAsset>(submesh.albedo)) {
+                        texture->texture.bind(0);
+                    }
+                    submesh.mesh.draw();
+                }
             });
     }
 }

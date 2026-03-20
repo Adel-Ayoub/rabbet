@@ -7,6 +7,8 @@
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/serialize/JsonGlm.h"
+#include "rabbet/core/Uuid.h"
+#include "rabbet/render/ModelRenderer.h"
 
 namespace rb {
 
@@ -55,6 +57,14 @@ inline void from_json(const nlohmann::json& j, PointLight& l) {
     j.at("constant").get_to(l.constant);
     j.at("linear").get_to(l.linear);
     j.at("quadratic").get_to(l.quadratic);
+}
+
+inline void to_json(nlohmann::json& j, const ModelRenderer& r) {
+    j = nlohmann::json{{"model", r.model.toString()}};
+}
+inline void from_json(const nlohmann::json& j, ModelRenderer& r) {
+    r.model = Uuid::fromString(j.at("model").get<std::string>());
+    r.handle = {};
 }
 
 void registerBuiltinComponents(ComponentRegistry& registry);

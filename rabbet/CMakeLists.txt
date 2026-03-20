@@ -30,6 +30,7 @@ target_sources(rabbet
         serialize/SceneSerializer.cpp
         core/Uuid.cpp
         assets/AssetMeta.cpp
+        render/ModelImport.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
         BASE_DIRS "${PROJECT_SOURCE_DIR}"
@@ -86,7 +87,11 @@ target_sources(rabbet
             core/Uuid.h
             assets/AssetHandle.h
             assets/AssetManager.h
-            assets/AssetMeta.h)
+            assets/AssetMeta.h
+            render/TextureAsset.h
+            render/ModelAsset.h
+            render/ModelRenderer.h
+            render/ModelImport.h)
 
 target_include_directories(rabbet PUBLIC
     "${PROJECT_SOURCE_DIR}")
