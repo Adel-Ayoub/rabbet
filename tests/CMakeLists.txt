@@ -22,7 +22,9 @@ set(RABBET_TEST_SUITES
     serialize_scene
     assets_uuid
     assets_manager
-    assets_meta)
+    assets_meta
+    assets_render
+    assets_scene_file)
 
 foreach(suite IN LISTS RABBET_TEST_SUITES)
     add_executable(${suite}_tests ${suite}_tests.cpp)
