@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 
 #include "rabbet/assets/AssetHandle.h"
+#include "rabbet/assets/AssetType.h"
 #include "rabbet/render/gl/Mesh.h"
 
 namespace rb {
@@ -25,5 +26,10 @@ struct ModelAsset {
 
     std::vector<Submesh> submeshes;
 };
+
+template <>
+[[nodiscard]] constexpr AssetType assetTypeFor<ModelAsset>() noexcept {
+    return AssetType::Model;
+}
 
 } // namespace rb

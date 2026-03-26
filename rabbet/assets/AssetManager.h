@@ -11,6 +11,7 @@
 
 #include "rabbet/assets/AssetHandle.h"
 #include "rabbet/assets/AssetMeta.h"
+#include "rabbet/assets/AssetType.h"
 #include "rabbet/core/TypeId.h"
 #include "rabbet/core/Uuid.h"
 
@@ -120,7 +121,8 @@ public:
         const std::uint32_t index = store.insert(std::move(asset), id);
         const AssetHandle<T> handle{index, store.generation(index)};
         if (id.valid()) {
-            m_located[id] = Located{detail::assetTypeId<T>(), index, handle.generation};
+            m_located[id] = Located{detail::assetTypeId<T>(), index, handle.generation,
+                                    assetTypeFor<T>()};
         }
         return handle;
     }
@@ -173,17 +175,22 @@ public:
         return AssetHandle<T>{it->second.index, it->second.generation};
     }
 
+    [[nodiscard]] AssetType assetType(Uuid id) const {
+        const auto it = m_located.find(id);
+        return it != m_located.end() ? it->second.type : AssetType::Unknown;
+    }
+
     template <typename T, typename Importer>
     AssetHandle<T> load(const std::filesystem::path& path, Importer&& importer) {
-        const Uuid id = assetmeta::loadOrCreateUuid(path);
-        if (const AssetHandle<T> existing = find<T>(id); existing.valid()) {
+        const assetmeta::Metadata meta = assetmeta::loadOrCreate(path, assetTypeFor<T>());
+        if (const AssetHandle<T> existing = find<T>(meta.id); existing.valid()) {
             return existing;
         }
         std::optional<T> imported = std::forward<Importer>(importer)(path);
         if (!imported.has_value()) {
             return AssetHandle<T>{};
         }
-        return add<T>(std::move(*imported), id);
+        return add<T>(std::move(*imported), meta.id);
     }
 
 private:
@@ -191,6 +198,7 @@ private:
         std::size_t typeId = 0;
         std::uint32_t index = 0;
         std::uint32_t generation = 0;
+        AssetType type = AssetType::Unknown;
     };
 
     template <typename T>

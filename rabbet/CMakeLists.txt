@@ -86,6 +86,7 @@ target_sources(rabbet
             serialize/SceneSerializer.h
             core/Uuid.h
             assets/AssetHandle.h
+            assets/AssetType.h
             assets/AssetManager.h
             assets/AssetMeta.h
             render/TextureAsset.h

@@ -1,30 +1,64 @@
 #include "rabbet/assets/AssetMeta.h"
+#include "rabbet/assets/AssetType.h"
 #include "rabbet/core/Uuid.h"
 #include "tests/Test.h"
 
 #include <filesystem>
 #include <system_error>
 
-static void uuidPersistsAcrossRuns() {
+static void metadataPersistsAcrossRuns() {
     const std::filesystem::path asset =
         std::filesystem::temp_directory_path() / "rabbet_meta_asset.gltf";
     const std::filesystem::path sidecar = rb::assetmeta::sidecarPath(asset);
-
     std::error_code ec;
     std::filesystem::remove(sidecar, ec);
 
-    const rb::Uuid first = rb::assetmeta::loadOrCreateUuid(asset);
-    CHECK(first.valid());
+    const rb::assetmeta::Metadata first = rb::assetmeta::loadOrCreate(asset, rb::AssetType::Model);
+    CHECK(first.id.valid());
+    CHECK(first.type == rb::AssetType::Model);
+    CHECK(first.name == "rabbet_meta_asset");
     CHECK(std::filesystem::exists(sidecar));
 
-    // A second call stands in for a later run: it must read the sidecar, not reassign.
-    const rb::Uuid second = rb::assetmeta::loadOrCreateUuid(asset);
-    CHECK(first == second);
+    // A second call stands in for a later run: it reads the sidecar, keeping identity.
+    const rb::assetmeta::Metadata second = rb::assetmeta::loadOrCreate(asset, rb::AssetType::Model);
+    CHECK(second.id == first.id);
+    CHECK(second.type == rb::AssetType::Model);
+    CHECK(second.name == first.name);
+
+    std::filesystem::remove(sidecar, ec);
+}
+
+static void uuidHelperStillWorks() {
+    const std::filesystem::path asset =
+        std::filesystem::temp_directory_path() / "rabbet_meta_uuid.png";
+    const std::filesystem::path sidecar = rb::assetmeta::sidecarPath(asset);
+    std::error_code ec;
+    std::filesystem::remove(sidecar, ec);
+
+    const rb::Uuid a = rb::assetmeta::loadOrCreateUuid(asset);
+    const rb::Uuid b = rb::assetmeta::loadOrCreateUuid(asset);
+    CHECK(a.valid());
+    CHECK(a == b);
+
+    std::filesystem::remove(sidecar, ec);
+}
+
+static void absentSourceNeedsNoReimport() {
+    const std::filesystem::path asset =
+        std::filesystem::temp_directory_path() / "rabbet_meta_absent.fbx";
+    const std::filesystem::path sidecar = rb::assetmeta::sidecarPath(asset);
+    std::error_code ec;
+    std::filesystem::remove(sidecar, ec);
+
+    (void)rb::assetmeta::loadOrCreate(asset, rb::AssetType::Model);
+    CHECK(!rb::assetmeta::needsReimport(asset)); // no source file on disk
 
     std::filesystem::remove(sidecar, ec);
 }
 
 int main() {
-    uuidPersistsAcrossRuns();
+    metadataPersistsAcrossRuns();
+    uuidHelperStillWorks();
+    absentSourceNeedsNoReimport();
     return rbtest::summary("assets_meta");
 }
