@@ -4,7 +4,9 @@
 
 #include "rabbet/core/System.h"
 #include "rabbet/render/gl/DepthMap.h"
+#include "rabbet/render/gl/Mesh.h"
 #include "rabbet/render/gl/Shader.h"
+#include "rabbet/render/gl/Texture.h"
 
 namespace rb {
 
@@ -18,6 +20,8 @@ private:
     std::optional<gl::Shader> m_pbr;
     std::optional<gl::Shader> m_depth;
     std::optional<gl::DepthMap> m_shadowMap;
+    std::optional<gl::Mesh> m_missingMesh;
+    std::optional<gl::Texture> m_missingTexture;
 };
 
 } // namespace rb

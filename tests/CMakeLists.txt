@@ -24,7 +24,8 @@ set(RABBET_TEST_SUITES
     assets_manager
     assets_meta
     assets_render
-    assets_scene_file)
+    assets_scene_file
+    assets_resolve)
 
 foreach(suite IN LISTS RABBET_TEST_SUITES)
     add_executable(${suite}_tests ${suite}_tests.cpp)

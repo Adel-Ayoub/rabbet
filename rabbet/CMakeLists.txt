@@ -31,6 +31,7 @@ target_sources(rabbet
         core/Uuid.cpp
         assets/AssetMeta.cpp
         render/ModelImport.cpp
+        render/AssetResolveSystem.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
         BASE_DIRS "${PROJECT_SOURCE_DIR}"
@@ -92,7 +93,8 @@ target_sources(rabbet
             render/TextureAsset.h
             render/ModelAsset.h
             render/ModelRenderer.h
-            render/ModelImport.h)
+            render/ModelImport.h
+            render/AssetResolveSystem.h)
 
 target_include_directories(rabbet PUBLIC
     "${PROJECT_SOURCE_DIR}")

@@ -8,6 +8,7 @@
 #include "rabbet/render/Shadow.h"
 #include "rabbet/render/Viewport.h"
 #include "rabbet/render/gl/Mesh.h"
+#include "rabbet/render/Geometry.h"
 #include "rabbet/render/ModelAsset.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/TextureAsset.h"
@@ -246,6 +247,8 @@ void RenderSystem::onStart(Runtime&) {
         log::error("render system: failed to build the depth shader");
     }
     m_shadowMap = gl::DepthMap::create(kShadowMapSize, kShadowMapSize);
+    m_missingMesh = gl::Mesh::create(geometry::cube());
+    m_missingTexture = gl::Texture::solid(255, 0, 255);
 }
 
 void RenderSystem::onUpdate(Runtime& runtime, float) {
@@ -257,13 +260,6 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
     const Lighting* lighting = runtime.tryResource<Lighting>();
 
     AssetManager* assets = runtime.tryResource<AssetManager>();
-    if (assets != nullptr) {
-        runtime.scene().each<ModelRenderer>([assets](Entity, ModelRenderer& renderer) {
-            if (!renderer.handle.valid()) {
-                renderer.handle = assets->find<ModelAsset>(renderer.model);
-            }
-        });
-    }
 
     const bool shadows = m_depth.has_value() && m_shadowMap.has_value() && lighting != nullptr &&
                          !lighting->directionalDirections.empty();
@@ -283,11 +279,14 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         if (assets != nullptr) {
             runtime.scene().each<WorldMatrix, ModelRenderer>(
                 [this, assets](Entity, WorldMatrix& world, ModelRenderer& renderer) {
+                    m_depth->setMat4("uModel", world.value);
                     const ModelAsset* model = assets->get<ModelAsset>(renderer.handle);
                     if (model == nullptr) {
+                        if (m_missingMesh) {
+                            m_missingMesh->draw();
+                        }
                         return;
                     }
-                    m_depth->setMat4("uModel", world.value);
                     for (const ModelAsset::Submesh& submesh : model->submeshes) {
                         submesh.mesh.draw();
                     }
@@ -350,12 +349,23 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         m_pbr->setMat4("uLightSpace", lightSpace);
         runtime.scene().each<WorldMatrix, ModelRenderer>(
             [this, assets](Entity, WorldMatrix& world, ModelRenderer& renderer) {
-                ModelAsset* model = assets->get<ModelAsset>(renderer.handle);
-                if (model == nullptr) {
-                    return;
-                }
                 m_pbr->setMat4("uModel", world.value);
                 m_pbr->setMat3("uNormalMatrix", normalMatrix(world.value));
+                ModelAsset* model = assets->get<ModelAsset>(renderer.handle);
+                if (model == nullptr) {
+                    // unresolved or missing model: draw a loud magenta placeholder
+                    m_pbr->setVec3("uBaseColor", glm::vec3(1.0f, 0.0f, 1.0f));
+                    m_pbr->setFloat("uMetallic", 0.0f);
+                    m_pbr->setFloat("uRoughness", 1.0f);
+                    m_pbr->setFloat("uAo", 1.0f);
+                    if (m_missingTexture) {
+                        m_missingTexture->bind(0);
+                    }
+                    if (m_missingMesh) {
+                        m_missingMesh->draw();
+                    }
+                    return;
+                }
                 for (const ModelAsset::Submesh& submesh : model->submeshes) {
                     m_pbr->setVec3("uBaseColor", submesh.baseColor);
                     m_pbr->setFloat("uMetallic", submesh.metallic);
@@ -363,6 +373,8 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                     m_pbr->setFloat("uAo", submesh.ao);
                     if (TextureAsset* texture = assets->get<TextureAsset>(submesh.albedo)) {
                         texture->texture.bind(0);
+                    } else if (m_missingTexture) {
+                        m_missingTexture->bind(0);
                     }
                     submesh.mesh.draw();
                 }
