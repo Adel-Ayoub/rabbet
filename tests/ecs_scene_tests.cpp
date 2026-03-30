@@ -113,6 +113,21 @@ static void queryEmptyWhenComponentUnused() {
     CHECK(visited == 0);
 }
 
+static void clearRemovesEverything() {
+    rb::Scene scene;
+    const rb::Entity a = scene.create();
+    scene.add<Position>(a, Position{1.0f, 2.0f});
+    (void)scene.create();
+    CHECK(scene.aliveCount() == 2u);
+
+    scene.clear();
+    CHECK(scene.aliveCount() == 0u);
+    CHECK(scene.count<Position>() == 0u);
+
+    const rb::Entity b = scene.create(); // scene is reusable after clear
+    CHECK(scene.alive(b));
+}
+
 int main() {
     createAndDestroy();
     recycledIndexBumpsVersion();
@@ -121,5 +136,6 @@ int main() {
     destroyClearsEveryPool();
     queryVisitsIntersectionOnly();
     queryEmptyWhenComponentUnused();
+    clearRemovesEverything();
     return rbtest::summary("ecs_scene");
 }

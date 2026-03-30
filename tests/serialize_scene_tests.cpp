@@ -109,10 +109,51 @@ static void saveAndLoadFile() {
     std::filesystem::remove(path, ec);
 }
 
+static void malformedDataLoadsGracefully() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const nlohmann::json doc = nlohmann::json::parse(R"({
+      "version": 1,
+      "entities": [
+        { "id": 0, "components": { "Transform": { "position": [1.0, 2.0, 3.0] } } },
+        { "id": 1, "components": { "Bogus": { "x": 1 } } },
+        { "id": 2 }
+      ]
+    })");
+
+    rb::Scene scene;
+    rb::SceneSerializer::fromJson(doc, scene, registry); // must not throw
+    CHECK(scene.aliveCount() == 3u);           // every record still became an entity
+    CHECK(scene.count<rb::Transform>() == 0u); // the partial Transform was skipped, not crashed
+}
+
+static void loadFromFileReplaces() {
+    const rb::ComponentRegistry registry = makeRegistry();
+
+    rb::Scene source;
+    spawnHero(source);
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "rabbet_replace.scene.json";
+    CHECK(rb::SceneSerializer::saveToFile(source, registry, path));
+
+    rb::Scene target;
+    spawnHero(target);
+    spawnHero(target);
+    CHECK(target.aliveCount() == 2u);
+
+    CHECK(rb::SceneSerializer::loadFromFile(target, registry, path));
+    CHECK(target.aliveCount() == 1u); // replaced, not appended
+    CHECK(target.count<rb::Transform>() == 1u);
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 int main() {
     registryExposesBuiltins();
     roundTripPreservesComponents();
     saveLoadSaveIsIdempotent();
     saveAndLoadFile();
+    malformedDataLoadsGracefully();
+    loadFromFileReplaces();
     return rbtest::summary("serialize_scene");
 }

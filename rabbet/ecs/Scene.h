@@ -28,6 +28,8 @@ public:
 
     [[nodiscard]] std::vector<Entity> entities() const;
 
+    void clear();
+
     template <Component T, typename... Args>
     T& add(Entity e, Args&&... args) {
         assert(alive(e) && "add() called on a dead or invalid entity");

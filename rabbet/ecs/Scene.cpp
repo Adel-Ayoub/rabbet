@@ -50,4 +50,11 @@ std::vector<Entity> Scene::entities() const {
     return result;
 }
 
+void Scene::clear() {
+    m_pools.clear();
+    m_versions.clear();
+    m_freeIndices.clear();
+    m_aliveCount = 0;
+}
+
 } // namespace rb

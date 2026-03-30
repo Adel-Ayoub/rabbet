@@ -1,11 +1,14 @@
 #include "rabbet/serialize/SceneSerializer.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <fstream>
-#include <unordered_map>
+#include <vector>
 
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/serialize/ComponentRegistry.h"
+#include "rabbet/util/Log.h"
 
 namespace rb {
 
@@ -45,23 +48,33 @@ void SceneSerializer::fromJson(const nlohmann::json& doc, Scene& scene,
         return;
     }
 
-    // Two passes: create every entity first so a component can resolve references to
-    // another entity through the id map (no built-in component needs this yet).
-    std::unordered_map<std::uint32_t, Entity> idMap;
-    idMap.reserve(entitiesIt->size());
-    for (const nlohmann::json& object : *entitiesIt) {
-        idMap.emplace(object.at("id").get<std::uint32_t>(), scene.create());
+    // Create one entity per record first (positional), then load components. A
+    // malformed record or component is skipped with a warning instead of throwing,
+    // so a corrupt or out-of-date scene file degrades rather than crashing.
+    const std::size_t count = entitiesIt->size();
+    std::vector<Entity> created;
+    created.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        created.push_back(scene.create());
     }
 
-    for (const nlohmann::json& object : *entitiesIt) {
-        const Entity e = idMap.at(object.at("id").get<std::uint32_t>());
+    for (std::size_t i = 0; i < count; ++i) {
+        const nlohmann::json& object = (*entitiesIt)[i];
         const auto componentsIt = object.find("components");
-        if (componentsIt == object.end()) {
+        if (componentsIt == object.end() || !componentsIt->is_object()) {
             continue;
         }
+        const Entity e = created[i];
         for (auto it = componentsIt->begin(); it != componentsIt->end(); ++it) {
-            if (const ComponentRegistry::Entry* entry = registry.find(it.key())) {
+            const ComponentRegistry::Entry* entry = registry.find(it.key());
+            if (entry == nullptr) {
+                log::warn("scene load: unknown component '{}' skipped", it.key());
+                continue;
+            }
+            try {
                 entry->load(scene, e, it.value());
+            } catch (const std::exception& ex) {
+                log::warn("scene load: component '{}' failed to load: {}", it.key(), ex.what());
             }
         }
     }
@@ -85,8 +98,11 @@ bool SceneSerializer::loadFromFile(Scene& scene, const ComponentRegistry& regist
     }
     const nlohmann::json doc = nlohmann::json::parse(in, nullptr, false);
     if (doc.is_discarded()) {
+        log::warn("scene load: '{}' is not valid JSON", path.string());
         return false;
     }
+    // Loading a file replaces the scene; call fromJson directly to merge instead.
+    scene.clear();
     fromJson(doc, scene, registry);
     return true;
 }
