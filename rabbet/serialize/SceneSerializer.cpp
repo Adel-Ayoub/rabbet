@@ -21,8 +21,8 @@ nlohmann::json SceneSerializer::toJson(Scene& scene, const ComponentRegistry& re
     doc["version"] = kSceneFormatVersion;
     nlohmann::json entities = nlohmann::json::array();
 
-    // File ids are assigned sequentially in iteration order so a save -> load -> save
-    // cycle is stable even when the live entity indices have gaps from destroys.
+    // Sequential ids in iteration order: human-readable, and a save -> load -> save
+    // cycle stays stable. Loading is positional, so ids need not round-trip verbatim.
     std::uint32_t fileId = 0;
     for (const Entity e : scene.entities()) {
         nlohmann::json components = nlohmann::json::object();

@@ -116,14 +116,16 @@ static void malformedDataLoadsGracefully() {
       "entities": [
         { "id": 0, "components": { "Transform": { "position": [1.0, 2.0, 3.0] } } },
         { "id": 1, "components": { "Bogus": { "x": 1 } } },
-        { "id": 2 }
+        { "id": 2 },
+        { "id": 3, "components": { "ModelRenderer": { "model": "not-a-uuid" } } }
       ]
     })");
 
     rb::Scene scene;
     rb::SceneSerializer::fromJson(doc, scene, registry); // must not throw
-    CHECK(scene.aliveCount() == 3u);           // every record still became an entity
-    CHECK(scene.count<rb::Transform>() == 0u); // the partial Transform was skipped, not crashed
+    CHECK(scene.aliveCount() == 4u);               // every record still became an entity
+    CHECK(scene.count<rb::Transform>() == 0u);     // partial Transform skipped, not crashed
+    CHECK(scene.count<rb::ModelRenderer>() == 0u); // malformed model uuid skipped
 }
 
 static void loadFromFileReplaces() {

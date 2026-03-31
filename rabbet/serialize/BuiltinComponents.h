@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stdexcept>
+#include <string>
+
 #include <nlohmann/json.hpp>
 
 #include "rabbet/scene/Camera.h"
@@ -63,7 +66,11 @@ inline void to_json(nlohmann::json& j, const ModelRenderer& r) {
     j = nlohmann::json{{"model", r.model.toString()}};
 }
 inline void from_json(const nlohmann::json& j, ModelRenderer& r) {
-    r.model = Uuid::fromString(j.at("model").get<std::string>());
+    const std::string text = j.at("model").get<std::string>();
+    r.model = Uuid::fromString(text);
+    if (!text.empty() && !r.model.valid()) {
+        throw std::runtime_error("ModelRenderer: malformed model uuid '" + text + "'");
+    }
     r.handle = {};
 }
 
