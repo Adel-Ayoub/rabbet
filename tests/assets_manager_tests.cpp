@@ -2,6 +2,7 @@
 #include "tests/Test.h"
 
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <system_error>
 
@@ -79,10 +80,39 @@ static void loadCachesByPath() {
     std::filesystem::remove(rb::assetmeta::sidecarPath(path), ec);
 }
 
+static void loadDedupsEvenWithCorruptSidecar() {
+    rb::AssetManager assets;
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "rabbet_asset_badmeta.bin";
+    const std::filesystem::path sidecar = rb::assetmeta::sidecarPath(path);
+    std::error_code ec;
+    std::filesystem::remove(sidecar, ec);
+    {
+        std::ofstream out(sidecar, std::ios::trunc);
+        out << "{ broken";
+    }
+
+    int imports = 0;
+    const auto importer = [&imports](const std::filesystem::path&) -> std::optional<Thing> {
+        ++imports;
+        return Thing{5};
+    };
+
+    const rb::AssetHandle<Thing> a = assets.load<Thing>(path, importer);
+    const rb::AssetHandle<Thing> b = assets.load<Thing>(path, importer);
+
+    CHECK(a.valid());
+    CHECK(a == b);
+    CHECK(imports == 1); // path cache dedups despite the unreadable sidecar
+
+    std::filesystem::remove(sidecar, ec);
+}
+
 int main() {
     addGetErase();
     reusedSlotInvalidatesOldHandle();
     lookupByUuidIsTypeSafe();
     loadCachesByPath();
+    loadDedupsEvenWithCorruptSidecar();
     return rbtest::summary("assets_manager");
 }

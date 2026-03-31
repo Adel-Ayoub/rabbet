@@ -260,6 +260,16 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
     const Lighting* lighting = runtime.tryResource<Lighting>();
 
     AssetManager* assets = runtime.tryResource<AssetManager>();
+    if (assets != nullptr) {
+        // Safety net: resolve any ModelRenderer not yet linked to its asset, in case
+        // no AssetResolveSystem is registered. That system also re-resolves every
+        // frame to follow hot reloads; this only fills in still-invalid handles.
+        runtime.scene().each<ModelRenderer>([assets](Entity, ModelRenderer& renderer) {
+            if (!renderer.handle.valid()) {
+                renderer.handle = assets->find<ModelAsset>(renderer.model);
+            }
+        });
+    }
 
     const bool shadows = m_depth.has_value() && m_shadowMap.has_value() && lighting != nullptr &&
                          !lighting->directionalDirections.empty();
@@ -353,15 +363,14 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                 m_pbr->setMat3("uNormalMatrix", normalMatrix(world.value));
                 ModelAsset* model = assets->get<ModelAsset>(renderer.handle);
                 if (model == nullptr) {
-                    // unresolved or missing model: draw a loud magenta placeholder
-                    m_pbr->setVec3("uBaseColor", glm::vec3(1.0f, 0.0f, 1.0f));
-                    m_pbr->setFloat("uMetallic", 0.0f);
-                    m_pbr->setFloat("uRoughness", 1.0f);
-                    m_pbr->setFloat("uAo", 1.0f);
-                    if (m_missingTexture) {
+                    // unresolved or missing model: draw a loud magenta placeholder, but
+                    // only when both fallback resources exist (else skip this entity).
+                    if (m_missingMesh && m_missingTexture) {
+                        m_pbr->setVec3("uBaseColor", glm::vec3(1.0f, 0.0f, 1.0f));
+                        m_pbr->setFloat("uMetallic", 0.0f);
+                        m_pbr->setFloat("uRoughness", 1.0f);
+                        m_pbr->setFloat("uAo", 1.0f);
                         m_missingTexture->bind(0);
-                    }
-                    if (m_missingMesh) {
                         m_missingMesh->draw();
                     }
                     return;

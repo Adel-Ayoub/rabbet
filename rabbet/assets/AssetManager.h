@@ -1,10 +1,12 @@
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -119,6 +121,8 @@ class AssetManager {
 public:
     template <typename T>
     AssetHandle<T> add(T asset, Uuid id = Uuid::generate()) {
+        assert((!id.valid() || m_located.find(id) == m_located.end()) &&
+               "add(): uuid already registered; resolve with find() first");
         detail::AssetStore<T>& store = storeFor<T>();
         const std::uint32_t index = store.insert(std::move(asset), id);
         const AssetHandle<T> handle{index, store.generation(index)};
@@ -184,15 +188,27 @@ public:
 
     template <typename T, typename Importer>
     AssetHandle<T> load(const std::filesystem::path& path, Importer&& importer) {
+        // A path cache keyed on the normalised path makes a repeat load return the
+        // same handle even when the ".import" sidecar is missing or corrupt — without
+        // it, an unreadable sidecar would mint a new uuid and re-import on every call.
+        const std::string key = path.lexically_normal().string();
+        if (const auto it = m_pathToUuid.find(key); it != m_pathToUuid.end()) {
+            if (const AssetHandle<T> cached = find<T>(it->second); cached.valid()) {
+                return cached;
+            }
+        }
         const assetmeta::Metadata meta = assetmeta::loadOrCreate(path, assetTypeFor<T>());
         if (const AssetHandle<T> existing = find<T>(meta.id); existing.valid()) {
+            m_pathToUuid[key] = meta.id;
             return existing;
         }
         std::optional<T> imported = std::forward<Importer>(importer)(path);
         if (!imported.has_value()) {
             return AssetHandle<T>{};
         }
-        return add<T>(std::move(*imported), meta.id);
+        const AssetHandle<T> handle = add<T>(std::move(*imported), meta.id);
+        m_pathToUuid[key] = meta.id;
+        return handle;
     }
 
 private:
@@ -226,6 +242,7 @@ private:
 
     std::vector<std::unique_ptr<detail::IAssetStore>> m_stores;
     std::unordered_map<Uuid, Located> m_located;
+    std::unordered_map<std::string, Uuid> m_pathToUuid;
 };
 
 } // namespace rb

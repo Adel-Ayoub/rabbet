@@ -1,6 +1,7 @@
 #include "rabbet/render/ModelImport.h"
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -38,8 +39,16 @@ std::optional<ModelAsset> importModel(AssetManager& assets, const std::filesyste
         return std::nullopt;
     }
     const std::filesystem::path dir = path.parent_path();
-    const AssetHandle<TextureAsset> white =
-        assets.add<TextureAsset>(TextureAsset{gl::Texture::solid(255, 255, 255)});
+
+    // The white fallback texture is created lazily so a fully-textured model never
+    // allocates (and leaks) an unused 1x1 texture in the asset store.
+    std::optional<AssetHandle<TextureAsset>> white;
+    const auto whiteHandle = [&]() -> AssetHandle<TextureAsset> {
+        if (!white.has_value()) {
+            white = assets.add<TextureAsset>(TextureAsset{gl::Texture::solid(255, 255, 255)});
+        }
+        return *white;
+    };
 
     std::unordered_map<std::string, AssetHandle<TextureAsset>> textures;
 
@@ -53,20 +62,21 @@ std::optional<ModelAsset> importModel(AssetManager& assets, const std::filesyste
                 : nullptr;
 
         ModelAsset::Submesh submesh{gl::Mesh::create(part.data), glm::vec3(1.0f), options.metallic,
-                                    options.roughness, 1.0f, white};
-        if (material != nullptr) {
-            if (!material->baseColorTexture.empty()) {
-                auto it = textures.find(material->baseColorTexture);
-                if (it == textures.end()) {
-                    const AssetHandle<TextureAsset> tex =
-                        uploadAlbedo(assets, dir / material->baseColorTexture);
-                    it = textures.emplace(material->baseColorTexture, tex.valid() ? tex : white)
-                             .first;
-                }
-                submesh.albedo = it->second;
-            } else {
+                                    options.roughness, 1.0f, AssetHandle<TextureAsset>{}};
+        if (material != nullptr && !material->baseColorTexture.empty()) {
+            auto it = textures.find(material->baseColorTexture);
+            if (it == textures.end()) {
+                const AssetHandle<TextureAsset> tex =
+                    uploadAlbedo(assets, dir / material->baseColorTexture);
+                it = textures.emplace(material->baseColorTexture, tex.valid() ? tex : whiteHandle())
+                         .first;
+            }
+            submesh.albedo = it->second;
+        } else {
+            if (material != nullptr) {
                 submesh.baseColor = material->baseColor;
             }
+            submesh.albedo = whiteHandle();
         }
         result.submeshes.push_back(std::move(submesh));
     }
