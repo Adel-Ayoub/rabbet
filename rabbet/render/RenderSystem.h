@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "rabbet/core/System.h"
+#include "rabbet/render/Primitive.h"
 #include "rabbet/render/gl/DepthMap.h"
 #include "rabbet/render/gl/Mesh.h"
 #include "rabbet/render/gl/Shader.h"
@@ -16,12 +17,18 @@ public:
     void onUpdate(Runtime& runtime, float dt) override;
 
 private:
+    [[nodiscard]] gl::Mesh* primitiveMesh(PrimitiveShape shape) noexcept;
+
     std::optional<gl::Shader> m_phong;
     std::optional<gl::Shader> m_pbr;
     std::optional<gl::Shader> m_depth;
     std::optional<gl::DepthMap> m_shadowMap;
     std::optional<gl::Mesh> m_missingMesh;
     std::optional<gl::Texture> m_missingTexture;
+    std::optional<gl::Mesh> m_primitiveCube;
+    std::optional<gl::Mesh> m_primitiveSphere;
+    std::optional<gl::Mesh> m_primitivePlane;
+    std::optional<gl::Texture> m_whiteTexture;
 };
 
 } // namespace rb

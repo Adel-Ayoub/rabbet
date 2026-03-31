@@ -6,11 +6,11 @@
 #include "rabbet/render/PbrMaterial.h"
 #include "rabbet/render/RenderView.h"
 #include "rabbet/render/Shadow.h"
-#include "rabbet/render/Viewport.h"
 #include "rabbet/render/gl/Mesh.h"
 #include "rabbet/render/Geometry.h"
 #include "rabbet/render/ModelAsset.h"
 #include "rabbet/render/ModelRenderer.h"
+#include "rabbet/render/Primitive.h"
 #include "rabbet/render/TextureAsset.h"
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/scene/WorldMatrix.h"
@@ -233,6 +233,15 @@ void uploadLights(gl::Shader& shader, const glm::mat4& viewProjection, const glm
 
 } // namespace
 
+gl::Mesh* RenderSystem::primitiveMesh(PrimitiveShape shape) noexcept {
+    switch (shape) {
+        case PrimitiveShape::Cube: return m_primitiveCube ? &*m_primitiveCube : nullptr;
+        case PrimitiveShape::Sphere: return m_primitiveSphere ? &*m_primitiveSphere : nullptr;
+        case PrimitiveShape::Plane: return m_primitivePlane ? &*m_primitivePlane : nullptr;
+    }
+    return nullptr;
+}
+
 void RenderSystem::onStart(Runtime&) {
     m_phong = gl::Shader::fromSource(kVertexSource, kPhongFragment);
     if (!m_phong) {
@@ -249,6 +258,10 @@ void RenderSystem::onStart(Runtime&) {
     m_shadowMap = gl::DepthMap::create(kShadowMapSize, kShadowMapSize);
     m_missingMesh = gl::Mesh::create(geometry::cube());
     m_missingTexture = gl::Texture::solid(255, 0, 255);
+    m_primitiveCube = gl::Mesh::create(geometry::cube());
+    m_primitiveSphere = gl::Mesh::create(geometry::sphere());
+    m_primitivePlane = gl::Mesh::create(geometry::quad());
+    m_whiteTexture = gl::Texture::solid(255, 255, 255);
 }
 
 void RenderSystem::onUpdate(Runtime& runtime, float) {
@@ -276,6 +289,15 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
     glm::mat4 lightSpace{1.0f};
 
     if (shadows) {
+        // Remember the target the caller had bound (the default framebuffer, or an
+        // editor offscreen framebuffer) so we can restore it after the shadow pass.
+        // The old code hard-bound framebuffer 0 and only reset the viewport when a
+        // Viewport resource existed, which left the main pass at the shadow map's size.
+        GLint prevFramebuffer = 0;
+        GLint prevViewport[4] = {0, 0, 0, 0};
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFramebuffer);
+        glGetIntegerv(GL_VIEWPORT, prevViewport);
+
         lightSpace = directionalLightSpace(lighting->directionalDirections.front(), 7.0f, 1.0f,
                                            30.0f, 14.0f);
         m_shadowMap->bindForWriting();
@@ -302,10 +324,15 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                     }
                 });
         }
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        if (const Viewport* viewport = runtime.tryResource<Viewport>()) {
-            glViewport(0, 0, viewport->width, viewport->height);
-        }
+        runtime.scene().each<WorldMatrix, Primitive>(
+            [this](Entity, WorldMatrix& world, Primitive& primitive) {
+                if (gl::Mesh* mesh = primitiveMesh(primitive.shape)) {
+                    m_depth->setMat4("uModel", world.value);
+                    mesh->draw();
+                }
+            });
+        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
+        glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
         m_shadowMap->bindTexture(kShadowTextureUnit);
     }
 
@@ -387,6 +414,30 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                     }
                     submesh.mesh.draw();
                 }
+            });
+    }
+
+    if (m_pbr && m_whiteTexture && runtime.scene().count<Primitive>() > 0) {
+        m_pbr->bind();
+        uploadLights(*m_pbr, viewProjection, view.position, lighting);
+        m_pbr->setInt("uAlbedoTex", 0);
+        m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
+        m_pbr->setInt("uHasShadowMap", hasShadow);
+        m_pbr->setMat4("uLightSpace", lightSpace);
+        m_whiteTexture->bind(0);
+        runtime.scene().each<WorldMatrix, Primitive>(
+            [this](Entity, WorldMatrix& world, Primitive& primitive) {
+                gl::Mesh* mesh = primitiveMesh(primitive.shape);
+                if (mesh == nullptr) {
+                    return;
+                }
+                m_pbr->setMat4("uModel", world.value);
+                m_pbr->setMat3("uNormalMatrix", normalMatrix(world.value));
+                m_pbr->setVec3("uBaseColor", primitive.color);
+                m_pbr->setFloat("uMetallic", primitive.metallic);
+                m_pbr->setFloat("uRoughness", primitive.roughness);
+                m_pbr->setFloat("uAo", 1.0f);
+                mesh->draw();
             });
     }
 }
