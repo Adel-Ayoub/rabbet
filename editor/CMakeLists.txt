@@ -21,10 +21,22 @@ set_target_properties(imgui PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_executable(forge
     main.cpp
-    Editor.cpp)
+    Editor.cpp
+    Palette.cpp
+    PanelManager.cpp
+    LogBuffer.cpp
+    EditorCamera.cpp
+    panels/ConsolePanel.cpp
+    panels/HierarchyPanel.cpp
+    panels/ViewportPanel.cpp
+    panels/InspectorPanel.cpp)
 target_link_libraries(forge PRIVATE
     Rabbet::Rabbet
     imgui)
+target_include_directories(forge PRIVATE "${PROJECT_SOURCE_DIR}")
+target_compile_definitions(forge PRIVATE
+    RB_EDITOR_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/resources"
+    RB_EDITOR_ASSETS="${PROJECT_SOURCE_DIR}/examples/forge/assets")
 rb_target_warnings(forge)
 set_target_properties(forge PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
