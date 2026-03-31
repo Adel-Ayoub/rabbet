@@ -128,6 +128,18 @@ static void clearRemovesEverything() {
     CHECK(scene.alive(b));
 }
 
+static void clearInvalidatesOldHandles() {
+    rb::Scene scene;
+    const rb::Entity before = scene.create();
+    scene.clear();
+    CHECK(!scene.alive(before)); // a handle taken before clear() is dead
+
+    const rb::Entity after = scene.create();
+    CHECK(scene.alive(after));
+    CHECK(!(before == after));   // a recycled index returns with a new version
+    CHECK(!scene.alive(before)); // ...so the old handle never aliases the new entity
+}
+
 int main() {
     createAndDestroy();
     recycledIndexBumpsVersion();
@@ -137,5 +149,6 @@ int main() {
     queryVisitsIntersectionOnly();
     queryEmptyWhenComponentUnused();
     clearRemovesEverything();
+    clearInvalidatesOldHandles();
     return rbtest::summary("ecs_scene");
 }

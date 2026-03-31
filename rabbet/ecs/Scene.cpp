@@ -38,6 +38,7 @@ bool Scene::alive(Entity e) const noexcept {
 std::vector<Entity> Scene::entities() const {
     std::vector<bool> isFree(m_versions.size(), false);
     for (const Entity::Index index : m_freeIndices) {
+        assert(index < isFree.size());
         isFree[index] = true;
     }
     std::vector<Entity> result;
@@ -51,10 +52,16 @@ std::vector<Entity> Scene::entities() const {
 }
 
 void Scene::clear() {
+    // Bump every slot's version so any handle taken before the clear is rejected by
+    // alive(), then free all indices for reuse. Resetting versions to 0 instead would
+    // let a stale pre-clear handle alias a freshly created entity.
     m_pools.clear();
-    m_versions.clear();
     m_freeIndices.clear();
     m_aliveCount = 0;
+    for (Entity::Index index = 0; index < m_versions.size(); ++index) {
+        ++m_versions[index];
+        m_freeIndices.push_back(index);
+    }
 }
 
 } // namespace rb
