@@ -1,0 +1,233 @@
+{
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v1.7.33",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Scene",
+      "nodes": [
+        0,
+        1
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "wooden_crate_02_crate"
+    },
+    {
+      "mesh": 1,
+      "name": "wooden_crate_02_lid",
+      "translation": [
+        0.00018336623907089233,
+        0.4205015301704407,
+        -0.00017756223678588867
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "wooden_crate_02",
+      "normalTexture": {
+        "index": 0
+      },
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 1
+        },
+        "metallicRoughnessTexture": {
+          "index": 2
+        }
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Cube.006",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "Cube.008",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 4,
+            "NORMAL": 5,
+            "TEXCOORD_0": 6
+          },
+          "indices": 7,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    },
+    {
+      "sampler": 0,
+      "source": 2
+    }
+  ],
+  "images": [
+    {
+      "mimeType": "image/jpeg",
+      "name": "wooden_crate_02_nor_gl",
+      "uri": "textures/wooden_crate_02_nor_gl_1k.jpg"
+    },
+    {
+      "mimeType": "image/jpeg",
+      "name": "wooden_crate_02_diff",
+      "uri": "textures/wooden_crate_02_diff_1k.jpg"
+    },
+    {
+      "mimeType": "image/jpeg",
+      "name": "wooden_crate_02_metal-wooden_crate_02_rough",
+      "uri": "textures/wooden_crate_02_arm_1k.jpg"
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 3155,
+      "max": [
+        0.26455047726631165,
+        0.43545737862586975,
+        0.5829854607582092
+      ],
+      "min": [
+        -0.26455047726631165,
+        -0.009823650121688843,
+        -0.5833403468132019
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 3155,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 3155,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 13476,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "count": 564,
+      "max": [
+        0.2393137514591217,
+        0.03362937271595001,
+        0.5199965834617615
+      ],
+      "min": [
+        -0.2393137514591217,
+        -0.03362937271595001,
+        -0.5199965238571167
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5126,
+      "count": 564,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 6,
+      "componentType": 5126,
+      "count": 564,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 7,
+      "componentType": 5123,
+      "count": 2052,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 37860,
+      "byteOffset": 0
+    },
+    {
+      "buffer": 0,
+      "byteLength": 37860,
+      "byteOffset": 37860
+    },
+    {
+      "buffer": 0,
+      "byteLength": 25240,
+      "byteOffset": 75720
+    },
+    {
+      "buffer": 0,
+      "byteLength": 26952,
+      "byteOffset": 100960
+    },
+    {
+      "buffer": 0,
+      "byteLength": 6768,
+      "byteOffset": 127912
+    },
+    {
+      "buffer": 0,
+      "byteLength": 6768,
+      "byteOffset": 134680
+    },
+    {
+      "buffer": 0,
+      "byteLength": 4512,
+      "byteOffset": 141448
+    },
+    {
+      "buffer": 0,
+      "byteLength": 4104,
+      "byteOffset": 145960
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 150064,
+      "uri": "wooden_crate_02.bin"
+    }
+  ]
+}
