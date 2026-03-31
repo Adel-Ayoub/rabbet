@@ -41,6 +41,27 @@ nlohmann::json SceneSerializer::toJson(Scene& scene, const ComponentRegistry& re
     return doc;
 }
 
+Entity SceneSerializer::duplicateEntity(Scene& scene, const ComponentRegistry& registry,
+                                        Entity source) {
+    const Entity copy = scene.create();
+    if (!scene.alive(source)) {
+        return copy;
+    }
+    nlohmann::json data;
+    for (const ComponentRegistry::Entry& entry : registry.entries()) {
+        if (!entry.has(scene, source)) {
+            continue;
+        }
+        entry.save(scene, source, data);
+        try {
+            entry.load(scene, copy, data);
+        } catch (const std::exception& ex) {
+            log::warn("duplicate: component '{}' failed to copy: {}", entry.name, ex.what());
+        }
+    }
+    return copy;
+}
+
 void SceneSerializer::fromJson(const nlohmann::json& doc, Scene& scene,
                                const ComponentRegistry& registry) {
     const auto entitiesIt = doc.find("entities");

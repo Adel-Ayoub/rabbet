@@ -186,6 +186,28 @@ public:
         return it != m_located.end() ? it->second.type : AssetType::Unknown;
     }
 
+    // Records where an asset uuid lives on disk without importing it, so a scene
+    // referencing the uuid can be located and lazily loaded. The AssetDatabase calls
+    // this for every asset it catalogues; loading by path later reuses this uuid.
+    void registerSource(const Uuid& id, std::filesystem::path path, AssetType type) {
+        if (!id.valid()) {
+            return;
+        }
+        m_pathToUuid[path.lexically_normal().string()] = id;
+        m_sourceByUuid[id] = Source{std::move(path), type};
+    }
+
+    [[nodiscard]] std::optional<std::filesystem::path> sourcePath(const Uuid& id) const {
+        const auto it = m_sourceByUuid.find(id);
+        return it != m_sourceByUuid.end() ? std::optional<std::filesystem::path>{it->second.path}
+                                          : std::nullopt;
+    }
+
+    [[nodiscard]] AssetType sourceType(const Uuid& id) const {
+        const auto it = m_sourceByUuid.find(id);
+        return it != m_sourceByUuid.end() ? it->second.type : AssetType::Unknown;
+    }
+
     template <typename T, typename Importer>
     AssetHandle<T> load(const std::filesystem::path& path, Importer&& importer) {
         // A path cache keyed on the normalised path makes a repeat load return the
@@ -219,6 +241,11 @@ private:
         AssetType type = AssetType::Unknown;
     };
 
+    struct Source {
+        std::filesystem::path path;
+        AssetType type = AssetType::Unknown;
+    };
+
     template <typename T>
     detail::AssetStore<T>& storeFor() {
         const std::size_t id = detail::assetTypeId<T>();
@@ -243,6 +270,7 @@ private:
     std::vector<std::unique_ptr<detail::IAssetStore>> m_stores;
     std::unordered_map<Uuid, Located> m_located;
     std::unordered_map<std::string, Uuid> m_pathToUuid;
+    std::unordered_map<Uuid, Source> m_sourceByUuid;
 };
 
 } // namespace rb

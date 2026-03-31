@@ -15,6 +15,7 @@ target_sources(rabbet
         render/gl/Texture.cpp
         render/gl/Mesh.cpp
         render/gl/DepthMap.cpp
+        render/gl/Framebuffer.cpp
         render/Shadow.cpp
         render/Sky.cpp
         render/gl/Cubemap.cpp
@@ -30,6 +31,7 @@ target_sources(rabbet
         serialize/SceneSerializer.cpp
         core/Uuid.cpp
         assets/AssetMeta.cpp
+        assets/AssetDatabase.cpp
         render/ModelImport.cpp
         render/AssetResolveSystem.cpp
     PUBLIC
@@ -60,6 +62,7 @@ target_sources(rabbet
             render/gl/Texture.h
             render/gl/Mesh.h
             render/gl/DepthMap.h
+            render/gl/Framebuffer.h
             render/gl/Cubemap.h
             render/Shadow.h
             render/RenderView.h
@@ -90,10 +93,12 @@ target_sources(rabbet
             assets/AssetType.h
             assets/AssetManager.h
             assets/AssetMeta.h
+            assets/AssetDatabase.h
             render/TextureAsset.h
             render/ModelAsset.h
             render/ModelRenderer.h
             render/ModelImport.h
+            render/Primitive.h
             render/AssetResolveSystem.h)
 
 target_include_directories(rabbet PUBLIC
