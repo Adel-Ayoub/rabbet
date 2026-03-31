@@ -113,6 +113,8 @@ private:
 
 // Owns assets keyed by generational handles, with a stable UUID per asset and a
 // path-keyed load cache. Loading the same path twice returns the same handle.
+// Not thread-safe: use from a single thread; async loading would need external
+// synchronisation and is a deliberate future addition.
 class AssetManager {
 public:
     template <typename T>

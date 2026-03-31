@@ -22,6 +22,14 @@ std::int64_t sourceTicks(const std::filesystem::path& path) {
     return ec ? 0 : toTicks(time);
 }
 
+Metadata freshMetadata(const std::filesystem::path& assetPath, AssetType type) {
+    Metadata meta;
+    meta.id = Uuid::generate();
+    meta.type = type;
+    meta.name = assetPath.stem().string();
+    return meta;
+}
+
 } // namespace
 
 std::filesystem::path sidecarPath(const std::filesystem::path& assetPath) {
@@ -33,40 +41,45 @@ std::filesystem::path sidecarPath(const std::filesystem::path& assetPath) {
 Metadata loadOrCreate(const std::filesystem::path& assetPath, AssetType type) {
     const std::filesystem::path metaPath = sidecarPath(assetPath);
 
-    std::ifstream in(metaPath);
-    if (in) {
-        const nlohmann::json doc = nlohmann::json::parse(in, nullptr, false);
-        if (!doc.is_discarded()) {
-            const auto idIt = doc.find("uuid");
-            if (idIt != doc.end() && idIt->is_string()) {
-                const Uuid id = Uuid::fromString(idIt->get<std::string>());
-                if (id.valid()) {
-                    Metadata meta;
-                    meta.id = id;
-                    meta.type = assetTypeFromName(doc.value("type", std::string{"Unknown"}));
-                    meta.name = doc.value("name", std::string{});
-                    if (const auto depsIt = doc.find("dependencies");
-                        depsIt != doc.end() && depsIt->is_array()) {
-                        for (const nlohmann::json& dep : *depsIt) {
-                            if (dep.is_string()) {
-                                const Uuid depId = Uuid::fromString(dep.get<std::string>());
-                                if (depId.valid()) {
-                                    meta.dependencies.push_back(depId);
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(metaPath, ec);
+    if (exists) {
+        std::ifstream in(metaPath);
+        if (in) {
+            const nlohmann::json doc = nlohmann::json::parse(in, nullptr, false);
+            if (!doc.is_discarded()) {
+                const auto idIt = doc.find("uuid");
+                if (idIt != doc.end() && idIt->is_string()) {
+                    const Uuid id = Uuid::fromString(idIt->get<std::string>());
+                    if (id.valid()) {
+                        Metadata meta;
+                        meta.id = id;
+                        meta.type = assetTypeFromName(doc.value("type", std::string{"Unknown"}));
+                        meta.name = doc.value("name", std::string{});
+                        if (const auto depsIt = doc.find("dependencies");
+                            depsIt != doc.end() && depsIt->is_array()) {
+                            for (const nlohmann::json& dep : *depsIt) {
+                                if (dep.is_string()) {
+                                    const Uuid depId = Uuid::fromString(dep.get<std::string>());
+                                    if (depId.valid()) {
+                                        meta.dependencies.push_back(depId);
+                                    }
                                 }
                             }
                         }
+                        return meta;
                     }
-                    return meta;
                 }
             }
         }
-        log::warn("asset meta: '{}' is unreadable; recreating", metaPath.string());
+        // The sidecar exists but is unreadable or corrupt. Never overwrite it: doing
+        // so would reassign the asset's identity and silently break every reference.
+        // Hand back a temporary id and leave the file untouched for the user to repair.
+        log::error("asset meta: '{}' exists but is unreadable; not overwriting", metaPath.string());
+        return freshMetadata(assetPath, type);
     }
 
-    Metadata meta;
-    meta.id = Uuid::generate();
-    meta.type = type;
-    meta.name = assetPath.stem().string();
+    Metadata meta = freshMetadata(assetPath, type);
     write(assetPath, meta);
     return meta;
 }

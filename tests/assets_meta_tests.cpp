@@ -4,6 +4,9 @@
 #include "tests/Test.h"
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <system_error>
 
 static void metadataPersistsAcrossRuns() {
@@ -56,9 +59,34 @@ static void absentSourceNeedsNoReimport() {
     std::filesystem::remove(sidecar, ec);
 }
 
+static void corruptSidecarIsNotOverwritten() {
+    const std::filesystem::path asset =
+        std::filesystem::temp_directory_path() / "rabbet_meta_corrupt.gltf";
+    const std::filesystem::path sidecar = rb::assetmeta::sidecarPath(asset);
+    std::error_code ec;
+    std::filesystem::remove(sidecar, ec);
+
+    (void)rb::assetmeta::loadOrCreate(asset, rb::AssetType::Model); // writes a valid sidecar
+    {
+        std::ofstream out(sidecar, std::ios::trunc);
+        out << "{ not valid json";
+    }
+
+    // A corrupt sidecar must be preserved, never silently reassigned.
+    (void)rb::assetmeta::loadOrCreate(asset, rb::AssetType::Model);
+
+    std::ifstream in(sidecar);
+    const std::string contents((std::istreambuf_iterator<char>(in)),
+                               std::istreambuf_iterator<char>());
+    CHECK(contents.find("not valid json") != std::string::npos);
+
+    std::filesystem::remove(sidecar, ec);
+}
+
 int main() {
     metadataPersistsAcrossRuns();
     uuidHelperStillWorks();
     absentSourceNeedsNoReimport();
+    corruptSidecarIsNotOverwritten();
     return rbtest::summary("assets_meta");
 }
