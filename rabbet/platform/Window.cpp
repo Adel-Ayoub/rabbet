@@ -40,8 +40,20 @@ std::optional<Window> Window::create(const WindowConfig& config) {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
     glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GLFW_TRUE : GLFW_FALSE);
 
+    int width = config.width;
+    int height = config.height;
+    if (config.fullscreen) {
+        if (GLFWmonitor* monitor = glfwGetPrimaryMonitor()) {
+            if (const GLFWvidmode* mode = glfwGetVideoMode(monitor)) {
+                width = mode->width;
+                height = mode->height;
+                glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+            }
+        }
+    }
+
     GLFWwindow* handle =
-        glfwCreateWindow(config.width, config.height, config.title.c_str(), nullptr, nullptr);
+        glfwCreateWindow(width, height, config.title.c_str(), nullptr, nullptr);
     if (handle == nullptr) {
         log::error("failed to create window");
         if (g_liveWindows == 0) {
@@ -59,6 +71,10 @@ std::optional<Window> Window::create(const WindowConfig& config) {
             glfwTerminate();
         }
         return std::nullopt;
+    }
+
+    if (config.fullscreen) {
+        glfwSetWindowPos(handle, 0, 0);
     }
 
     glfwSwapInterval(config.vsync ? 1 : 0);

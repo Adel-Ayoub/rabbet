@@ -13,6 +13,7 @@ struct WindowConfig {
     std::string title = "Rabbet";
     bool vsync = true;
     bool resizable = true;
+    bool fullscreen = false; // borderless, sized to the primary monitor
 };
 
 class Window {
