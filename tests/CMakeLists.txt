@@ -20,9 +20,11 @@ set(RABBET_TEST_SUITES
     render_image_loader
     render_model_loader
     serialize_scene
+    serialize_duplicate
     assets_uuid
     assets_manager
     assets_meta
+    assets_database
     assets_render
     assets_scene_file
     assets_resolve)
