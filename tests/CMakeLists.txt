@@ -21,6 +21,7 @@ set(RABBET_TEST_SUITES
     render_model_loader
     serialize_scene
     serialize_duplicate
+    serialize_registry
     assets_uuid
     assets_manager
     assets_meta

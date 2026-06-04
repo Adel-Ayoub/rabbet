@@ -13,14 +13,23 @@
 namespace rb {
 
 // Maps each component type to a stable name plus type-erased hooks. One registry
-// drives scene save/load (and, later, the editor inspector and add-component menu).
+// drives scene save/load, entity duplication, and the editor inspector and
+// add/remove-component menu — the single keystone for component reflection.
 class ComponentRegistry {
 public:
+    // Editor draw hook. Deliberately takes only Scene+Entity so this header stays
+    // free of any UI dependency; the editor supplies per-type ImGui lambdas through
+    // setDrawer(), keeping ImGui out of the engine core (and the unit tests).
+    using DrawFn = void (*)(Scene&, Entity);
+
     struct Entry {
         std::string name;
         bool (*has)(Scene&, Entity) = nullptr;
         void (*save)(Scene&, Entity, nlohmann::json&) = nullptr;
         void (*load)(Scene&, Entity, const nlohmann::json&) = nullptr;
+        void (*addDefault)(Scene&, Entity) = nullptr;
+        void (*remove)(Scene&, Entity) = nullptr;
+        DrawFn drawInspector = nullptr;
     };
 
     template <Component T>
@@ -35,8 +44,18 @@ public:
         entry.load = +[](Scene& scene, Entity e, const nlohmann::json& j) {
             scene.add<T>(e, j.get<T>());
         };
+        entry.addDefault = +[](Scene& scene, Entity e) {
+            if (!scene.has<T>(e)) {
+                scene.add<T>(e, T{});
+            }
+        };
+        entry.remove = +[](Scene& scene, Entity e) { scene.remove<T>(e); };
         m_entries.push_back(std::move(entry));
     }
+
+    // Attaches an editor draw hook to an already-registered component. No-op if the
+    // name is unknown. Called from the editor only; the core never sets a drawer.
+    void setDrawer(std::string_view name, DrawFn fn) noexcept;
 
     [[nodiscard]] const std::vector<Entry>& entries() const noexcept { return m_entries; }
     [[nodiscard]] const Entry* find(std::string_view name) const noexcept;
