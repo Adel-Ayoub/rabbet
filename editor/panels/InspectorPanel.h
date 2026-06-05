@@ -4,8 +4,9 @@
 
 namespace rb::editor {
 
-// Shows and edits the components of the selected entity. Phase 3 hand-draws the
-// built-in components; Phase 4 replaces this with registry-driven generic drawers.
+// Shows and edits the components of the selected entity. Every widget is driven by
+// the ComponentRegistry: the panel iterates registered types, drawing each via its
+// registry draw hook, and the add/remove menu lists every registered component.
 class InspectorPanel final : public Panel {
 public:
     explicit InspectorPanel(EditorContext& context) : Panel(context) {}

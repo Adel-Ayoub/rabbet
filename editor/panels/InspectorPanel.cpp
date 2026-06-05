@@ -4,20 +4,11 @@
 
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
-#include "rabbet/render/Primitive.h"
-#include "rabbet/scene/Light.h"
-#include "rabbet/scene/Name.h"
-#include "rabbet/scene/Transform.h"
+#include "rabbet/serialize/ComponentRegistry.h"
 
-#include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
 
-#include <cstdio>
-
 namespace rb::editor {
-namespace {
-constexpr const char* kShapes[] = {"Cube", "Sphere", "Plane"};
-}
 
 void InspectorPanel::onImGui() {
     rb::Scene& scene = m_context.runtime.scene();
@@ -26,52 +17,59 @@ void InspectorPanel::onImGui() {
         return;
     }
     const rb::Entity e = m_context.selected;
+    const rb::ComponentRegistry& registry = m_context.registry;
 
-    if (rb::Name* n = scene.tryGet<rb::Name>(e)) {
-        char buffer[128];
-        std::snprintf(buffer, sizeof(buffer), "%s", n->value.c_str());
-        if (ImGui::InputText("Name", buffer, sizeof(buffer))) {
-            n->value = buffer;
-        }
-        ImGui::Separator();
+    ImGui::TextDisabled("Entity %u", e.index());
+    ImGui::SameLine();
+    if (ImGui::Button("Add Component")) {
+        ImGui::OpenPopup("##addComponent");
     }
-
-    if (rb::Transform* t = scene.tryGet<rb::Transform>(e)) {
-        if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::DragFloat3("Position", &t->position.x, 0.05f);
-            glm::vec3 euler = glm::degrees(glm::eulerAngles(t->rotation));
-            if (ImGui::DragFloat3("Rotation", &euler.x, 0.5f)) {
-                t->rotation = glm::quat(glm::radians(euler));
+    if (ImGui::BeginPopup("##addComponent")) {
+        bool any = false;
+        for (const rb::ComponentRegistry::Entry& entry : registry.entries()) {
+            if (entry.has(scene, e)) {
+                continue;
             }
-            ImGui::DragFloat3("Scale", &t->scale.x, 0.05f, 0.01f, 100.0f);
-        }
-    }
-
-    if (rb::Primitive* p = scene.tryGet<rb::Primitive>(e)) {
-        if (ImGui::CollapsingHeader("Primitive", ImGuiTreeNodeFlags_DefaultOpen)) {
-            int shape = static_cast<int>(p->shape);
-            if (ImGui::Combo("Shape", &shape, kShapes, 3)) {
-                p->shape = static_cast<rb::PrimitiveShape>(shape);
+            any = true;
+            if (ImGui::MenuItem(entry.name.c_str())) {
+                entry.addDefault(scene, e);
             }
-            ImGui::ColorEdit3("Color", &p->color.x);
-            ImGui::DragFloat("Metallic", &p->metallic, 0.01f, 0.0f, 1.0f);
-            ImGui::DragFloat("Roughness", &p->roughness, 0.01f, 0.0f, 1.0f);
         }
+        if (!any) {
+            ImGui::TextDisabled("All components added");
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::Separator();
+
+    // Draw every component the entity has, in registration order. Removal is deferred
+    // until after the loop so we never mutate the component pools mid-iteration.
+    const rb::ComponentRegistry::Entry* toRemove = nullptr;
+    for (const rb::ComponentRegistry::Entry& entry : registry.entries()) {
+        if (!entry.has(scene, e)) {
+            continue;
+        }
+        ImGui::PushID(entry.name.c_str());
+        const bool open =
+            ImGui::CollapsingHeader(entry.name.c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+        if (ImGui::BeginPopupContextItem("##componentCtx")) {
+            if (ImGui::MenuItem("Remove Component")) {
+                toRemove = &entry;
+            }
+            ImGui::EndPopup();
+        }
+        if (open) {
+            if (entry.drawInspector != nullptr) {
+                entry.drawInspector(scene, e);
+            } else {
+                ImGui::TextDisabled("(no inspector for this component)");
+            }
+        }
+        ImGui::PopID();
     }
 
-    if (rb::DirectionalLight* l = scene.tryGet<rb::DirectionalLight>(e)) {
-        if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::ColorEdit3("Color", &l->color.x);
-            ImGui::DragFloat("Intensity", &l->intensity, 0.05f, 0.0f, 20.0f);
-            ImGui::DragFloat3("Direction", &l->direction.x, 0.02f);
-        }
-    }
-
-    if (rb::PointLight* l = scene.tryGet<rb::PointLight>(e)) {
-        if (ImGui::CollapsingHeader("Point Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::ColorEdit3("Color", &l->color.x);
-            ImGui::DragFloat("Intensity", &l->intensity, 0.05f, 0.0f, 50.0f);
-        }
+    if (toRemove != nullptr) {
+        toRemove->remove(scene, e);
     }
 }
 

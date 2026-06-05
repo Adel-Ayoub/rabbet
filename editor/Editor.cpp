@@ -1,6 +1,8 @@
 #include "editor/Editor.h"
 
+#include "editor/ComponentDrawers.h"
 #include "editor/Palette.h"
+#include "editor/panels/AssetsPanel.h"
 #include "editor/panels/ConsolePanel.h"
 #include "editor/panels/HierarchyPanel.h"
 #include "editor/panels/InspectorPanel.h"
@@ -89,6 +91,7 @@ rb::gl::Cubemap loadCubemap(const std::filesystem::path& dir) {
 Editor::Editor(rb::Window& window, rb::RenderDevice& device)
     : m_window(window), m_device(device), m_context{m_runtime, m_registry} {
     registerBuiltinComponents(m_registry);
+    registerComponentDrawers(m_registry); // editor-side ImGui hooks for each builtin
     m_log.install(); // capture engine logs into the console (and stderr)
 
     IMGUI_CHECKVERSION();
@@ -105,6 +108,7 @@ Editor::Editor(rb::Window& window, rb::RenderDevice& device)
     m_panels.add<ViewportPanel>(m_context);
     m_panels.add<InspectorPanel>(m_context);
     m_panels.add<ConsolePanel>(m_context, m_log);
+    m_panels.add<AssetsPanel>(m_context);
 }
 
 Editor::~Editor() {
@@ -201,6 +205,7 @@ void Editor::buildDefaultLayout(unsigned int dockId) {
     ImGui::DockBuilderDockWindow("Hierarchy", left);
     ImGui::DockBuilderDockWindow("Inspector", right);
     ImGui::DockBuilderDockWindow("Console", bottom);
+    ImGui::DockBuilderDockWindow("Assets", bottom); // tabbed with Console
     ImGui::DockBuilderDockWindow("Viewport", center);
     ImGui::DockBuilderFinish(dockId);
 }
