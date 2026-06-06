@@ -10,7 +10,7 @@ int main() {
     rb::log::info("starting Rabbet Forge (editor)");
 
     rb::WindowConfig config;
-    config.title = "Rabbet Forge";
+    config.title = "Rabbet";
     config.width = 1440;
     config.height = 810;
     config.fullscreen = std::getenv("RB_FORGE_FULLSCREEN") != nullptr;
