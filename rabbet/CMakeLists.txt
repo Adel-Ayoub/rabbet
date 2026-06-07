@@ -16,6 +16,7 @@ target_sources(rabbet
         render/gl/Mesh.cpp
         render/gl/DepthMap.cpp
         render/gl/Framebuffer.cpp
+        render/gl/PickBuffer.cpp
         render/Shadow.cpp
         render/Sky.cpp
         render/gl/Cubemap.cpp
@@ -63,6 +64,7 @@ target_sources(rabbet
             render/gl/Mesh.h
             render/gl/DepthMap.h
             render/gl/Framebuffer.h
+            render/gl/PickBuffer.h
             render/gl/Cubemap.h
             render/Shadow.h
             render/RenderView.h

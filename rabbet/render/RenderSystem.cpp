@@ -6,6 +6,7 @@
 #include "rabbet/render/PbrMaterial.h"
 #include "rabbet/render/RenderView.h"
 #include "rabbet/render/Shadow.h"
+#include "rabbet/render/Viewport.h"
 #include "rabbet/render/gl/Mesh.h"
 #include "rabbet/render/Geometry.h"
 #include "rabbet/render/ModelAsset.h"
@@ -21,6 +22,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 
 namespace rb {
 namespace {
@@ -60,6 +62,23 @@ void main() {
 
 constexpr const char* kDepthFragment = R"(#version 410 core
 void main() {}
+)";
+
+constexpr const char* kPickVertex = R"(#version 410 core
+layout(location = 0) in vec3 aPosition;
+uniform mat4 uModel;
+uniform mat4 uViewProjection;
+void main() {
+    gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);
+}
+)";
+
+constexpr const char* kPickFragment = R"(#version 410 core
+uniform int uEntityId;
+layout(location = 0) out int oEntityId;
+void main() {
+    oEntityId = uEntityId;
+}
 )";
 
 constexpr const char* kShadowFunctions = R"(
@@ -255,6 +274,10 @@ void RenderSystem::onStart(Runtime&) {
     if (!m_depth) {
         log::error("render system: failed to build the depth shader");
     }
+    m_pick = gl::Shader::fromSource(kPickVertex, kPickFragment);
+    if (!m_pick) {
+        log::error("render system: failed to build the pick shader");
+    }
     m_shadowMap = gl::DepthMap::create(kShadowMapSize, kShadowMapSize);
     m_missingMesh = gl::Mesh::create(geometry::cube());
     m_missingTexture = gl::Texture::solid(255, 0, 255);
@@ -440,6 +463,84 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                 mesh->draw();
             });
     }
+}
+
+Entity RenderSystem::pick(Runtime& runtime, int x, int y) {
+    if (!m_pick || !runtime.hasResource<RenderView>() || !runtime.hasResource<Viewport>()) {
+        return Entity{};
+    }
+    const Viewport& viewport = runtime.resource<Viewport>();
+    const int width = std::max(1, viewport.width);
+    const int height = std::max(1, viewport.height);
+    if (!m_pickBuffer.has_value()) {
+        m_pickBuffer = gl::PickBuffer::create(width, height);
+    } else {
+        m_pickBuffer->resize(width, height);
+    }
+
+    GLint prevFramebuffer = 0;
+    GLint prevViewport[4] = {0, 0, 0, 0};
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFramebuffer);
+    glGetIntegerv(GL_VIEWPORT, prevViewport);
+
+    const RenderView& view = runtime.resource<RenderView>();
+    const glm::mat4 viewProjection = view.projection * view.view;
+
+    m_pickBuffer->bindAndClear();
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
+    glDisable(GL_BLEND); // integer colour targets cannot be blended
+
+    m_pick->bind();
+    m_pick->setMat4("uViewProjection", viewProjection);
+
+    runtime.scene().each<WorldMatrix, Primitive>(
+        [this](Entity e, WorldMatrix& world, Primitive& primitive) {
+            if (gl::Mesh* mesh = primitiveMesh(primitive.shape)) {
+                m_pick->setMat4("uModel", world.value);
+                m_pick->setInt("uEntityId", static_cast<int>(e.index()));
+                mesh->draw();
+            }
+        });
+
+    if (AssetManager* assets = runtime.tryResource<AssetManager>()) {
+        runtime.scene().each<WorldMatrix, ModelRenderer>(
+            [this, assets](Entity e, WorldMatrix& world, ModelRenderer& renderer) {
+                m_pick->setMat4("uModel", world.value);
+                m_pick->setInt("uEntityId", static_cast<int>(e.index()));
+                if (ModelAsset* model = assets->get<ModelAsset>(renderer.handle)) {
+                    for (const ModelAsset::Submesh& submesh : model->submeshes) {
+                        submesh.mesh.draw();
+                    }
+                } else if (m_missingMesh) {
+                    m_missingMesh->draw();
+                }
+            });
+    }
+
+    runtime.scene().each<WorldMatrix, gl::Mesh>(
+        [this](Entity e, WorldMatrix& world, gl::Mesh& mesh) {
+            m_pick->setMat4("uModel", world.value);
+            m_pick->setInt("uEntityId", static_cast<int>(e.index()));
+            mesh.draw();
+        });
+
+    // y arrives measured from the top; flip to GL's bottom-left origin for the read.
+    const std::int32_t id = m_pickBuffer->readPixel(x, height - 1 - y);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
+    glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+
+    if (id < 0) {
+        return Entity{};
+    }
+    for (const Entity e : runtime.scene().entities()) {
+        if (e.index() == static_cast<Entity::Index>(id)) {
+            return e;
+        }
+    }
+    return Entity{};
 }
 
 } // namespace rb
