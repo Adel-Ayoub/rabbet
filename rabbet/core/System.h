@@ -4,6 +4,11 @@ namespace rb {
 
 class Runtime;
 
+// When a system's onUpdate runs. Always systems tick every frame (rendering,
+// transforms, asset resolution); Play systems tick only while the runtime is
+// playing, so the editor can gate gameplay behind Play/Stop.
+enum class SystemPhase { Always, Play };
+
 class System {
 public:
     System() = default;

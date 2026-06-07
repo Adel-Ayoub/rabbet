@@ -47,12 +47,12 @@ public:
         return m_resources.has<T>();
     }
 
-    template <typename S, typename... Args>
+    template <typename S, SystemPhase Phase = SystemPhase::Always, typename... Args>
     S& addSystem(Args&&... args) {
         static_assert(std::derived_from<S, System>, "S must derive from rb::System");
         auto system = std::make_unique<S>(std::forward<Args>(args)...);
         S& ref = *system;
-        m_systems.push_back(std::move(system));
+        m_systems.push_back(SystemEntry{std::move(system), Phase});
         return ref;
     }
 
@@ -85,14 +85,25 @@ public:
     [[nodiscard]] bool running() const noexcept { return m_running; }
     void setFixedDelta(float seconds) noexcept { m_fixedDelta = seconds; }
 
+    // Gates Play-phase systems. Edit mode (playing == false) ticks only Always
+    // systems; Play mode ticks both. The editor toggles this on Play/Stop.
+    void setPlaying(bool playing) noexcept { m_playing = playing; }
+    [[nodiscard]] bool playing() const noexcept { return m_playing; }
+
 private:
+    struct SystemEntry {
+        std::unique_ptr<System> system;
+        SystemPhase phase = SystemPhase::Always;
+    };
+
     Scene m_scene;
     ResourceRegistry m_resources;
-    std::vector<std::unique_ptr<System>> m_systems;
+    std::vector<SystemEntry> m_systems;
     std::vector<std::string> m_loadedModules;
     float m_fixedDelta = 1.0f / 60.0f;
     bool m_running = false;
     bool m_started = false;
+    bool m_playing = false;
 };
 
 } // namespace rb

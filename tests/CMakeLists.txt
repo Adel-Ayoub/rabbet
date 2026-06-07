@@ -10,6 +10,7 @@ set(RABBET_TEST_SUITES
     core_runtime
     core_module
     core_clock
+    core_scheduler
     util_log
     scene_transform
     scene_camera

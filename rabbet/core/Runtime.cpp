@@ -17,14 +17,16 @@ void Runtime::start() {
     }
     m_started = true;
     m_running = true;
-    for (std::unique_ptr<System>& system : m_systems) {
-        system->onStart(*this);
+    for (SystemEntry& entry : m_systems) {
+        entry.system->onStart(*this);
     }
 }
 
 void Runtime::tick(float dt) {
-    for (std::unique_ptr<System>& system : m_systems) {
-        system->onUpdate(*this, dt);
+    for (SystemEntry& entry : m_systems) {
+        if (entry.phase == SystemPhase::Always || m_playing) {
+            entry.system->onUpdate(*this, dt);
+        }
     }
 }
 
@@ -33,7 +35,7 @@ void Runtime::stop() {
         return;
     }
     for (auto it = m_systems.rbegin(); it != m_systems.rend(); ++it) {
-        (*it)->onStop(*this);
+        it->system->onStop(*this);
     }
     m_started = false;
     m_running = false;
