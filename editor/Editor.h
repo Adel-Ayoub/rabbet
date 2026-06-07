@@ -3,6 +3,8 @@
 #include <optional>
 #include <string>
 
+#include <nlohmann/json.hpp>
+
 #include "rabbet/core/Runtime.h"
 #include "rabbet/render/gl/Framebuffer.h"
 #include "rabbet/serialize/ComponentRegistry.h"
@@ -15,6 +17,7 @@
 namespace rb {
 class Window;
 class RenderDevice;
+class RenderSystem;
 } // namespace rb
 
 namespace rb::editor {
@@ -41,6 +44,8 @@ private:
     void newScene();
     void openScene();
     void saveScene();
+    void startPlay();
+    void stopPlay();
 
     rb::Window& m_window;
     rb::RenderDevice& m_device;
@@ -51,8 +56,16 @@ private:
     PanelManager m_panels;
     EditorCamera m_camera;
     std::optional<rb::gl::Framebuffer> m_framebuffer;
+    rb::RenderSystem* m_renderSystem = nullptr; // owned by m_runtime; used for picking
     std::string m_scenePath = "rabbet_editor.scene.json";
     bool m_cameraActive = false;
+
+    // Play mode: a snapshot is taken on Play and reloaded on Stop, so gameplay edits
+    // never touch the authored scene. Pause freezes Play systems; Step runs one frame.
+    nlohmann::json m_snapshot;
+    bool m_playSession = false;
+    bool m_paused = false;
+    bool m_step = false;
 };
 
 } // namespace rb::editor

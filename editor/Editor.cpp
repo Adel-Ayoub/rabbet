@@ -42,6 +42,7 @@
 
 #include <glad/glad.h>
 
+#include <ImGuizmo.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -130,7 +131,7 @@ void Editor::buildDefaultScene() {
     m_runtime.addSystem<rb::LightSystem>();
     m_runtime.addSystem<rb::AssetResolveSystem>();
     m_runtime.addSystem<rb::SkyboxSystem>();
-    m_runtime.addSystem<rb::RenderSystem>();
+    m_renderSystem = &m_runtime.addSystem<rb::RenderSystem>();
 
     const std::filesystem::path assetsRoot{RB_EDITOR_ASSETS};
 
@@ -256,6 +257,27 @@ void Editor::drawDockspaceAndMenu() {
             }
             ImGui::EndMenu();
         }
+
+        // Play controls.
+        ImGui::TextUnformatted("   ");
+        if (!m_playSession) {
+            if (ImGui::Button("Play")) {
+                startPlay();
+            }
+        } else {
+            if (ImGui::Button(m_paused ? "Resume" : "Pause")) {
+                m_paused = !m_paused;
+            }
+            ImGui::BeginDisabled(!m_paused);
+            if (ImGui::Button("Step")) {
+                m_step = true;
+            }
+            ImGui::EndDisabled();
+            if (ImGui::Button("Stop")) {
+                stopPlay();
+            }
+            ImGui::TextDisabled(m_paused ? "[paused]" : "[playing]");
+        }
         ImGui::EndMenuBar();
     }
     ImGui::End();
@@ -272,7 +294,9 @@ void Editor::renderScene(int width, int height, float dt) {
     rb::Viewport& viewport = m_runtime.resource<rb::Viewport>();
     viewport.width = width;
     viewport.height = height;
-    m_runtime.resource<rb::RenderView>() = m_camera.renderView(viewport.aspect());
+    const rb::RenderView renderView = m_camera.renderView(viewport.aspect());
+    m_runtime.resource<rb::RenderView>() = renderView;
+    m_context.renderView = renderView;
 
     m_framebuffer->bind();
     // ImGui's GL backend mutates depth state each frame, so re-assert it for the
@@ -308,6 +332,26 @@ void Editor::openScene() {
     } else {
         rb::log::warn("editor: could not load '{}'", m_scenePath);
     }
+}
+
+void Editor::startPlay() {
+    // Snapshot the authored scene; gameplay edits during play are discarded on Stop.
+    m_snapshot = rb::SceneSerializer::toJson(m_runtime.scene(), m_registry);
+    m_playSession = true;
+    m_paused = false;
+    m_step = false;
+    rb::log::info("editor: play");
+}
+
+void Editor::stopPlay() {
+    m_playSession = false;
+    m_paused = false;
+    m_step = false;
+    m_runtime.setPlaying(false);
+    m_runtime.scene().clear();
+    rb::SceneSerializer::fromJson(m_snapshot, m_runtime.scene(), m_registry);
+    m_context.selected = rb::Entity{};
+    rb::log::info("editor: stop (scene restored)");
 }
 
 void Editor::run() {
@@ -347,6 +391,7 @@ void Editor::run() {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+        ImGuizmo::BeginFrame();
 
         drawDockspaceAndMenu();
         m_panels.render();
@@ -354,7 +399,22 @@ void Editor::run() {
         const float dt = clock.tick();
         m_camera.update(input, dt, m_cameraActive);
 
+        // Gate Play-phase systems: run them while playing and not paused, or for a
+        // single Step. Always systems (render) tick regardless.
+        m_runtime.setPlaying(m_playSession && (!m_paused || m_step));
         renderScene(std::max(1, m_context.viewportWidth), std::max(1, m_context.viewportHeight), dt);
+        m_step = false;
+
+        // Service a viewport pick now that world matrices and the framebuffer are
+        // current (an invalid result clears the selection).
+        if (m_context.pickRequested) {
+            m_context.pickRequested = false;
+            if (m_renderSystem != nullptr) {
+                m_context.selected =
+                    m_renderSystem->pick(m_runtime, m_context.pickX, m_context.pickY);
+            }
+        }
+
 
         m_device.setViewport(m_window.width(), m_window.height());
         m_device.setClearColor(glm::vec4(0.06f, 0.06f, 0.07f, 1.0f));

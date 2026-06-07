@@ -6,16 +6,28 @@ FetchContent_Declare(
     GIT_SHALLOW ON)
 FetchContent_MakeAvailable(imgui)
 
+# ImGuizmo has no tagged releases; pin a specific commit. SOURCE_SUBDIR points at a
+# non-existent dir so MakeAvailable only fetches it (we compile ImGuizmo.cpp into the
+# imgui lib ourselves rather than running ImGuizmo's own CMake).
+FetchContent_Declare(
+    imguizmo
+    GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+    GIT_TAG be8aa4aeab86b402701c8c1df011bd8cd776760b
+    SOURCE_SUBDIR do-not-build)
+FetchContent_MakeAvailable(imguizmo)
+
 add_library(imgui STATIC
     "${imgui_SOURCE_DIR}/imgui.cpp"
     "${imgui_SOURCE_DIR}/imgui_draw.cpp"
     "${imgui_SOURCE_DIR}/imgui_tables.cpp"
     "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
     "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp"
-    "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp")
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp"
+    "${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp")
 target_include_directories(imgui SYSTEM PUBLIC
     "${imgui_SOURCE_DIR}"
-    "${imgui_SOURCE_DIR}/backends")
+    "${imgui_SOURCE_DIR}/backends"
+    "${imguizmo_SOURCE_DIR}/src")
 target_link_libraries(imgui PUBLIC glfw OpenGL::GL)
 set_target_properties(imgui PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

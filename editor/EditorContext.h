@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rabbet/ecs/Entity.h"
+#include "rabbet/render/RenderView.h"
 
 namespace rb {
 class Runtime;
@@ -23,6 +24,14 @@ struct EditorContext {
     int viewportHeight = 1;
     bool viewportHovered = false; // set by ViewportPanel each frame
     bool viewportFocused = false;
+
+    rb::RenderView renderView{}; // view/projection the image was rendered with (set by Editor)
+
+    // Click-to-pick handshake: ViewportPanel requests a pick at image-local pixels
+    // (origin top-left); the Editor services it after rendering and clears the flag.
+    bool pickRequested = false;
+    int pickX = 0;
+    int pickY = 0;
 };
 
 } // namespace rb::editor
