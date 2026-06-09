@@ -46,6 +46,9 @@ AssetType assetTypeFromExtension(const std::filesystem::path& path) {
         ext == ".ply" || ext == ".stl") {
         return AssetType::Model;
     }
+    if (ext == ".lua") {
+        return AssetType::Script;
+    }
     return AssetType::Unknown;
 }
 

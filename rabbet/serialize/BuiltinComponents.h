@@ -13,6 +13,8 @@
 #include "rabbet/core/Uuid.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
+#include "rabbet/scripting/ScriptComponent.h"
+#include "rabbet/scripting/ScriptField.h"
 
 namespace rb {
 
@@ -79,6 +81,52 @@ inline void from_json(const nlohmann::json& j, ModelRenderer& r) {
         throw std::runtime_error("ModelRenderer: malformed model uuid '" + text + "'");
     }
     r.handle = {};
+}
+
+inline void to_json(nlohmann::json& j, const ScriptComponent& s) {
+    nlohmann::json fields = nlohmann::json::object();
+    for (const ScriptField& f : s.fields) {
+        switch (f.type) {
+        case ScriptField::Type::Number:
+            fields[f.name] = f.number;
+            break;
+        case ScriptField::Type::Boolean:
+            fields[f.name] = f.boolean;
+            break;
+        case ScriptField::Type::String:
+            fields[f.name] = f.text;
+            break;
+        }
+    }
+    j = nlohmann::json{{"script", s.script.toString()}, {"fields", fields}};
+}
+inline void from_json(const nlohmann::json& j, ScriptComponent& s) {
+    const std::string text = j.at("script").get<std::string>();
+    s.script = Uuid::fromString(text);
+    if (!text.empty() && !s.script.valid()) {
+        throw std::runtime_error("ScriptComponent: malformed script uuid '" + text + "'");
+    }
+    s.handle = {};
+    s.fields.clear();
+    if (j.contains("fields") && j.at("fields").is_object()) {
+        for (const auto& [name, value] : j.at("fields").items()) {
+            ScriptField field;
+            field.name = name;
+            if (value.is_boolean()) {
+                field.type = ScriptField::Type::Boolean;
+                field.boolean = value.get<bool>();
+            } else if (value.is_number()) {
+                field.type = ScriptField::Type::Number;
+                field.number = value.get<double>();
+            } else if (value.is_string()) {
+                field.type = ScriptField::Type::String;
+                field.text = value.get<std::string>();
+            } else {
+                continue;
+            }
+            s.fields.push_back(std::move(field));
+        }
+    }
 }
 
 inline void to_json(nlohmann::json& j, const Primitive& p) {

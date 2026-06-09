@@ -18,8 +18,9 @@ rb::ComponentRegistry makeRegistry() {
 // no draw hook until the editor attaches one (the core stays UI-free).
 static void builtinsExposeEditorHooks() {
     const rb::ComponentRegistry registry = makeRegistry();
-    constexpr std::string_view names[] = {"Name",       "Transform",  "Camera",   "DirectionalLight",
-                                          "PointLight", "ModelRenderer", "Primitive"};
+    constexpr std::string_view names[] = {"Name",          "Transform", "Camera",
+                                          "DirectionalLight", "PointLight", "ModelRenderer",
+                                          "Primitive",     "ScriptComponent"};
     for (const std::string_view name : names) {
         const rb::ComponentRegistry::Entry* entry = registry.find(name);
         CHECK(entry != nullptr);
@@ -31,7 +32,7 @@ static void builtinsExposeEditorHooks() {
         CHECK(entry->remove != nullptr);
         CHECK(entry->drawInspector == nullptr);
     }
-    CHECK(registry.entries().size() == 7u);
+    CHECK(registry.entries().size() == 8u);
 }
 
 // addDefault attaches a default-constructed component; it is idempotent.

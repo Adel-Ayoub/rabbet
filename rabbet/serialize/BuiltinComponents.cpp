@@ -12,6 +12,7 @@ void registerBuiltinComponents(ComponentRegistry& registry) {
     registry.add<PointLight>("PointLight");
     registry.add<ModelRenderer>("ModelRenderer");
     registry.add<Primitive>("Primitive");
+    registry.add<ScriptComponent>("ScriptComponent");
 }
 
 } // namespace rb

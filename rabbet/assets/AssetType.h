@@ -4,7 +4,7 @@
 
 namespace rb {
 
-enum class AssetType { Unknown, Texture, Model, Material, Mesh, Scene, Prefab };
+enum class AssetType { Unknown, Texture, Model, Material, Mesh, Scene, Prefab, Script };
 
 [[nodiscard]] constexpr std::string_view assetTypeName(AssetType type) noexcept {
     switch (type) {
@@ -20,6 +20,8 @@ enum class AssetType { Unknown, Texture, Model, Material, Mesh, Scene, Prefab };
         return "Scene";
     case AssetType::Prefab:
         return "Prefab";
+    case AssetType::Script:
+        return "Script";
     case AssetType::Unknown:
         break;
     }
@@ -44,6 +46,9 @@ enum class AssetType { Unknown, Texture, Model, Material, Mesh, Scene, Prefab };
     }
     if (name == "Prefab") {
         return AssetType::Prefab;
+    }
+    if (name == "Script") {
+        return AssetType::Script;
     }
     return AssetType::Unknown;
 }
