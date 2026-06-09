@@ -41,6 +41,30 @@ void Runtime::stop() {
     m_running = false;
 }
 
+void Runtime::beginPlay() {
+    if (m_inPlaySession) {
+        return;
+    }
+    m_inPlaySession = true;
+    for (SystemEntry& entry : m_systems) {
+        if (entry.phase == SystemPhase::Play) {
+            entry.system->onPlayBegin(*this);
+        }
+    }
+}
+
+void Runtime::endPlay() {
+    if (!m_inPlaySession) {
+        return;
+    }
+    m_inPlaySession = false;
+    for (auto it = m_systems.rbegin(); it != m_systems.rend(); ++it) {
+        if (it->phase == SystemPhase::Play) {
+            it->system->onPlayEnd(*this);
+        }
+    }
+}
+
 void Runtime::run() {
     start();
     while (m_running) {

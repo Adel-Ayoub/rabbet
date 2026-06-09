@@ -17,6 +17,37 @@ struct CountingSystem final : rb::System {
     void onUpdate(rb::Runtime&, float) override { ++ticks; }
 };
 
+struct PlayEdgeSystem final : rb::System {
+    int begins = 0;
+    int ends = 0;
+    void onPlayBegin(rb::Runtime&) override { ++begins; }
+    void onPlayEnd(rb::Runtime&) override { ++ends; }
+};
+
+// Play-session edges fire once on begin/end, only for Play-phase systems, and are
+// idempotent — distinct from the per-frame setPlaying() gate that Pause/Step toggle.
+static void playEdgesFireOncePerSession() {
+    rb::Runtime rt;
+    auto& always = rt.addSystem<PlayEdgeSystem>();
+    auto& play = rt.addSystem<PlayEdgeSystem, rb::SystemPhase::Play>();
+    rt.start();
+
+    rt.beginPlay();
+    rt.beginPlay(); // idempotent
+    CHECK(play.begins == 1);
+    CHECK(always.begins == 0); // Always systems do not receive play edges
+
+    rt.endPlay();
+    rt.endPlay(); // idempotent
+    CHECK(play.ends == 1);
+    CHECK(always.ends == 0);
+
+    CHECK(rt.inPlaySession() == false);
+    rt.beginPlay();
+    CHECK(rt.inPlaySession());
+    CHECK(play.begins == 2); // a second session begins again
+}
+
 // Always systems tick every frame; Play systems tick only while the runtime plays.
 static void playPhaseGatesSystems() {
     rb::Runtime rt;
@@ -92,6 +123,7 @@ static void snapshotRestoresExactly() {
 
 int main() {
     playPhaseGatesSystems();
+    playEdgesFireOncePerSession();
     snapshotRestoresExactly();
     return rbtest::summary("core_scheduler");
 }

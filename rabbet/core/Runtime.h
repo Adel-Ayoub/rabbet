@@ -81,6 +81,13 @@ public:
     void stop();
     void run();
 
+    // Drive the play-session edges. The editor calls beginPlay() on Play and endPlay()
+    // on Stop; each notifies Play-phase systems once (idempotent). Independent of the
+    // per-frame setPlaying() gate, which Pause/Step toggle every frame.
+    void beginPlay();
+    void endPlay();
+    [[nodiscard]] bool inPlaySession() const noexcept { return m_inPlaySession; }
+
     void requestStop() noexcept { m_running = false; }
     [[nodiscard]] bool running() const noexcept { return m_running; }
     void setFixedDelta(float seconds) noexcept { m_fixedDelta = seconds; }
@@ -104,6 +111,7 @@ private:
     bool m_running = false;
     bool m_started = false;
     bool m_playing = false;
+    bool m_inPlaySession = false;
 };
 
 } // namespace rb

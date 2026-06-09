@@ -21,6 +21,12 @@ public:
     virtual void onStart(Runtime&) {}
     virtual void onUpdate(Runtime&, float) {}
     virtual void onStop(Runtime&) {}
+
+    // Play-session edges, distinct from the per-frame play gate: onPlayBegin fires once
+    // when Play is pressed and onPlayEnd once on Stop. Pause/Step only gate onUpdate, so
+    // they do not fire these. Only Play-phase systems receive them.
+    virtual void onPlayBegin(Runtime&) {}
+    virtual void onPlayEnd(Runtime&) {}
 };
 
 } // namespace rb
