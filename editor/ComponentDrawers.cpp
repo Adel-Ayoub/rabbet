@@ -8,6 +8,8 @@
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
+#include "rabbet/scripting/ScriptComponent.h"
+#include "rabbet/scripting/ScriptField.h"
 #include "rabbet/serialize/ComponentRegistry.h"
 
 #include <glm/gtc/quaternion.hpp>
@@ -114,6 +116,53 @@ void drawModelRenderer(rb::Scene& scene, rb::Entity e) {
     }
 }
 
+// The .lua reference is assigned from the Assets panel (it needs the asset database);
+// here we show the bound script and edit its exposed fields, which drive the running
+// script and serialize with the component.
+void drawScript(rb::Scene& scene, rb::Entity e) {
+    rb::ScriptComponent& s = scene.get<rb::ScriptComponent>(e);
+    if (!s.script.valid()) {
+        ImGui::TextDisabled("No script assigned");
+        ImGui::TextDisabled("Assign a .lua from the Assets panel.");
+        return;
+    }
+    ImGui::Text("Script %s", s.script.toString().c_str());
+    ImGui::TextDisabled("%s", s.handle.valid() ? "resolved" : "unresolved (re-assign or import)");
+    if (ImGui::Button("Clear")) {
+        s.script = rb::Uuid{};
+        s.handle = {};
+        s.fields.clear();
+        return;
+    }
+    if (s.fields.empty()) {
+        ImGui::TextDisabled("(no exposed fields)");
+        return;
+    }
+    ImGui::SeparatorText("Fields");
+    for (rb::ScriptField& f : s.fields) {
+        switch (f.type) {
+        case rb::ScriptField::Type::Number: {
+            float value = static_cast<float>(f.number);
+            if (ImGui::DragFloat(f.name.c_str(), &value, 0.05f)) {
+                f.number = static_cast<double>(value);
+            }
+            break;
+        }
+        case rb::ScriptField::Type::Boolean:
+            ImGui::Checkbox(f.name.c_str(), &f.boolean);
+            break;
+        case rb::ScriptField::Type::String: {
+            char buffer[256];
+            std::snprintf(buffer, sizeof(buffer), "%s", f.text.c_str());
+            if (ImGui::InputText(f.name.c_str(), buffer, sizeof(buffer))) {
+                f.text = buffer;
+            }
+            break;
+        }
+        }
+    }
+}
+
 } // namespace
 
 void registerComponentDrawers(rb::ComponentRegistry& registry) {
@@ -124,6 +173,7 @@ void registerComponentDrawers(rb::ComponentRegistry& registry) {
     registry.setDrawer("PointLight", &drawPointLight);
     registry.setDrawer("Primitive", &drawPrimitive);
     registry.setDrawer("ModelRenderer", &drawModelRenderer);
+    registry.setDrawer("ScriptComponent", &drawScript);
 }
 
 } // namespace rb::editor

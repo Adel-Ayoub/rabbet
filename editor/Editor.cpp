@@ -36,6 +36,11 @@
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scene/TransformSystem.h"
+#include "rabbet/scripting/ScriptAsset.h"
+#include "rabbet/scripting/ScriptAssetResolveSystem.h"
+#include "rabbet/scripting/ScriptComponent.h"
+#include "rabbet/scripting/ScriptImport.h"
+#include "rabbet/scripting/ScriptSystem.h"
 #include "rabbet/serialize/BuiltinComponents.h"
 #include "rabbet/serialize/SceneSerializer.h"
 #include "rabbet/util/Log.h"
@@ -127,6 +132,11 @@ void Editor::buildDefaultScene() {
     rb::Lighting& lighting = m_runtime.addResource<rb::Lighting>();
     lighting.ambient = glm::vec3(0.32f, 0.34f, 0.40f);
 
+    // ScriptSystem (Play phase) runs before TransformSystem so a script's transform edits
+    // are baked into world matrices the same frame; its resolve system (Always) keeps the
+    // .lua handle current and polls for hot reloads.
+    m_runtime.addSystem<rb::ScriptAssetResolveSystem>();
+    m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::TransformSystem>();
     m_runtime.addSystem<rb::LightSystem>();
     m_runtime.addSystem<rb::AssetResolveSystem>();
@@ -167,6 +177,20 @@ void Editor::buildDefaultScene() {
     renderer.handle = crate;
     scene.add<rb::ModelRenderer>(crateEntity, renderer);
     m_context.selected = crateEntity;
+
+    // Attach a sample Lua behavior so pressing Play spins the crate (and hot-reloads when
+    // the .lua is edited). The script's exposed fields are introspected for the inspector.
+    const rb::AssetHandle<rb::ScriptAsset> spin =
+        rb::loadScriptAsset(assets, assetsRoot / "scripts/spin.lua");
+    if (spin.valid()) {
+        rb::ScriptComponent script;
+        script.script = assets.uuidOf(spin);
+        script.handle = spin;
+        if (const rb::ScriptAsset* asset = assets.get<rb::ScriptAsset>(spin)) {
+            rb::introspectScriptFields(asset->source, script.fields);
+        }
+        scene.add<rb::ScriptComponent>(crateEntity, script);
+    }
 
     const rb::Entity sun = scene.create();
     scene.add<rb::Name>(sun, rb::Name{"Sun"});
@@ -337,6 +361,7 @@ void Editor::openScene() {
 void Editor::startPlay() {
     // Snapshot the authored scene; gameplay edits during play are discarded on Stop.
     m_snapshot = rb::SceneSerializer::toJson(m_runtime.scene(), m_registry);
+    m_runtime.beginPlay(); // fire onPlayBegin (scripts reset for a fresh session)
     m_playSession = true;
     m_paused = false;
     m_step = false;
@@ -348,6 +373,7 @@ void Editor::stopPlay() {
     m_paused = false;
     m_step = false;
     m_runtime.setPlaying(false);
+    m_runtime.endPlay(); // fire onPlayEnd while entities still exist (scripts tear down)
     m_runtime.scene().clear();
     rb::SceneSerializer::fromJson(m_snapshot, m_runtime.scene(), m_registry);
     m_context.selected = rb::Entity{};
@@ -356,9 +382,10 @@ void Editor::stopPlay() {
 
 void Editor::run() {
     buildDefaultScene();
+    // Input lives as a resource so the ScriptSystem (and any gameplay system) can query it.
+    rb::Input& input = m_runtime.addResource<rb::Input>(m_window.handle());
     m_runtime.start();
 
-    rb::Input input(m_window.handle());
     rb::FrameClock clock;
     while (!m_window.shouldClose()) {
         m_window.pollEvents();

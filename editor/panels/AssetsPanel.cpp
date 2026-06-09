@@ -10,6 +10,10 @@
 #include "rabbet/render/ModelAsset.h"
 #include "rabbet/render/ModelImport.h"
 #include "rabbet/render/ModelRenderer.h"
+#include "rabbet/scripting/ScriptAsset.h"
+#include "rabbet/scripting/ScriptComponent.h"
+#include "rabbet/scripting/ScriptImport.h"
+#include "rabbet/scripting/ScriptSystem.h"
 #include "rabbet/util/Log.h"
 
 #include <imgui.h>
@@ -21,8 +25,9 @@
 namespace rb::editor {
 namespace {
 
-constexpr std::array<rb::AssetType, 4> kBrowseOrder = {
-    rb::AssetType::Model, rb::AssetType::Texture, rb::AssetType::Scene, rb::AssetType::Prefab};
+constexpr std::array<rb::AssetType, 5> kBrowseOrder = {rb::AssetType::Model, rb::AssetType::Script,
+                                                      rb::AssetType::Texture, rb::AssetType::Scene,
+                                                      rb::AssetType::Prefab};
 
 void assignModelToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
     rb::Scene& scene = context.runtime.scene();
@@ -48,6 +53,39 @@ void assignModelToEntity(EditorContext& context, const rb::AssetDatabase::Record
                   context.selected.index());
 }
 
+void assignScriptToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
+    rb::Scene& scene = context.runtime.scene();
+    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
+    if (assets == nullptr || !scene.alive(context.selected)) {
+        return;
+    }
+    const rb::AssetHandle<rb::ScriptAsset> handle = rb::loadScriptAsset(*assets, record.path);
+    if (!handle.valid()) {
+        rb::log::error("assets: failed to load script '{}'", record.path.string());
+        return;
+    }
+    rb::ScriptComponent* script = scene.tryGet<rb::ScriptComponent>(context.selected);
+    if (script == nullptr) {
+        script = &scene.add<rb::ScriptComponent>(context.selected, rb::ScriptComponent{});
+    }
+    script->script = record.id;
+    script->handle = {}; // ScriptAssetResolveSystem repopulates it from the uuid
+    script->fields.clear();
+    if (const rb::ScriptAsset* asset = assets->get<rb::ScriptAsset>(handle)) {
+        rb::introspectScriptFields(asset->source, script->fields);
+    }
+    rb::log::info("assets: assigned script '{}' to entity {}", record.name,
+                  context.selected.index());
+}
+
+void assignToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
+    if (record.type == rb::AssetType::Model) {
+        assignModelToEntity(context, record);
+    } else if (record.type == rb::AssetType::Script) {
+        assignScriptToEntity(context, record);
+    }
+}
+
 } // namespace
 
 void AssetsPanel::onImGui() {
@@ -60,11 +98,12 @@ void AssetsPanel::onImGui() {
     const rb::AssetDatabase::Record* selected =
         m_selected.valid() ? database->find(m_selected) : nullptr;
 
-    const bool canAssign = selected != nullptr && selected->type == rb::AssetType::Model &&
-                           m_context.runtime.scene().alive(m_context.selected);
+    const bool assignable = selected != nullptr && (selected->type == rb::AssetType::Model ||
+                                                    selected->type == rb::AssetType::Script);
+    const bool canAssign = assignable && m_context.runtime.scene().alive(m_context.selected);
     ImGui::BeginDisabled(!canAssign);
     if (ImGui::Button("Assign to selected entity") && selected != nullptr) {
-        assignModelToEntity(m_context, *selected);
+        assignToEntity(m_context, *selected);
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
