@@ -139,6 +139,32 @@ target_include_directories(sol2 SYSTEM INTERFACE "${sol2_SOURCE_DIR}/include")
 target_compile_definitions(sol2 INTERFACE SOL_NO_LUA_HPP=1 SOL_ALL_SAFETIES_ON=1)
 target_link_libraries(sol2 INTERFACE lua)
 
+# Jolt Physics. Its CMake lives in a Build/ subdir; SOURCE_SUBDIR points MakeAvailable
+# there. Disable its sample/test/viewer executables, stop it from overriding our global
+# CXX flags, and stop it forcing its own -Werror; then mark its headers SYSTEM so they do
+# not trip our strict warnings. Linked PRIVATE to the core behind PhysicsSystem's pImpl.
+set(OVERRIDE_CXX_FLAGS OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
+set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
+set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
+set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    JoltPhysics
+    GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+    GIT_TAG v5.5.0
+    GIT_SHALLOW ON
+    SOURCE_SUBDIR Build)
+FetchContent_MakeAvailable(JoltPhysics)
+if(TARGET Jolt)
+    get_target_property(_jolt_includes Jolt INTERFACE_INCLUDE_DIRECTORIES)
+    if(_jolt_includes)
+        set_target_properties(Jolt PROPERTIES
+            INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_jolt_includes}")
+    endif()
+endif()
+
 find_package(OpenGL REQUIRED)
 
 option(RABBET_BUILD_TESTS "Build the unit test suite" ON)
