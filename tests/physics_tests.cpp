@@ -107,6 +107,26 @@ void rebuildsBetweenSessions() {
     CHECK(afterReset > 3.0f);
 }
 
+// The fixed-timestep accumulator: a sub-step-sized dt does not advance the sim yet, and a
+// huge dt is capped (not integrated as one giant freefall) so a hitch can't explode the sim.
+void accumulatorGatesAndCaps() {
+    rb::Runtime gate;
+    rb::PhysicsSystem pg;
+    const rb::Entity bg = makeBox(gate, glm::vec3(0.0f, 5.0f, 0.0f), rb::BodyType::Dynamic);
+    pg.onPlayBegin(gate);
+    pg.onUpdate(gate, 1.0f / 600.0f); // below the 1/60 fixed step -> no substep
+    CHECK(posY(gate, bg) == 5.0f);
+
+    rb::Runtime cap;
+    rb::PhysicsSystem pc;
+    const rb::Entity bc = makeBox(cap, glm::vec3(0.0f, 5.0f, 0.0f), rb::BodyType::Dynamic);
+    pc.onPlayBegin(cap);
+    pc.onUpdate(cap, 10.0f); // one giant frame: capped to a few substeps, not 10s of freefall
+    const float dropped = 5.0f - posY(cap, bc);
+    CHECK(dropped > 0.0f);
+    CHECK(dropped < 1.0f);
+}
+
 } // namespace
 
 int main() {
@@ -114,5 +134,6 @@ int main() {
     staticStaysPut();
     noGravityFloats();
     rebuildsBetweenSessions();
+    accumulatorGatesAndCaps();
     return rbtest::summary("physics");
 }

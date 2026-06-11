@@ -1,7 +1,6 @@
 #include "rabbet/physics/PhysicsSystem.h"
 
 #include <algorithm>
-#include <cstdint>
 #include <thread>
 #include <unordered_map>
 
@@ -115,6 +114,11 @@ JPH::EMotionType motionType(BodyType type) {
     return JPH::EMotionType::Dynamic;
 }
 
+// Advance physics in fixed substeps so the simulation is frame-rate independent; cap the
+// substeps per frame so a long hitch can't trigger a spiral of death (the backlog is dropped).
+constexpr float kFixedTimestep = 1.0f / 60.0f;
+constexpr int kMaxSubsteps = 5;
+
 } // namespace
 
 struct PhysicsSystem::Impl {
@@ -140,6 +144,7 @@ struct PhysicsSystem::Impl {
     ObjectLayerPairFilter m_objectPairFilter;
     JPH::PhysicsSystem m_physics;
     std::unordered_map<Entity, Record> m_bodies;
+    float m_accumulator = 0.0f;
 
     Impl() {
         m_physics.Init(1024, 0, 1024, 1024, m_broadPhaseMap, m_objectVsBroadPhase,
@@ -157,6 +162,7 @@ struct PhysicsSystem::Impl {
 
     void build(Runtime& runtime) {
         teardown();
+        m_accumulator = 0.0f;
         Scene& scene = runtime.scene();
         JPH::BodyInterface& bodies = m_physics.GetBodyInterface();
 
@@ -208,6 +214,9 @@ struct PhysicsSystem::Impl {
             const JPH::BodyID id = bodies.CreateAndAddBody(settings, activation);
             if (!id.IsInvalid()) {
                 m_bodies.emplace(entity, Record{id, offset});
+            } else {
+                log::warn("physics: could not create a body for entity {} (body limit reached?)",
+                          entity.index());
             }
         });
 
@@ -218,11 +227,19 @@ struct PhysicsSystem::Impl {
         if (m_bodies.empty()) {
             return;
         }
-        const float clamped = std::min(std::max(dt, 0.0f), 1.0f / 30.0f);
-        if (clamped <= 0.0f) {
-            return;
+        m_accumulator += std::max(dt, 0.0f);
+        int steps = 0;
+        while (m_accumulator >= kFixedTimestep && steps < kMaxSubsteps) {
+            m_physics.Update(kFixedTimestep, 1, &m_tempAllocator, &m_jobSystem);
+            m_accumulator -= kFixedTimestep;
+            ++steps;
         }
-        m_physics.Update(clamped, 1, &m_tempAllocator, &m_jobSystem);
+        if (m_accumulator > kFixedTimestep) {
+            m_accumulator = 0.0f; // dropped backlog after a hitch (hit the substep cap)
+        }
+        if (steps == 0) {
+            return; // not enough elapsed time to advance a fixed step this frame
+        }
 
         Scene& scene = runtime.scene();
         JPH::BodyInterface& bodies = m_physics.GetBodyInterface();
