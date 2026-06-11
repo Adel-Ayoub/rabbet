@@ -13,6 +13,9 @@
 #include "rabbet/core/Uuid.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
+#include "rabbet/physics/BoxCollider.h"
+#include "rabbet/physics/RigidBody.h"
+#include "rabbet/physics/SphereCollider.h"
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptField.h"
 
@@ -138,6 +141,43 @@ inline void from_json(const nlohmann::json& j, Primitive& p) {
     j.at("color").get_to(p.color);
     j.at("metallic").get_to(p.metallic);
     j.at("roughness").get_to(p.roughness);
+}
+
+NLOHMANN_JSON_SERIALIZE_ENUM(BodyType, {
+                                           {BodyType::Static, "Static"},
+                                           {BodyType::Dynamic, "Dynamic"},
+                                           {BodyType::Kinematic, "Kinematic"},
+                                       })
+
+inline void to_json(nlohmann::json& j, const RigidBody& b) {
+    j = nlohmann::json{{"type", b.type},
+                       {"mass", b.mass},
+                       {"friction", b.friction},
+                       {"restitution", b.restitution},
+                       {"gravity", b.gravity}};
+}
+inline void from_json(const nlohmann::json& j, RigidBody& b) {
+    j.at("type").get_to(b.type);
+    j.at("mass").get_to(b.mass);
+    j.at("friction").get_to(b.friction);
+    j.at("restitution").get_to(b.restitution);
+    j.at("gravity").get_to(b.gravity);
+}
+
+inline void to_json(nlohmann::json& j, const BoxCollider& c) {
+    j = nlohmann::json{{"halfExtents", c.halfExtents}, {"offset", c.offset}};
+}
+inline void from_json(const nlohmann::json& j, BoxCollider& c) {
+    j.at("halfExtents").get_to(c.halfExtents);
+    j.at("offset").get_to(c.offset);
+}
+
+inline void to_json(nlohmann::json& j, const SphereCollider& c) {
+    j = nlohmann::json{{"radius", c.radius}, {"offset", c.offset}};
+}
+inline void from_json(const nlohmann::json& j, SphereCollider& c) {
+    j.at("radius").get_to(c.radius);
+    j.at("offset").get_to(c.offset);
 }
 
 void registerBuiltinComponents(ComponentRegistry& registry);

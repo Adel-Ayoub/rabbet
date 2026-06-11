@@ -12,6 +12,7 @@ set(RABBET_TEST_SUITES
     core_clock
     core_scheduler
     script
+    physics
     util_log
     scene_transform
     scene_camera

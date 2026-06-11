@@ -38,6 +38,7 @@ target_sources(rabbet
         scripting/ScriptImport.cpp
         scripting/ScriptAssetResolveSystem.cpp
         scripting/ScriptSystem.cpp
+        physics/PhysicsSystem.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
         BASE_DIRS "${PROJECT_SOURCE_DIR}"
@@ -110,7 +111,12 @@ target_sources(rabbet
             scripting/ScriptAsset.h
             scripting/ScriptImport.h
             scripting/ScriptAssetResolveSystem.h
-            scripting/ScriptSystem.h)
+            scripting/ScriptSystem.h
+            physics/RigidBody.h
+            physics/BoxCollider.h
+            physics/SphereCollider.h
+            physics/PhysicsSystem.h
+            render/DebugDraw.h)
 
 target_include_directories(rabbet PUBLIC
     "${PROJECT_SOURCE_DIR}")
@@ -125,7 +131,8 @@ target_link_libraries(rabbet
     PRIVATE
         stb
         assimp::assimp
-        sol2)
+        sol2
+        Jolt)
 
 target_compile_features(rabbet PUBLIC cxx_std_20)
 

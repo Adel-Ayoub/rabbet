@@ -13,6 +13,9 @@ void registerBuiltinComponents(ComponentRegistry& registry) {
     registry.add<ModelRenderer>("ModelRenderer");
     registry.add<Primitive>("Primitive");
     registry.add<ScriptComponent>("ScriptComponent");
+    registry.add<RigidBody>("RigidBody");
+    registry.add<BoxCollider>("BoxCollider");
+    registry.add<SphereCollider>("SphereCollider");
 }
 
 } // namespace rb
