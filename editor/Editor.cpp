@@ -14,7 +14,11 @@
 #include "rabbet/core/Clock.h"
 #include "rabbet/platform/Input.h"
 #include "rabbet/platform/Window.h"
+#include "rabbet/physics/BoxCollider.h"
+#include "rabbet/physics/PhysicsSystem.h"
+#include "rabbet/physics/RigidBody.h"
 #include "rabbet/render/AssetResolveSystem.h"
+#include "rabbet/render/DebugDraw.h"
 #include "rabbet/render/Geometry.h"
 #include "rabbet/render/Image.h"
 #include "rabbet/render/ImageLoader.h"
@@ -131,12 +135,14 @@ void Editor::buildDefaultScene() {
     rb::AssetDatabase& database = m_runtime.addResource<rb::AssetDatabase>();
     rb::Lighting& lighting = m_runtime.addResource<rb::Lighting>();
     lighting.ambient = glm::vec3(0.32f, 0.34f, 0.40f);
+    m_runtime.addResource<rb::DebugDraw>(); // collider gizmo toggle (on by default)
 
     // ScriptSystem (Play phase) runs before TransformSystem so a script's transform edits
     // are baked into world matrices the same frame; its resolve system (Always) keeps the
     // .lua handle current and polls for hot reloads.
     m_runtime.addSystem<rb::ScriptAssetResolveSystem>();
     m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
+    m_runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::TransformSystem>();
     m_runtime.addSystem<rb::LightSystem>();
     m_runtime.addSystem<rb::AssetResolveSystem>();
@@ -160,6 +166,9 @@ void Editor::buildDefaultScene() {
     scene.add<rb::Transform>(floor, floorTransform);
     scene.add<rb::Primitive>(
         floor, rb::Primitive{rb::PrimitiveShape::Cube, glm::vec3(0.58f, 0.60f, 0.64f), 0.0f, 0.95f});
+    // Static physics floor matching the visual box, so dropped bodies land on it.
+    scene.add<rb::RigidBody>(floor, rb::RigidBody{rb::BodyType::Static, 0.0f, 0.4f, 0.0f, true});
+    scene.add<rb::BoxCollider>(floor, rb::BoxCollider{glm::vec3(9.0f, 0.15f, 9.0f), glm::vec3(0.0f)});
 
     // Real crate model loaded through the asset pipeline (assimp -> AssetManager),
     // referenced by uuid via ModelRenderer and resolved by AssetResolveSystem.
@@ -209,6 +218,27 @@ void Editor::buildDefaultScene() {
     lampLight.color = glm::vec3(0.6f, 0.75f, 1.0f);
     lampLight.intensity = 5.0f;
     scene.add<rb::PointLight>(lamp, lampLight);
+
+    // Dynamic boxes stacked above the floor: pressing Play drops them onto it, and their
+    // colliders draw as wireframe gizmos. Slight offsets and tilts so they tumble.
+    const std::array<glm::vec3, 3> boxColors = {
+        glm::vec3(0.85f, 0.35f, 0.30f), glm::vec3(0.35f, 0.65f, 0.85f),
+        glm::vec3(0.85f, 0.75f, 0.35f)};
+    for (int i = 0; i < 3; ++i) {
+        const float fi = static_cast<float>(i);
+        const rb::Entity box = scene.create();
+        scene.add<rb::Name>(box, rb::Name{"Box " + std::to_string(i + 1)});
+        rb::Transform boxTransform;
+        boxTransform.position = glm::vec3(0.3f * fi - 0.3f, 2.0f + 1.4f * fi, 0.25f * fi);
+        boxTransform.rotation =
+            glm::angleAxis(glm::radians(14.0f * fi), glm::normalize(glm::vec3(0.3f, 1.0f, 0.2f)));
+        scene.add<rb::Transform>(box, boxTransform);
+        scene.add<rb::Primitive>(
+            box, rb::Primitive{rb::PrimitiveShape::Cube, boxColors[static_cast<std::size_t>(i)],
+                               0.0f, 0.6f});
+        scene.add<rb::RigidBody>(box, rb::RigidBody{rb::BodyType::Dynamic, 1.0f, 0.4f, 0.15f, true});
+        scene.add<rb::BoxCollider>(box, rb::BoxCollider{glm::vec3(0.5f), glm::vec3(0.0f)});
+    }
 
     const std::size_t count = database.scan(assetsRoot, &assets);
     rb::log::info("editor: project assets catalogued: {}", count);

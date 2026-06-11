@@ -4,6 +4,7 @@
 
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/render/DebugDraw.h"
 #include "rabbet/scene/Transform.h"
 
 #include <ImGuizmo.h>
@@ -76,6 +77,10 @@ void ViewportPanel::drawGizmo(const ImVec2& imageMin, const ImVec2& imageSize) {
     }
     ImGui::SameLine();
     ImGui::Checkbox("Snap", &m_snap);
+    if (rb::DebugDraw* debug = m_context.runtime.tryResource<rb::DebugDraw>()) {
+        ImGui::SameLine();
+        ImGui::Checkbox("Colliders", &debug->colliders);
+    }
     ImGui::EndGroup();
 
     rb::Scene& scene = m_context.runtime.scene();

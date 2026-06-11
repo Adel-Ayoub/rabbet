@@ -2,6 +2,9 @@
 
 #include "rabbet/core/Uuid.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/physics/BoxCollider.h"
+#include "rabbet/physics/RigidBody.h"
+#include "rabbet/physics/SphereCollider.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/scene/Camera.h"
@@ -163,6 +166,27 @@ void drawScript(rb::Scene& scene, rb::Entity e) {
     }
 }
 
+void drawRigidBody(rb::Scene& scene, rb::Entity e) {
+    rb::RigidBody& b = scene.get<rb::RigidBody>(e);
+    enumCombo("Type", b.type);
+    ImGui::DragFloat("Mass", &b.mass, 0.05f, 0.0f, 1000.0f);
+    ImGui::DragFloat("Friction", &b.friction, 0.01f, 0.0f, 2.0f);
+    ImGui::DragFloat("Restitution", &b.restitution, 0.01f, 0.0f, 1.0f);
+    ImGui::Checkbox("Gravity", &b.gravity);
+}
+
+void drawBoxCollider(rb::Scene& scene, rb::Entity e) {
+    rb::BoxCollider& c = scene.get<rb::BoxCollider>(e);
+    ImGui::DragFloat3("Half Extents", &c.halfExtents.x, 0.05f, 0.01f, 1000.0f);
+    ImGui::DragFloat3("Offset", &c.offset.x, 0.05f);
+}
+
+void drawSphereCollider(rb::Scene& scene, rb::Entity e) {
+    rb::SphereCollider& c = scene.get<rb::SphereCollider>(e);
+    ImGui::DragFloat("Radius", &c.radius, 0.05f, 0.01f, 1000.0f);
+    ImGui::DragFloat3("Offset", &c.offset.x, 0.05f);
+}
+
 } // namespace
 
 void registerComponentDrawers(rb::ComponentRegistry& registry) {
@@ -174,6 +198,9 @@ void registerComponentDrawers(rb::ComponentRegistry& registry) {
     registry.setDrawer("Primitive", &drawPrimitive);
     registry.setDrawer("ModelRenderer", &drawModelRenderer);
     registry.setDrawer("ScriptComponent", &drawScript);
+    registry.setDrawer("RigidBody", &drawRigidBody);
+    registry.setDrawer("BoxCollider", &drawBoxCollider);
+    registry.setDrawer("SphereCollider", &drawSphereCollider);
 }
 
 } // namespace rb::editor
