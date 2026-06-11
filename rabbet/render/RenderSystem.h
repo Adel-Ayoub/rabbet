@@ -30,6 +30,7 @@ private:
     std::optional<gl::Shader> m_pbr;
     std::optional<gl::Shader> m_depth;
     std::optional<gl::Shader> m_pick;
+    std::optional<gl::Shader> m_flat; // unlit single-colour, for collider wireframes
     std::optional<gl::DepthMap> m_shadowMap;
     std::optional<gl::PickBuffer> m_pickBuffer;
     std::optional<gl::Mesh> m_missingMesh;

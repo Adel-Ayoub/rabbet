@@ -14,11 +14,17 @@
 #include "rabbet/render/Primitive.h"
 #include "rabbet/render/TextureAsset.h"
 #include "rabbet/assets/AssetManager.h"
+#include "rabbet/physics/BoxCollider.h"
+#include "rabbet/physics/SphereCollider.h"
+#include "rabbet/render/DebugDraw.h"
+#include "rabbet/scene/Transform.h"
 #include "rabbet/scene/WorldMatrix.h"
 #include "rabbet/util/Log.h"
 
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -78,6 +84,23 @@ uniform int uEntityId;
 layout(location = 0) out int oEntityId;
 void main() {
     oEntityId = uEntityId;
+}
+)";
+
+constexpr const char* kFlatVertex = R"(#version 410 core
+layout(location = 0) in vec3 aPosition;
+uniform mat4 uModel;
+uniform mat4 uViewProjection;
+void main() {
+    gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);
+}
+)";
+
+constexpr const char* kFlatFragment = R"(#version 410 core
+out vec4 FragColor;
+uniform vec3 uColor;
+void main() {
+    FragColor = vec4(uColor, 1.0);
 }
 )";
 
@@ -278,6 +301,10 @@ void RenderSystem::onStart(Runtime&) {
     if (!m_pick) {
         log::error("render system: failed to build the pick shader");
     }
+    m_flat = gl::Shader::fromSource(kFlatVertex, kFlatFragment);
+    if (!m_flat) {
+        log::error("render system: failed to build the flat shader");
+    }
     m_shadowMap = gl::DepthMap::create(kShadowMapSize, kShadowMapSize);
     m_missingMesh = gl::Mesh::create(geometry::cube());
     m_missingTexture = gl::Texture::solid(255, 0, 255);
@@ -462,6 +489,43 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                 m_pbr->setFloat("uAo", 1.0f);
                 mesh->draw();
             });
+    }
+
+    // Collider debug wireframes (toggled by the editor). Drawn unlit, depth-test off so the
+    // outlines read as gizmos sitting over the shaded scene rather than being occluded by it.
+    if (const DebugDraw* debug = runtime.tryResource<DebugDraw>();
+        m_flat && debug != nullptr && debug->colliders) {
+        m_flat->bind();
+        m_flat->setMat4("uViewProjection", viewProjection);
+        m_flat->setVec3("uColor", glm::vec3(0.25f, 0.95f, 0.40f));
+        glDisable(GL_DEPTH_TEST);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        runtime.scene().each<Transform, BoxCollider>(
+            [this](Entity, Transform& transform, BoxCollider& box) {
+                if (!m_primitiveCube) {
+                    return;
+                }
+                const glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position) *
+                                        glm::mat4_cast(transform.rotation) *
+                                        glm::translate(glm::mat4(1.0f), box.offset) *
+                                        glm::scale(glm::mat4(1.0f), box.halfExtents * 2.0f);
+                m_flat->setMat4("uModel", model);
+                m_primitiveCube->draw();
+            });
+        runtime.scene().each<Transform, SphereCollider>(
+            [this](Entity, Transform& transform, SphereCollider& sphere) {
+                if (!m_primitiveSphere) {
+                    return;
+                }
+                const glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position) *
+                                        glm::mat4_cast(transform.rotation) *
+                                        glm::translate(glm::mat4(1.0f), sphere.offset) *
+                                        glm::scale(glm::mat4(1.0f), glm::vec3(sphere.radius * 2.0f));
+                m_flat->setMat4("uModel", model);
+                m_primitiveSphere->draw();
+            });
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glEnable(GL_DEPTH_TEST);
     }
 }
 
