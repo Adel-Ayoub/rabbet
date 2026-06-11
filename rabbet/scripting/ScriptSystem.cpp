@@ -169,9 +169,10 @@ struct ScriptSystem::Impl {
         sol::object self;
         Uuid script;
         std::uint32_t revision = 0;
-        bool compiled = false; // a compile was attempted for (script, revision)
-        bool ok = false;       // the attempt produced runnable hooks
-        bool started = false;  // on_start has run this play session
+        bool compiled = false;    // a compile was attempted for (script, revision)
+        bool ok = false;          // the attempt produced runnable hooks
+        bool started = false;     // on_start has run this play session
+        bool errorLogged = false; // a runtime error was already reported (throttle)
     };
 
     sol::state lua;
@@ -229,6 +230,7 @@ struct ScriptSystem::Impl {
                  ScriptComponent& component) {
         instance.ok = false;
         instance.started = false;
+        instance.errorLogged = false;
         const std::string chunkName = "@" + asset.path.string();
 
         sol::environment env(lua, sol::create, lua.globals());
@@ -255,15 +257,16 @@ struct ScriptSystem::Impl {
         instance.ok = true;
     }
 
-    void invoke(sol::protected_function& fn, const char* hook, sol::object self, float dt) {
+    void invoke(Instance& instance, sol::protected_function& fn, const char* hook, float dt) {
         if (!fn.valid()) {
             return;
         }
         sol::protected_function_result result =
-            (dt < 0.0f) ? fn(self) : fn(self, static_cast<double>(dt));
-        if (!result.valid()) {
+            (dt < 0.0f) ? fn(instance.self) : fn(instance.self, static_cast<double>(dt));
+        if (!result.valid() && !instance.errorLogged) {
             const sol::error err = result;
             log::error("script: {} error: {}", hook, err.what());
+            instance.errorLogged = true; // throttle: report once until the script recompiles
         }
     }
 
@@ -297,10 +300,10 @@ struct ScriptSystem::Impl {
             }
             syncFields(instance, component);
             if (!instance.started) {
-                invoke(instance.onStart, "on_start", instance.self, -1.0f);
+                invoke(instance, instance.onStart, "on_start", -1.0f);
                 instance.started = true;
             }
-            invoke(instance.onUpdate, "on_update", instance.self, dt);
+            invoke(instance, instance.onUpdate, "on_update", dt);
         });
     }
 };
