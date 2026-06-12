@@ -49,7 +49,9 @@ AssetType assetTypeFromExtension(const std::filesystem::path& path) {
     if (ext == ".lua") {
         return AssetType::Script;
     }
-    if (ext == ".wav" || ext == ".ogg" || ext == ".mp3") {
+    // Formats miniaudio decodes natively. Ogg Vorbis needs a stb_vorbis decoding backend that
+    // is not wired up, so it is deliberately not advertised here (it would fail at load).
+    if (ext == ".wav" || ext == ".mp3" || ext == ".flac") {
         return AssetType::Audio;
     }
     return AssetType::Unknown;

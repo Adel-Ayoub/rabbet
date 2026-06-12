@@ -208,6 +208,10 @@ void drawSoundEmitter(rb::Scene& scene, rb::Entity e) {
     ImGui::Checkbox("Loop", &s.loop);
     ImGui::Checkbox("Spatial", &s.spatial);
     ImGui::Checkbox("Play on start", &s.playOnStart);
+    ImGui::Checkbox("Stream", &s.stream);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Stream from disk instead of decoding up front (for long music tracks).");
+    }
 }
 
 } // namespace

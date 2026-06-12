@@ -72,7 +72,8 @@ void writeWav(const fs::path& path) {
 }
 
 rb::Entity addEmitter(rb::Runtime& runtime, rb::AssetManager& assets, const fs::path& wav,
-                      const glm::vec3& position, bool spatial, bool playOnStart, bool loop = false) {
+                      const glm::vec3& position, bool spatial, bool playOnStart, bool loop = false,
+                      bool stream = false) {
     const rb::AssetHandle<rb::AudioAsset> handle = rb::loadAudioAsset(assets, wav);
     const rb::Entity e = runtime.scene().create();
     rb::Transform transform;
@@ -84,6 +85,7 @@ rb::Entity addEmitter(rb::Runtime& runtime, rb::AssetManager& assets, const fs::
     emitter.spatial = spatial;
     emitter.playOnStart = playOnStart;
     emitter.loop = loop;
+    emitter.stream = stream;
     runtime.scene().add<rb::SoundEmitter>(e, emitter);
     return e;
 }
@@ -163,6 +165,59 @@ void spatialFlagAndPosition(const fs::path& wav) {
     }
 }
 
+// play()/stop() drive a voice that did not start on its own, and play() re-triggers from the
+// beginning after it was stopped. An unknown entity has no voice, so play() reports failure.
+void replayWithPlayAndStop(const fs::path& wav) {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AudioSystem audio;
+    const rb::Entity e = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, false);
+
+    audio.onPlayBegin(runtime);
+    CHECK(audio.activeVoiceCount() == 1u);
+    CHECK(!audio.voicePlaying(e)); // built but idle (playOnStart = false)
+
+    CHECK(audio.play(e));
+    CHECK(audio.voicePlaying(e));
+
+    audio.stop(e);
+    CHECK(!audio.voicePlaying(e));
+
+    CHECK(audio.play(e)); // re-trigger after stop
+    CHECK(audio.voicePlaying(e));
+
+    CHECK(!audio.play(rb::Entity{})); // no voice for an unknown entity
+}
+
+// A voice whose entity is destroyed mid-play is reaped on the next update, so a spawn/destroy
+// loop cannot leak voices.
+void reapsDestroyedEmitter(const fs::path& wav) {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AudioSystem audio;
+    const rb::Entity e = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, true);
+
+    audio.onPlayBegin(runtime);
+    CHECK(audio.activeVoiceCount() == 1u);
+
+    runtime.scene().destroy(e);
+    audio.onUpdate(runtime, 1.0f / 60.0f);
+    CHECK(audio.activeVoiceCount() == 0u);
+}
+
+// A streamed emitter (read from disk instead of fully decoded) still builds and plays.
+void streamedClipPlays(const fs::path& wav) {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AudioSystem audio;
+    const rb::Entity e =
+        addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, true, false, /*stream=*/true);
+
+    audio.onPlayBegin(runtime);
+    CHECK(audio.activeVoiceCount() == 1u);
+    CHECK(audio.voicePlaying(e));
+}
+
 // onPlayEnd tears voices down; a fresh onPlayBegin rebuilds them, so a new session plays again.
 void rebuildsBetweenSessions(const fs::path& wav) {
     rb::Runtime runtime;
@@ -214,6 +269,7 @@ void serializeRoundTrip() {
     emitter.loop = true;
     emitter.spatial = true;
     emitter.playOnStart = false;
+    emitter.stream = true;
     scene.add<rb::SoundEmitter>(e, emitter);
 
     const nlohmann::json doc = rb::SceneSerializer::toJson(scene, registry);
@@ -229,6 +285,7 @@ void serializeRoundTrip() {
         CHECK(s.loop == emitter.loop);
         CHECK(s.spatial == emitter.spatial);
         CHECK(s.playOnStart == emitter.playOnStart);
+        CHECK(s.stream == emitter.stream);
         CHECK(!s.handle.valid()); // a fresh load carries the uuid, not a runtime handle
     });
     CHECK(found);
@@ -252,6 +309,9 @@ int main() {
     notStartedWhenPlayOnStartFalse(wav);
     gatedBeforePlayBegin(wav);
     spatialFlagAndPosition(wav);
+    replayWithPlayAndStop(wav);
+    reapsDestroyedEmitter(wav);
+    streamedClipPlays(wav);
     rebuildsBetweenSessions(wav);
     resolveLazilyImports(wav);
     serializeRoundTrip();

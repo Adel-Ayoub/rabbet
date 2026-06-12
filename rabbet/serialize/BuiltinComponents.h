@@ -187,7 +187,8 @@ inline void to_json(nlohmann::json& j, const SoundEmitter& s) {
                        {"pitch", s.pitch},
                        {"loop", s.loop},
                        {"spatial", s.spatial},
-                       {"playOnStart", s.playOnStart}};
+                       {"playOnStart", s.playOnStart},
+                       {"stream", s.stream}};
 }
 inline void from_json(const nlohmann::json& j, SoundEmitter& s) {
     const std::string text = j.at("sound").get<std::string>();
@@ -201,6 +202,7 @@ inline void from_json(const nlohmann::json& j, SoundEmitter& s) {
     j.at("loop").get_to(s.loop);
     j.at("spatial").get_to(s.spatial);
     j.at("playOnStart").get_to(s.playOnStart);
+    s.stream = j.value("stream", false); // tolerate scenes written before `stream` existed
 }
 
 void registerBuiltinComponents(ComponentRegistry& registry);

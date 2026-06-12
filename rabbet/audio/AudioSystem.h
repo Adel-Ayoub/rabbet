@@ -35,6 +35,12 @@ public:
     void onPlayBegin(Runtime& runtime) override;
     void onPlayEnd(Runtime& runtime) override;
 
+    // Runtime trigger control for gameplay (or a future script binding): (re)start an entity's
+    // voice from the beginning, or stop it. Useful for one-shot SFX on emitters that don't
+    // play on start. A no-op (returns false) when the entity has no built voice this session.
+    bool play(Entity entity) noexcept;
+    void stop(Entity entity) noexcept;
+
     // Observation seams for headless tests (no audio output is asserted, only wiring).
     [[nodiscard]] bool initialized() const noexcept;
     [[nodiscard]] std::size_t activeVoiceCount() const noexcept;

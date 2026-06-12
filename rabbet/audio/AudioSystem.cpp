@@ -21,11 +21,13 @@
 namespace rb {
 namespace {
 
-// Decode the whole clip up front (no streaming/async threads) so a voice is fully ready the
-// moment it is built — deterministic for tests and fine for the short clips an emitter holds.
-constexpr ma_uint32 kSoundFlags = MA_SOUND_FLAG_DECODE;
-
 ma_bool32 toMaBool(bool value) { return value ? MA_TRUE : MA_FALSE; }
+
+// Decode short clips up front so the voice is ready immediately (deterministic, no decode
+// thread); stream long clips from disk so building one can't stall the frame on a full decode.
+ma_uint32 soundFlags(const SoundEmitter& emitter) {
+    return emitter.stream ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE;
+}
 
 } // namespace
 
@@ -35,6 +37,12 @@ struct AudioSystem::Impl {
     struct Voice {
         ma_sound sound{};
         bool inited = false;
+        // Last values pushed to miniaudio, so update() only calls setters when they change.
+        bool hasParams = false;
+        float volume = 0.0f;
+        float pitch = 0.0f;
+        bool loop = false;
+        bool spatial = false;
     };
 
     ma_context context{};
@@ -85,14 +93,32 @@ struct AudioSystem::Impl {
     }
 
     void applyProperties(Voice& voice, const SoundEmitter& emitter, const Transform* transform) {
-        ma_sound_set_volume(&voice.sound, std::max(emitter.volume, 0.0f));
-        ma_sound_set_pitch(&voice.sound, std::max(emitter.pitch, 0.01f));
-        ma_sound_set_looping(&voice.sound, toMaBool(emitter.loop));
-        ma_sound_set_spatialization_enabled(&voice.sound, toMaBool(emitter.spatial));
+        // Clamp to sane bounds so a stray serialized/scripted value can't feed miniaudio a
+        // negative or absurd gain/pitch. Only push a setter when the value actually changed.
+        const float volume = std::clamp(emitter.volume, 0.0f, 16.0f);
+        const float pitch = std::clamp(emitter.pitch, 0.0625f, 16.0f);
+        if (!voice.hasParams || voice.volume != volume) {
+            ma_sound_set_volume(&voice.sound, volume);
+            voice.volume = volume;
+        }
+        if (!voice.hasParams || voice.pitch != pitch) {
+            ma_sound_set_pitch(&voice.sound, pitch);
+            voice.pitch = pitch;
+        }
+        if (!voice.hasParams || voice.loop != emitter.loop) {
+            ma_sound_set_looping(&voice.sound, toMaBool(emitter.loop));
+            voice.loop = emitter.loop;
+        }
+        if (!voice.hasParams || voice.spatial != emitter.spatial) {
+            ma_sound_set_spatialization_enabled(&voice.sound, toMaBool(emitter.spatial));
+            voice.spatial = emitter.spatial;
+        }
+        // Position can change every frame for a moving source, so it is set unconditionally.
         if (emitter.spatial && transform != nullptr) {
             ma_sound_set_position(&voice.sound, transform->position.x, transform->position.y,
                                   transform->position.z);
         }
+        voice.hasParams = true;
     }
 
     void build(Runtime& runtime) {
@@ -114,8 +140,15 @@ struct AudioSystem::Impl {
                 return;
             }
             auto voice = std::make_unique<Voice>();
+            const ma_uint32 flags = soundFlags(emitter);
+#ifdef _WIN32
+            // Wide overload so non-ASCII asset paths survive the narrowing on Windows.
+            const ma_result result = ma_sound_init_from_file_w(
+                &engine, asset->path.wstring().c_str(), flags, nullptr, nullptr, &voice->sound);
+#else
             const ma_result result = ma_sound_init_from_file(
-                &engine, asset->path.string().c_str(), kSoundFlags, nullptr, nullptr, &voice->sound);
+                &engine, asset->path.string().c_str(), flags, nullptr, nullptr, &voice->sound);
+#endif
             if (result != MA_SUCCESS) {
                 log::warn("audio: could not load clip '{}' for entity {}", asset->path.string(),
                           entity.index());
@@ -123,8 +156,9 @@ struct AudioSystem::Impl {
             }
             voice->inited = true;
             applyProperties(*voice, emitter, scene.tryGet<Transform>(entity));
-            if (emitter.playOnStart) {
-                ma_sound_start(&voice->sound);
+            if (emitter.playOnStart && ma_sound_start(&voice->sound) != MA_SUCCESS) {
+                log::warn("audio: could not start clip '{}' for entity {}", asset->path.string(),
+                          entity.index());
             }
             voices.emplace(entity, std::move(voice));
         });
@@ -145,12 +179,31 @@ struct AudioSystem::Impl {
         ma_engine_listener_set_world_up(&engine, 0, up.x, up.y, up.z);
     }
 
+    void reap(Scene& scene) {
+        // Drop voices whose emitter was removed or whose entity was destroyed mid-play, so a
+        // spawn/destroy gameplay loop can't grow the voice set without bound.
+        for (auto it = voices.begin(); it != voices.end();) {
+            if (!scene.alive(it->first) || scene.tryGet<SoundEmitter>(it->first) == nullptr) {
+                if (it->second->inited) {
+                    ma_sound_uninit(&it->second->sound);
+                }
+                it = voices.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     void update(Runtime& runtime) {
         if (!engineOk || voices.empty()) {
             return;
         }
-        updateListener(runtime);
         Scene& scene = runtime.scene();
+        reap(scene);
+        if (voices.empty()) {
+            return;
+        }
+        updateListener(runtime);
         scene.each<SoundEmitter>([&](Entity entity, SoundEmitter& emitter) {
             const auto it = voices.find(entity);
             if (it == voices.end()) {
@@ -167,6 +220,22 @@ AudioSystem::~AudioSystem() = default;
 void AudioSystem::onUpdate(Runtime& runtime, float) { m_impl->update(runtime); }
 void AudioSystem::onPlayBegin(Runtime& runtime) { m_impl->build(runtime); }
 void AudioSystem::onPlayEnd(Runtime&) { m_impl->teardown(); }
+
+bool AudioSystem::play(Entity entity) noexcept {
+    const auto it = m_impl->voices.find(entity);
+    if (it == m_impl->voices.end()) {
+        return false;
+    }
+    ma_sound_seek_to_pcm_frame(&it->second->sound, 0); // replay from the start
+    return ma_sound_start(&it->second->sound) == MA_SUCCESS;
+}
+
+void AudioSystem::stop(Entity entity) noexcept {
+    const auto it = m_impl->voices.find(entity);
+    if (it != m_impl->voices.end()) {
+        ma_sound_stop(&it->second->sound);
+    }
+}
 
 bool AudioSystem::initialized() const noexcept { return m_impl->engineOk; }
 
