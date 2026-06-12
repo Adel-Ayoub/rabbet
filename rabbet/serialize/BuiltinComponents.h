@@ -11,6 +11,7 @@
 #include "rabbet/scene/Transform.h"
 #include "rabbet/serialize/JsonGlm.h"
 #include "rabbet/core/Uuid.h"
+#include "rabbet/audio/SoundEmitter.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/physics/BoxCollider.h"
@@ -178,6 +179,28 @@ inline void to_json(nlohmann::json& j, const SphereCollider& c) {
 inline void from_json(const nlohmann::json& j, SphereCollider& c) {
     j.at("radius").get_to(c.radius);
     j.at("offset").get_to(c.offset);
+}
+
+inline void to_json(nlohmann::json& j, const SoundEmitter& s) {
+    j = nlohmann::json{{"sound", s.sound.toString()},
+                       {"volume", s.volume},
+                       {"pitch", s.pitch},
+                       {"loop", s.loop},
+                       {"spatial", s.spatial},
+                       {"playOnStart", s.playOnStart}};
+}
+inline void from_json(const nlohmann::json& j, SoundEmitter& s) {
+    const std::string text = j.at("sound").get<std::string>();
+    s.sound = Uuid::fromString(text);
+    if (!text.empty() && !s.sound.valid()) {
+        throw std::runtime_error("SoundEmitter: malformed sound uuid '" + text + "'");
+    }
+    s.handle = {};
+    j.at("volume").get_to(s.volume);
+    j.at("pitch").get_to(s.pitch);
+    j.at("loop").get_to(s.loop);
+    j.at("spatial").get_to(s.spatial);
+    j.at("playOnStart").get_to(s.playOnStart);
 }
 
 void registerBuiltinComponents(ComponentRegistry& registry);

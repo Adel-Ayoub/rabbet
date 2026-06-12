@@ -49,6 +49,9 @@ AssetType assetTypeFromExtension(const std::filesystem::path& path) {
     if (ext == ".lua") {
         return AssetType::Script;
     }
+    if (ext == ".wav" || ext == ".ogg" || ext == ".mp3") {
+        return AssetType::Audio;
+    }
     return AssetType::Unknown;
 }
 

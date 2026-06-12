@@ -34,7 +34,7 @@ rb::Entity spawnHero(rb::Scene& scene) {
 
 static void registryExposesBuiltins() {
     const rb::ComponentRegistry registry = makeRegistry();
-    CHECK(registry.entries().size() == 11u);
+    CHECK(registry.entries().size() == 12u);
     CHECK(registry.find("Transform") != nullptr);
     CHECK(registry.find("Camera") != nullptr);
     CHECK(registry.find("Primitive") != nullptr);

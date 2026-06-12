@@ -39,6 +39,9 @@ target_sources(rabbet
         scripting/ScriptAssetResolveSystem.cpp
         scripting/ScriptSystem.cpp
         physics/PhysicsSystem.cpp
+        audio/AudioImport.cpp
+        audio/AudioAssetResolveSystem.cpp
+        audio/AudioSystem.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
         BASE_DIRS "${PROJECT_SOURCE_DIR}"
@@ -116,6 +119,11 @@ target_sources(rabbet
             physics/BoxCollider.h
             physics/SphereCollider.h
             physics/PhysicsSystem.h
+            audio/AudioAsset.h
+            audio/SoundEmitter.h
+            audio/AudioImport.h
+            audio/AudioAssetResolveSystem.h
+            audio/AudioSystem.h
             render/DebugDraw.h)
 
 target_include_directories(rabbet PUBLIC
@@ -132,7 +140,8 @@ target_link_libraries(rabbet
         stb
         assimp::assimp
         sol2
-        Jolt)
+        Jolt
+        miniaudio)
 
 target_compile_features(rabbet PUBLIC cxx_std_20)
 

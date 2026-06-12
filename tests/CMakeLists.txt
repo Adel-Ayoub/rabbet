@@ -13,6 +13,7 @@ set(RABBET_TEST_SUITES
     core_scheduler
     script
     physics
+    audio
     util_log
     scene_transform
     scene_camera
