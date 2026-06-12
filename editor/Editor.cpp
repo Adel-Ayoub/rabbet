@@ -11,6 +11,11 @@
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetHandle.h"
 #include "rabbet/assets/AssetManager.h"
+#include "rabbet/audio/AudioAsset.h"
+#include "rabbet/audio/AudioAssetResolveSystem.h"
+#include "rabbet/audio/AudioImport.h"
+#include "rabbet/audio/AudioSystem.h"
+#include "rabbet/audio/SoundEmitter.h"
 #include "rabbet/core/Clock.h"
 #include "rabbet/platform/Input.h"
 #include "rabbet/platform/Window.h"
@@ -141,8 +146,10 @@ void Editor::buildDefaultScene() {
     // are baked into world matrices the same frame; its resolve system (Always) keeps the
     // .lua handle current and polls for hot reloads.
     m_runtime.addSystem<rb::ScriptAssetResolveSystem>();
+    m_runtime.addSystem<rb::AudioAssetResolveSystem>();
     m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
+    m_runtime.addSystem<rb::AudioSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::TransformSystem>();
     m_runtime.addSystem<rb::LightSystem>();
     m_runtime.addSystem<rb::AssetResolveSystem>();
@@ -199,6 +206,21 @@ void Editor::buildDefaultScene() {
             rb::introspectScriptFields(asset->source, script.fields);
         }
         scene.add<rb::ScriptComponent>(crateEntity, script);
+    }
+
+    // A spatial ambient hum on the crate: pressing Play loops it from the crate's position, so
+    // it attenuates and pans as the camera (the audio listener) moves around the scene.
+    const rb::AssetHandle<rb::AudioAsset> hum =
+        rb::loadAudioAsset(assets, assetsRoot / "audio/hum.wav");
+    if (hum.valid()) {
+        rb::SoundEmitter emitter;
+        emitter.sound = assets.uuidOf(hum);
+        emitter.handle = hum;
+        emitter.volume = 0.4f;
+        emitter.loop = true;
+        emitter.spatial = true;
+        emitter.playOnStart = true;
+        scene.add<rb::SoundEmitter>(crateEntity, emitter);
     }
 
     const rb::Entity sun = scene.create();
