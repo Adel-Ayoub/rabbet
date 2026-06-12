@@ -19,3 +19,26 @@ target_include_directories(stb SYSTEM PUBLIC
 
 set_target_properties(stb PROPERTIES
     POSITION_INDEPENDENT_CODE ON)
+
+# miniaudio: single-header audio playback library, with the implementation isolated in
+# miniaudio.c. SYSTEM include so its header never trips first-party -Werror; linked
+# PRIVATE to the rabbet core behind AudioSystem's pImpl, like stb/sol2/Jolt.
+add_library(miniaudio STATIC
+    miniaudio/miniaudio.c)
+
+target_include_directories(miniaudio SYSTEM PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/miniaudio")
+
+set_target_properties(miniaudio PROPERTIES
+    POSITION_INDEPENDENT_CODE ON)
+
+# CoreAudio/AudioToolbox on Apple; the implementation also calls into pthread/dl elsewhere.
+if(APPLE)
+    target_link_libraries(miniaudio PUBLIC
+        "-framework CoreFoundation"
+        "-framework CoreAudio"
+        "-framework AudioToolbox")
+elseif(UNIX)
+    find_package(Threads REQUIRED)
+    target_link_libraries(miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+endif()
