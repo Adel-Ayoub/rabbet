@@ -11,17 +11,12 @@
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetHandle.h"
 #include "rabbet/assets/AssetManager.h"
-#include "rabbet/audio/AudioAsset.h"
 #include "rabbet/audio/AudioAssetResolveSystem.h"
-#include "rabbet/audio/AudioImport.h"
 #include "rabbet/audio/AudioSystem.h"
-#include "rabbet/audio/SoundEmitter.h"
 #include "rabbet/core/Clock.h"
 #include "rabbet/platform/Input.h"
 #include "rabbet/platform/Window.h"
-#include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/PhysicsSystem.h"
-#include "rabbet/physics/RigidBody.h"
 #include "rabbet/render/AssetResolveSystem.h"
 #include "rabbet/render/DebugDraw.h"
 #include "rabbet/render/Geometry.h"
@@ -31,7 +26,6 @@
 #include "rabbet/render/ModelAsset.h"
 #include "rabbet/render/ModelImport.h"
 #include "rabbet/render/ModelRenderer.h"
-#include "rabbet/render/Primitive.h"
 #include "rabbet/render/RenderDevice.h"
 #include "rabbet/render/RenderSystem.h"
 #include "rabbet/render/RenderView.h"
@@ -76,6 +70,10 @@
 #define RB_EDITOR_ASSETS "assets"
 #endif
 
+#ifndef RB_EDITOR_WORKSPACE
+#define RB_EDITOR_WORKSPACE "workspace"
+#endif
+
 namespace rb::editor {
 namespace {
 
@@ -113,7 +111,13 @@ Editor::Editor(rb::Window& window, rb::RenderDevice& device)
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.IniFilename = "rabbet_forge.ini"; // own layout file; don't inherit a stale imgui.ini
+    // Keep ImGui's layout file in a dedicated workspace dir (absolute path) so it never litters
+    // the launch directory — uses a dedicated workspace. ImGui keeps the pointer, so the
+    // path string must outlive the context (static).
+    std::filesystem::create_directories(RB_EDITOR_WORKSPACE);
+    static const std::string iniPath =
+        (std::filesystem::path(RB_EDITOR_WORKSPACE) / "forge.ini").string();
+    io.IniFilename = iniPath.c_str();
     applyStyle();
     loadFonts();
     ImGui_ImplGlfw_InitForOpenGL(m_window.handle(), true);
@@ -140,7 +144,7 @@ void Editor::buildDefaultScene() {
     rb::AssetDatabase& database = m_runtime.addResource<rb::AssetDatabase>();
     rb::Lighting& lighting = m_runtime.addResource<rb::Lighting>();
     lighting.ambient = glm::vec3(0.32f, 0.34f, 0.40f);
-    m_runtime.addResource<rb::DebugDraw>(); // collider gizmo toggle (on by default)
+    m_runtime.addResource<rb::DebugDraw>(rb::DebugDraw{false}); // collider wireframes off — clean scene
 
     // ScriptSystem (Play phase) runs before TransformSystem so a script's transform edits
     // are baked into world matrices the same frame; its resolve system (Always) keeps the
@@ -164,38 +168,25 @@ void Editor::buildDefaultScene() {
 
     rb::Scene& scene = m_runtime.scene();
 
-    // Ground plane (a flattened primitive).
-    const rb::Entity floor = scene.create();
-    scene.add<rb::Name>(floor, rb::Name{"Floor"});
-    rb::Transform floorTransform;
-    floorTransform.position = glm::vec3(0.0f, -0.9f, 0.0f);
-    floorTransform.scale = glm::vec3(18.0f, 0.3f, 18.0f);
-    scene.add<rb::Transform>(floor, floorTransform);
-    scene.add<rb::Primitive>(
-        floor, rb::Primitive{rb::PrimitiveShape::Cube, glm::vec3(0.58f, 0.60f, 0.64f), 0.0f, 0.95f});
-    // Static physics floor matching the visual box, so dropped bodies land on it.
-    scene.add<rb::RigidBody>(floor, rb::RigidBody{rb::BodyType::Static, 0.0f, 0.4f, 0.0f, true});
-    scene.add<rb::BoxCollider>(floor, rb::BoxCollider{glm::vec3(9.0f, 0.15f, 9.0f), glm::vec3(0.0f)});
-
-    // Real crate model loaded through the asset pipeline (assimp -> AssetManager),
-    // referenced by uuid via ModelRenderer and resolved by AssetResolveSystem.
+    // A single hero asset on the skybox — the wooden crate, a real PBR model (Poly Haven, CC0)
+    // loaded through the asset pipeline (assimp -> AssetManager) and referenced by uuid via
+    // ModelRenderer. The default scene is kept deliberately uncluttered for a clean first launch.
     const rb::AssetHandle<rb::ModelAsset> crate = rb::loadModelAsset(
         assets, assetsRoot / "models/wooden_crate_02/wooden_crate_02_1k.gltf", {0.0f, 0.7f});
-    const rb::Entity crateEntity = scene.create();
-    scene.add<rb::Name>(crateEntity, rb::Name{"Crate"});
-    rb::Transform crateTransform;
-    crateTransform.position = glm::vec3(0.0f, -0.75f, 0.0f);
-    crateTransform.rotation = glm::angleAxis(glm::radians(28.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-    crateTransform.scale = glm::vec3(3.5f);
-    scene.add<rb::Transform>(crateEntity, crateTransform);
+    const rb::Entity heroEntity = scene.create();
+    scene.add<rb::Name>(heroEntity, rb::Name{"Crate"});
+    rb::Transform heroTransform;
+    heroTransform.position = glm::vec3(0.0f, -0.4f, 0.0f);
+    heroTransform.rotation = glm::angleAxis(glm::radians(28.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    heroTransform.scale = glm::vec3(3.0f);
+    scene.add<rb::Transform>(heroEntity, heroTransform);
     rb::ModelRenderer renderer;
     renderer.model = assets.uuidOf(crate);
     renderer.handle = crate;
-    scene.add<rb::ModelRenderer>(crateEntity, renderer);
-    m_context.selected = crateEntity;
+    scene.add<rb::ModelRenderer>(heroEntity, renderer);
+    m_context.selected = heroEntity;
 
-    // Attach a sample Lua behavior so pressing Play spins the crate (and hot-reloads when
-    // the .lua is edited). The script's exposed fields are introspected for the inspector.
+    // A sample Lua behavior: pressing Play slowly spins the hero (and hot-reloads on .lua edits).
     const rb::AssetHandle<rb::ScriptAsset> spin =
         rb::loadScriptAsset(assets, assetsRoot / "scripts/spin.lua");
     if (spin.valid()) {
@@ -205,62 +196,17 @@ void Editor::buildDefaultScene() {
         if (const rb::ScriptAsset* asset = assets.get<rb::ScriptAsset>(spin)) {
             rb::introspectScriptFields(asset->source, script.fields);
         }
-        scene.add<rb::ScriptComponent>(crateEntity, script);
+        scene.add<rb::ScriptComponent>(heroEntity, script);
     }
 
-    // A spatial ambient hum on the crate: pressing Play loops it from the crate's position, so
-    // it attenuates and pans as the camera (the audio listener) moves around the scene.
-    const rb::AssetHandle<rb::AudioAsset> hum =
-        rb::loadAudioAsset(assets, assetsRoot / "audio/hum.wav");
-    if (hum.valid()) {
-        rb::SoundEmitter emitter;
-        emitter.sound = assets.uuidOf(hum);
-        emitter.handle = hum;
-        emitter.volume = 0.4f;
-        emitter.loop = true;
-        emitter.spatial = true;
-        emitter.playOnStart = true;
-        scene.add<rb::SoundEmitter>(crateEntity, emitter);
-    }
-
+    // One warm key light so the PBR crate reads cleanly against the sky.
     const rb::Entity sun = scene.create();
     scene.add<rb::Name>(sun, rb::Name{"Sun"});
     rb::DirectionalLight sunLight;
     sunLight.direction = glm::normalize(glm::vec3(-0.55f, -0.85f, -0.5f));
     sunLight.color = glm::vec3(1.0f, 0.96f, 0.88f);
-    sunLight.intensity = 2.6f;
+    sunLight.intensity = 2.8f;
     scene.add<rb::DirectionalLight>(sun, sunLight);
-
-    const rb::Entity lamp = scene.create();
-    scene.add<rb::Name>(lamp, rb::Name{"Lamp"});
-    rb::Transform lampTransform;
-    lampTransform.position = glm::vec3(2.4f, 2.0f, 2.6f);
-    scene.add<rb::Transform>(lamp, lampTransform);
-    rb::PointLight lampLight;
-    lampLight.color = glm::vec3(0.6f, 0.75f, 1.0f);
-    lampLight.intensity = 5.0f;
-    scene.add<rb::PointLight>(lamp, lampLight);
-
-    // Dynamic boxes stacked above the floor: pressing Play drops them onto it, and their
-    // colliders draw as wireframe gizmos. Slight offsets and tilts so they tumble.
-    const std::array<glm::vec3, 3> boxColors = {
-        glm::vec3(0.85f, 0.35f, 0.30f), glm::vec3(0.35f, 0.65f, 0.85f),
-        glm::vec3(0.85f, 0.75f, 0.35f)};
-    for (int i = 0; i < 3; ++i) {
-        const float fi = static_cast<float>(i);
-        const rb::Entity box = scene.create();
-        scene.add<rb::Name>(box, rb::Name{"Box " + std::to_string(i + 1)});
-        rb::Transform boxTransform;
-        boxTransform.position = glm::vec3(0.3f * fi - 0.3f, 2.0f + 1.4f * fi, 0.25f * fi);
-        boxTransform.rotation =
-            glm::angleAxis(glm::radians(14.0f * fi), glm::normalize(glm::vec3(0.3f, 1.0f, 0.2f)));
-        scene.add<rb::Transform>(box, boxTransform);
-        scene.add<rb::Primitive>(
-            box, rb::Primitive{rb::PrimitiveShape::Cube, boxColors[static_cast<std::size_t>(i)],
-                               0.0f, 0.6f});
-        scene.add<rb::RigidBody>(box, rb::RigidBody{rb::BodyType::Dynamic, 1.0f, 0.4f, 0.15f, true});
-        scene.add<rb::BoxCollider>(box, rb::BoxCollider{glm::vec3(0.5f), glm::vec3(0.0f)});
-    }
 
     const std::size_t count = database.scan(assetsRoot, &assets);
     rb::log::info("editor: project assets catalogued: {}", count);

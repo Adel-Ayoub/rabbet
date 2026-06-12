@@ -69,7 +69,8 @@ target_link_libraries(forge PRIVATE
 target_include_directories(forge PRIVATE "${PROJECT_SOURCE_DIR}")
 target_compile_definitions(forge PRIVATE
     RB_EDITOR_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/resources"
-    RB_EDITOR_ASSETS="${PROJECT_SOURCE_DIR}/examples/forge/assets")
+    RB_EDITOR_ASSETS="${PROJECT_SOURCE_DIR}/examples/forge/assets"
+    RB_EDITOR_WORKSPACE="${CMAKE_CURRENT_SOURCE_DIR}/workspace")
 rb_target_warnings(forge)
 set_target_properties(forge PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

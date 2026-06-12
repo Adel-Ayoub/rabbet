@@ -22,3 +22,6 @@ compile_commands.json
 
 # Logs
 *.log
+
+# Editor runtime (ImGui layout lives here, regenerated on launch)
+/editor/workspace/
