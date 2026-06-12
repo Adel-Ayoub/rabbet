@@ -42,3 +42,19 @@ elseif(UNIX)
     find_package(Threads REQUIRED)
     target_link_libraries(miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 endif()
+
+# stb_vorbis: single-file Ogg Vorbis decoder. Built as its own static lib so its many warnings
+# never reach first-party -Werror; consumers include it with STB_VORBIS_HEADER_ONLY for the
+# declarations and call stb_vorbis_decode_filename to decode a clip to PCM.
+add_library(stb_vorbis STATIC
+    stb_vorbis/stb_vorbis.c)
+
+target_include_directories(stb_vorbis SYSTEM PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/stb_vorbis")
+
+set_target_properties(stb_vorbis PROPERTIES
+    POSITION_INDEPENDENT_CODE ON)
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(stb_vorbis PUBLIC m)
+endif()
