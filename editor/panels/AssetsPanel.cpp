@@ -5,6 +5,9 @@
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/assets/AssetType.h"
+#include "rabbet/audio/AudioAsset.h"
+#include "rabbet/audio/AudioImport.h"
+#include "rabbet/audio/SoundEmitter.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/render/ModelAsset.h"
@@ -25,9 +28,9 @@
 namespace rb::editor {
 namespace {
 
-constexpr std::array<rb::AssetType, 5> kBrowseOrder = {rb::AssetType::Model, rb::AssetType::Script,
-                                                      rb::AssetType::Texture, rb::AssetType::Scene,
-                                                      rb::AssetType::Prefab};
+constexpr std::array<rb::AssetType, 6> kBrowseOrder = {
+    rb::AssetType::Model, rb::AssetType::Script, rb::AssetType::Audio,
+    rb::AssetType::Texture, rb::AssetType::Scene, rb::AssetType::Prefab};
 
 void assignModelToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
     rb::Scene& scene = context.runtime.scene();
@@ -78,11 +81,34 @@ void assignScriptToEntity(EditorContext& context, const rb::AssetDatabase::Recor
                   context.selected.index());
 }
 
+void assignAudioToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
+    rb::Scene& scene = context.runtime.scene();
+    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
+    if (assets == nullptr || !scene.alive(context.selected)) {
+        return;
+    }
+    const rb::AssetHandle<rb::AudioAsset> handle = rb::loadAudioAsset(*assets, record.path);
+    if (!handle.valid()) {
+        rb::log::error("assets: failed to load audio '{}'", record.path.string());
+        return;
+    }
+    rb::SoundEmitter* emitter = scene.tryGet<rb::SoundEmitter>(context.selected);
+    if (emitter == nullptr) {
+        emitter = &scene.add<rb::SoundEmitter>(context.selected, rb::SoundEmitter{});
+    }
+    emitter->sound = record.id;
+    emitter->handle = {}; // AudioAssetResolveSystem repopulates it from the uuid
+    rb::log::info("assets: assigned audio '{}' to entity {}", record.name,
+                  context.selected.index());
+}
+
 void assignToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
     if (record.type == rb::AssetType::Model) {
         assignModelToEntity(context, record);
     } else if (record.type == rb::AssetType::Script) {
         assignScriptToEntity(context, record);
+    } else if (record.type == rb::AssetType::Audio) {
+        assignAudioToEntity(context, record);
     }
 }
 
@@ -99,7 +125,8 @@ void AssetsPanel::onImGui() {
         m_selected.valid() ? database->find(m_selected) : nullptr;
 
     const bool assignable = selected != nullptr && (selected->type == rb::AssetType::Model ||
-                                                    selected->type == rb::AssetType::Script);
+                                                    selected->type == rb::AssetType::Script ||
+                                                    selected->type == rb::AssetType::Audio);
     const bool canAssign = assignable && m_context.runtime.scene().alive(m_context.selected);
     ImGui::BeginDisabled(!canAssign);
     if (ImGui::Button("Assign to selected entity") && selected != nullptr) {

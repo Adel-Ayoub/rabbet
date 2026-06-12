@@ -1,5 +1,6 @@
 #include "editor/ComponentDrawers.h"
 
+#include "rabbet/audio/SoundEmitter.h"
 #include "rabbet/core/Uuid.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/BoxCollider.h"
@@ -187,6 +188,28 @@ void drawSphereCollider(rb::Scene& scene, rb::Entity e) {
     ImGui::DragFloat3("Offset", &c.offset.x, 0.05f);
 }
 
+// The clip is assigned from the Assets panel (it needs the asset database); here we show the
+// bound clip and edit playback properties, which drive the running voice and serialize.
+void drawSoundEmitter(rb::Scene& scene, rb::Entity e) {
+    rb::SoundEmitter& s = scene.get<rb::SoundEmitter>(e);
+    if (!s.sound.valid()) {
+        ImGui::TextDisabled("No clip assigned");
+        ImGui::TextDisabled("Assign an audio clip from the Assets panel.");
+    } else {
+        ImGui::Text("Clip %s", s.sound.toString().c_str());
+        ImGui::TextDisabled("%s", s.handle.valid() ? "resolved" : "unresolved (re-assign or import)");
+        if (ImGui::Button("Clear")) {
+            s.sound = rb::Uuid{};
+            s.handle = {};
+        }
+    }
+    ImGui::DragFloat("Volume", &s.volume, 0.01f, 0.0f, 2.0f);
+    ImGui::DragFloat("Pitch", &s.pitch, 0.01f, 0.1f, 4.0f);
+    ImGui::Checkbox("Loop", &s.loop);
+    ImGui::Checkbox("Spatial", &s.spatial);
+    ImGui::Checkbox("Play on start", &s.playOnStart);
+}
+
 } // namespace
 
 void registerComponentDrawers(rb::ComponentRegistry& registry) {
@@ -201,6 +224,7 @@ void registerComponentDrawers(rb::ComponentRegistry& registry) {
     registry.setDrawer("RigidBody", &drawRigidBody);
     registry.setDrawer("BoxCollider", &drawBoxCollider);
     registry.setDrawer("SphereCollider", &drawSphereCollider);
+    registry.setDrawer("SoundEmitter", &drawSoundEmitter);
 }
 
 } // namespace rb::editor
