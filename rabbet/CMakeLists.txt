@@ -141,7 +141,8 @@ target_link_libraries(rabbet
         assimp::assimp
         sol2
         Jolt
-        miniaudio)
+        miniaudio
+        stb_vorbis)
 
 target_compile_features(rabbet PUBLIC cxx_std_20)
 

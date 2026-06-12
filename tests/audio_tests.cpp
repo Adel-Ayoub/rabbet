@@ -291,6 +291,40 @@ void serializeRoundTrip() {
     CHECK(found);
 }
 
+#ifdef RB_AUDIO_TEST_OGG
+// Ogg Vorbis has no native miniaudio decoder: it is decoded to PCM at import via stb_vorbis and
+// played from an in-memory buffer. Verifies the committed .ogg fixture decodes and plays.
+void oggDecodesAndPlays() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AudioSystem audio;
+
+    const rb::AssetHandle<rb::AudioAsset> handle = rb::loadAudioAsset(assets, RB_AUDIO_TEST_OGG);
+    CHECK(handle.valid());
+    const rb::AudioAsset* asset = assets.get<rb::AudioAsset>(handle);
+    CHECK(asset != nullptr);
+    if (asset != nullptr) {
+        CHECK(!asset->samples.empty()); // decoded to PCM at import, not left as a path
+        CHECK(asset->channels >= 1u);
+        CHECK(asset->sampleRate > 0u);
+    }
+
+    const rb::Entity e = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(e, rb::Transform{});
+    rb::SoundEmitter emitter;
+    emitter.sound = assets.uuidOf(handle);
+    emitter.handle = handle;
+    emitter.playOnStart = true;
+    runtime.scene().add<rb::SoundEmitter>(e, emitter);
+
+    audio.onPlayBegin(runtime);
+    CHECK(audio.activeVoiceCount() == 1u);
+    CHECK(audio.voicePlaying(e));
+    audio.onPlayEnd(runtime);
+    CHECK(audio.activeVoiceCount() == 0u);
+}
+#endif
+
 } // namespace
 
 int main() {
@@ -315,6 +349,9 @@ int main() {
     rebuildsBetweenSessions(wav);
     resolveLazilyImports(wav);
     serializeRoundTrip();
+#ifdef RB_AUDIO_TEST_OGG
+    oggDecodesAndPlays();
+#endif
 
     fs::remove_all(root, ec);
     return rbtest::summary("audio");

@@ -36,7 +36,9 @@ struct AudioSystem::Impl {
     // be moved after init; each voice is heap-allocated for a stable address across rehashes.
     struct Voice {
         ma_sound sound{};
+        ma_audio_buffer buffer{}; // backs an Ogg voice (decoded PCM); unused for file voices
         bool inited = false;
+        bool usesBuffer = false;
         // Last values pushed to miniaudio, so update() only calls setters when they change.
         bool hasParams = false;
         float volume = 0.0f;
@@ -44,6 +46,17 @@ struct AudioSystem::Impl {
         bool loop = false;
         bool spatial = false;
     };
+
+    // Free a voice's miniaudio objects in the right order: the sound reads from the buffer, so
+    // it must be uninitialised first.
+    static void destroyVoice(Voice& voice) {
+        if (voice.inited) {
+            ma_sound_uninit(&voice.sound);
+        }
+        if (voice.usesBuffer) {
+            ma_audio_buffer_uninit(&voice.buffer);
+        }
+    }
 
     ma_context context{};
     bool contextInited = false;
@@ -85,9 +98,7 @@ struct AudioSystem::Impl {
 
     void teardown() {
         for (auto& [entity, voice] : voices) {
-            if (voice->inited) {
-                ma_sound_uninit(&voice->sound);
-            }
+            destroyVoice(*voice);
         }
         voices.clear();
     }
@@ -140,16 +151,37 @@ struct AudioSystem::Impl {
                 return;
             }
             auto voice = std::make_unique<Voice>();
-            const ma_uint32 flags = soundFlags(emitter);
+            ma_result result = MA_ERROR;
+            if (!asset->samples.empty() && asset->channels > 0) {
+                // Ogg decoded to PCM at import: play from an in-memory buffer (no streaming).
+                const ma_uint64 frameCount =
+                    static_cast<ma_uint64>(asset->samples.size() / asset->channels);
+                ma_audio_buffer_config bufferConfig = ma_audio_buffer_config_init(
+                    ma_format_s16, asset->channels, frameCount, asset->samples.data(), nullptr);
+                bufferConfig.sampleRate = asset->sampleRate;
+                if (ma_audio_buffer_init(&bufferConfig, &voice->buffer) != MA_SUCCESS) {
+                    log::warn("audio: could not buffer clip '{}' for entity {}",
+                              asset->path.string(), entity.index());
+                    return;
+                }
+                voice->usesBuffer = true;
+                result = ma_sound_init_from_data_source(&engine, &voice->buffer, 0, nullptr,
+                                                        &voice->sound);
+            } else {
+                const ma_uint32 flags = soundFlags(emitter);
 #ifdef _WIN32
-            // Wide overload so non-ASCII asset paths survive the narrowing on Windows.
-            const ma_result result = ma_sound_init_from_file_w(
-                &engine, asset->path.wstring().c_str(), flags, nullptr, nullptr, &voice->sound);
+                // Wide overload so non-ASCII asset paths survive the narrowing on Windows.
+                result = ma_sound_init_from_file_w(&engine, asset->path.wstring().c_str(), flags,
+                                                   nullptr, nullptr, &voice->sound);
 #else
-            const ma_result result = ma_sound_init_from_file(
-                &engine, asset->path.string().c_str(), flags, nullptr, nullptr, &voice->sound);
+                result = ma_sound_init_from_file(&engine, asset->path.string().c_str(), flags,
+                                                 nullptr, nullptr, &voice->sound);
 #endif
+            }
             if (result != MA_SUCCESS) {
+                if (voice->usesBuffer) {
+                    ma_audio_buffer_uninit(&voice->buffer);
+                }
                 log::warn("audio: could not load clip '{}' for entity {}", asset->path.string(),
                           entity.index());
                 return;
@@ -184,9 +216,7 @@ struct AudioSystem::Impl {
         // spawn/destroy gameplay loop can't grow the voice set without bound.
         for (auto it = voices.begin(); it != voices.end();) {
             if (!scene.alive(it->first) || scene.tryGet<SoundEmitter>(it->first) == nullptr) {
-                if (it->second->inited) {
-                    ma_sound_uninit(&it->second->sound);
-                }
+                destroyVoice(*it->second);
                 it = voices.erase(it);
             } else {
                 ++it;

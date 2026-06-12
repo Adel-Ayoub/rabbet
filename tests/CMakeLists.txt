@@ -42,3 +42,7 @@ foreach(suite IN LISTS RABBET_TEST_SUITES)
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
     add_test(NAME ${suite} COMMAND ${suite}_tests)
 endforeach()
+
+# The audio suite decodes a committed Ogg Vorbis fixture to verify the stb_vorbis import path.
+target_compile_definitions(audio_tests PRIVATE
+    RB_AUDIO_TEST_OGG="${PROJECT_SOURCE_DIR}/examples/forge/assets/audio/chime.ogg")
