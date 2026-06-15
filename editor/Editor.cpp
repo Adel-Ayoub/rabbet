@@ -48,6 +48,7 @@
 #include "rabbet/scripting/ScriptImport.h"
 #include "rabbet/scripting/ScriptSystem.h"
 #include "rabbet/serialize/BuiltinComponents.h"
+#include "rabbet/serialize/PrefabAssetResolveSystem.h"
 #include "rabbet/serialize/SceneSerializer.h"
 #include "rabbet/util/Log.h"
 
@@ -158,6 +159,7 @@ void Editor::buildDefaultScene() {
     m_runtime.addSystem<rb::ScriptAssetResolveSystem>();
     m_runtime.addSystem<rb::AudioAssetResolveSystem>();
     m_runtime.addSystem<rb::MaterialAssetResolveSystem>();
+    m_runtime.addSystem<rb::PrefabAssetResolveSystem>();
     m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::AudioSystem, rb::SystemPhase::Play>();
