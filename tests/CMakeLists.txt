@@ -27,6 +27,7 @@ set(RABBET_TEST_SUITES
     serialize_scene
     serialize_duplicate
     serialize_registry
+    prefab
     assets_uuid
     assets_manager
     assets_meta
