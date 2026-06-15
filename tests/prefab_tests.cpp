@@ -14,6 +14,10 @@
 #include "rabbet/serialize/SceneSerializer.h"
 #include "tests/Test.h"
 
+#include <filesystem>
+#include <fstream>
+#include <system_error>
+
 namespace {
 
 rb::ComponentRegistry makeRegistry() {
@@ -151,11 +155,37 @@ static void instanceSceneRoundTrip() {
     CHECK(found);
 }
 
+// Prefab filenames are sanitized (path separators etc. neutralised, trimmed, never empty) and a
+// new prefab never silently overwrites an existing file — it de-collides with _1, _2, ...
+static void prefabFilenameSafety() {
+    CHECK(rb::sanitizePrefabName("Lamp") == "Lamp");
+    CHECK(rb::sanitizePrefabName("a/b\\c:d") == "a_b_c_d");
+    CHECK(rb::sanitizePrefabName("   ") == "Prefab");
+    CHECK(rb::sanitizePrefabName("") == "Prefab");
+    CHECK(rb::sanitizePrefabName("  Point Light  ") == "Point Light"); // inner space kept, edges trimmed
+    CHECK(rb::sanitizePrefabName("..hidden") == "hidden");             // leading dots trimmed
+
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path() / "rabbet_prefab_unique_test";
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+
+    const fs::path first = rb::prefabFilePath(dir, "Box");
+    CHECK(first == dir / "Box.prefab.json");
+    { std::ofstream(first) << "{}\n"; } // occupy the name
+    const fs::path second = rb::prefabFilePath(dir, "Box");
+    CHECK(second == dir / "Box_1.prefab.json"); // de-collided, not overwritten
+
+    fs::remove_all(dir, ec);
+}
+
 int main() {
     entityToPrefabExcludesInstanceLink();
     instantiateRecreatesComponents();
     applyPrefabRevertsOverrides();
     resolveLinksInstance();
     instanceSceneRoundTrip();
+    prefabFilenameSafety();
     return rbtest::summary("prefab");
 }

@@ -58,7 +58,8 @@ void createPrefab(EditorContext& context, rb::Entity e) {
     const std::filesystem::path dir = database->root() / "prefabs";
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
-    const std::filesystem::path path = dir / (displayName(scene, e) + ".prefab.json");
+    // Sanitized + de-collided so a prefab never silently overwrites another.
+    const std::filesystem::path path = rb::prefabFilePath(dir, displayName(scene, e));
     if (rb::savePrefabToFile(scene, context.registry, e, path)) {
         database->scan(database->root(), assets);
         rb::log::info("prefab: saved '{}'", path.string());

@@ -1,8 +1,12 @@
 #include "rabbet/serialize/Prefab.h"
 
+#include <algorithm>
+#include <cctype>
 #include <exception>
 #include <fstream>
 #include <optional>
+#include <string>
+#include <system_error>
 
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/ecs/Scene.h"
@@ -116,6 +120,33 @@ void applyPrefab(Scene& scene, const ComponentRegistry& registry, Entity target,
         }
     }
     loadComponentsInto(scene, registry, target, prefab.components);
+}
+
+std::string sanitizePrefabName(std::string name) {
+    for (char& c : name) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        const bool ok = std::isalnum(u) != 0 || c == '-' || c == '_' || c == '.' || c == ' ';
+        if (!ok) {
+            c = '_';
+        }
+    }
+    const auto keep = [](char c) { return c != ' ' && c != '.'; };
+    name.erase(name.begin(), std::find_if(name.begin(), name.end(), keep));
+    name.erase(std::find_if(name.rbegin(), name.rend(), keep).base(), name.end());
+    if (name.empty()) {
+        name = "Prefab";
+    }
+    return name;
+}
+
+std::filesystem::path prefabFilePath(const std::filesystem::path& dir, const std::string& name) {
+    const std::string base = sanitizePrefabName(name);
+    std::error_code ec;
+    std::filesystem::path candidate = dir / (base + ".prefab.json");
+    for (int i = 1; i < 1000 && std::filesystem::exists(candidate, ec); ++i) {
+        candidate = dir / (base + "_" + std::to_string(i) + ".prefab.json");
+    }
+    return candidate;
 }
 
 } // namespace rb

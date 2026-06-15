@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 
 #include <nlohmann/json.hpp>
 
@@ -13,6 +14,16 @@ class Scene;
 class ComponentRegistry;
 class AssetManager;
 struct PrefabAsset;
+
+// Sanitizes a name into a safe prefab filename stem: keeps alphanumerics, space, '-', '_', '.';
+// replaces anything else (path separators, etc.) with '_'; trims leading/trailing space and dots;
+// falls back to "Prefab" when nothing usable remains. Pure.
+[[nodiscard]] std::string sanitizePrefabName(std::string name);
+
+// Builds a non-colliding "<dir>/<sanitized>.prefab.json" path, appending _1, _2, ... when a file
+// already exists, so creating a prefab never silently overwrites an existing one.
+[[nodiscard]] std::filesystem::path prefabFilePath(const std::filesystem::path& dir,
+                                                   const std::string& name);
 
 // Serializes one entity's registered components into a prefab document ({version, components}),
 // routing each through the registry save hooks. The PrefabInstance link is excluded so a prefab
