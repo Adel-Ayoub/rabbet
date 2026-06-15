@@ -47,6 +47,7 @@ struct MaterialAsset {
     std::filesystem::path path;
     std::int64_t sourceTimestamp = 0;
     std::uint32_t revision = 0;
+    bool dirty = false; // runtime-only: inspector edits not yet saved to `path`
 };
 
 template <>

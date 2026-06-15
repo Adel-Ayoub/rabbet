@@ -178,6 +178,7 @@ bool saveMaterialAsset(AssetManager& assets, AssetHandle<MaterialAsset> handle) 
     }
     out << materialToJson(*material).dump(2) << '\n';
     material->sourceTimestamp = mtimeOf(material->path);
+    material->dirty = false;
     return true;
 }
 
@@ -185,6 +186,9 @@ bool reloadMaterialIfChanged(AssetManager& assets, AssetHandle<MaterialAsset> ha
     MaterialAsset* material = assets.get<MaterialAsset>(handle);
     if (material == nullptr || material->path.empty()) {
         return false;
+    }
+    if (material->dirty) {
+        return false; // keep unsaved inspector edits; a disk change must not clobber them
     }
     const std::int64_t current = mtimeOf(material->path);
     if (current == 0 || current == material->sourceTimestamp) {

@@ -12,6 +12,7 @@
 #include "rabbet/physics/SphereCollider.h"
 #include "rabbet/render/MaterialAsset.h"
 #include "rabbet/render/MaterialComponent.h"
+#include "rabbet/render/MaterialImport.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/render/ShaderAsset.h"
@@ -23,6 +24,7 @@
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptField.h"
 #include "rabbet/serialize/ComponentRegistry.h"
+#include "rabbet/util/Log.h"
 #include "rabbet/serialize/Prefab.h"
 #include "rabbet/serialize/PrefabAsset.h"
 #include "rabbet/serialize/PrefabInstance.h"
@@ -234,13 +236,14 @@ bool isColorName(const std::string& name) {
 
 // One row per shader-reflected uniform. A material starts with no overrides (so it renders like
 // the built-in defaults); pressing "Override" adds one, which then drives the shader on top of
-// the per-surface values. Samplers are bound via texture slots, not edited here.
-void drawUniformOverride(rb::MaterialAsset& material, const rb::ShaderUniform& uniform) {
+// the per-surface values. Samplers are bound via texture slots, not edited here. Returns true
+// when it changed the material (so the caller can mark it dirty).
+bool drawUniformOverride(rb::MaterialAsset& material, const rb::ShaderUniform& uniform) {
     ImGui::PushID(uniform.name.c_str());
     if (rb::isSamplerType(uniform.type)) {
         ImGui::TextDisabled("%s  (sampler)", uniform.name.c_str());
         ImGui::PopID();
-        return;
+        return false;
     }
 
     rb::MaterialUniform* existing = nullptr;
@@ -255,39 +258,40 @@ void drawUniformOverride(rb::MaterialAsset& material, const rb::ShaderUniform& u
         ImGui::TextDisabled("%s  (%s)", uniform.name.c_str(),
                             std::string(rb::uniformTypeName(uniform.type)).c_str());
         ImGui::SameLine();
+        bool added = false;
         if (ImGui::SmallButton("Override")) {
             rb::MaterialUniform created;
             created.name = uniform.name;
             created.type = uniform.type;
             created.vec = glm::vec4(1.0f); // neutral starting point (white / 1.0)
             material.uniforms.push_back(created);
+            added = true;
         }
         ImGui::PopID();
-        return;
+        return added;
     }
 
+    bool changed = false;
     switch (uniform.type) {
     case rb::UniformType::Float:
-        ImGui::DragFloat(uniform.name.c_str(), &existing->vec.x, 0.01f);
+        changed = ImGui::DragFloat(uniform.name.c_str(), &existing->vec.x, 0.01f);
         break;
     case rb::UniformType::Vec2:
-        ImGui::DragFloat2(uniform.name.c_str(), &existing->vec.x, 0.01f);
+        changed = ImGui::DragFloat2(uniform.name.c_str(), &existing->vec.x, 0.01f);
         break;
     case rb::UniformType::Vec3:
-        if (isColorName(uniform.name)) {
-            ImGui::ColorEdit3(uniform.name.c_str(), &existing->vec.x);
-        } else {
-            ImGui::DragFloat3(uniform.name.c_str(), &existing->vec.x, 0.01f);
-        }
+        changed = isColorName(uniform.name)
+                      ? ImGui::ColorEdit3(uniform.name.c_str(), &existing->vec.x)
+                      : ImGui::DragFloat3(uniform.name.c_str(), &existing->vec.x, 0.01f);
         break;
     case rb::UniformType::Vec4:
-        ImGui::ColorEdit4(uniform.name.c_str(), &existing->vec.x);
+        changed = ImGui::ColorEdit4(uniform.name.c_str(), &existing->vec.x);
         break;
     case rb::UniformType::Int:
-        ImGui::DragInt(uniform.name.c_str(), &existing->integer);
+        changed = ImGui::DragInt(uniform.name.c_str(), &existing->integer);
         break;
     case rb::UniformType::Bool:
-        ImGui::Checkbox(uniform.name.c_str(), &existing->boolean);
+        changed = ImGui::Checkbox(uniform.name.c_str(), &existing->boolean);
         break;
     default:
         break;
@@ -297,8 +301,10 @@ void drawUniformOverride(rb::MaterialAsset& material, const rb::ShaderUniform& u
         const std::string name = uniform.name;
         std::erase_if(material.uniforms,
                       [&name](const rb::MaterialUniform& value) { return value.name == name; });
+        changed = true;
     }
     ImGui::PopID();
+    return changed;
 }
 
 } // namespace
@@ -345,6 +351,24 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e) {
         return;
     }
 
+    // Inspector edits live in memory; persist them to the .material.json explicitly. Built-in
+    // materials have no file, so there is nothing to save.
+    const bool fileBacked = !material->path.empty();
+    ImGui::BeginDisabled(!fileBacked || !material->dirty);
+    if (ImGui::Button("Save Material")) {
+        if (rb::saveMaterialAsset(*assets, component.handle)) {
+            rb::log::info("material: saved '{}'", material->path.string());
+        }
+    }
+    ImGui::EndDisabled();
+    if (!fileBacked && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Built-in materials have no file to save.");
+    }
+    if (material->dirty) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(unsaved)");
+    }
+
     ImGui::SeparatorText("Shader");
     if (!material->shader.valid()) {
         ImGui::TextDisabled("No shader");
@@ -369,8 +393,12 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e) {
         if (shader->uniforms.empty()) {
             ImGui::TextDisabled("(no material-editable uniforms reflected yet)");
         }
+        bool changed = false;
         for (const rb::ShaderUniform& uniform : shader->uniforms) {
-            drawUniformOverride(*material, uniform);
+            changed |= drawUniformOverride(*material, uniform);
+        }
+        if (changed) {
+            material->dirty = true;
         }
     }
 

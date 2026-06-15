@@ -14,8 +14,11 @@
 
 #include <glad/glad.h>
 
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
+#include <system_error>
 
 namespace {
 
@@ -189,6 +192,71 @@ static void materialComponentSceneRoundTrip() {
 
 } // namespace
 
+// saveMaterialAsset writes the material to its file and clears the dirty flag; loading it back
+// recovers the shader ref and uniform overrides — so inspector edits can be persisted.
+static void materialSaveLoadFileRoundTrip() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path path = fs::temp_directory_path() / "rabbet_material_save.material.json";
+    fs::remove(path, ec);
+
+    rb::AssetManager assets;
+    const rb::Uuid shaderId = rb::Uuid::generate();
+    rb::MaterialAsset mat;
+    mat.shader = shaderId;
+    mat.path = path;
+    mat.dirty = true;
+    rb::MaterialUniform tint;
+    tint.name = "uTint";
+    tint.type = rb::UniformType::Vec3;
+    tint.vec = {0.5f, 0.25f, 0.75f, 0.0f};
+    mat.uniforms.push_back(tint);
+    const rb::AssetHandle<rb::MaterialAsset> handle =
+        assets.add<rb::MaterialAsset>(std::move(mat), rb::Uuid::generate());
+
+    CHECK(rb::saveMaterialAsset(assets, handle));
+    CHECK(assets.get<rb::MaterialAsset>(handle)->dirty == false); // save clears dirty
+
+    rb::AssetManager other; // fresh manager avoids the path cache
+    rb::MaterialAsset* loaded = other.get<rb::MaterialAsset>(rb::loadMaterialAsset(other, path));
+    CHECK(loaded != nullptr);
+    if (loaded != nullptr) {
+        CHECK(loaded->shader == shaderId);
+        CHECK(loaded->uniforms.size() == 1u);
+        if (loaded->uniforms.size() == 1u) {
+            CHECK(loaded->uniforms[0].name == "uTint");
+            CHECK(loaded->uniforms[0].vec.x == 0.5f);
+        }
+    }
+    fs::remove(path, ec);
+}
+
+// A material with unsaved inspector edits (dirty) is not clobbered by a disk hot-reload; once
+// saved/clean, the reload applies.
+static void dirtyMaterialSurvivesReload() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path path = fs::temp_directory_path() / "rabbet_material_reload.material.json";
+    {
+        std::ofstream out(path);
+        out << R"({"version":1,"shader":"","uniforms":[],"textures":[]})" << '\n';
+    }
+
+    rb::AssetManager assets;
+    rb::MaterialAsset mat;
+    mat.path = path;
+    mat.sourceTimestamp = 0; // force "changed on disk"
+    mat.dirty = true;        // but there are unsaved edits
+    const rb::AssetHandle<rb::MaterialAsset> handle =
+        assets.add<rb::MaterialAsset>(std::move(mat), rb::Uuid::generate());
+
+    CHECK(!rb::reloadMaterialIfChanged(assets, handle)); // dirty -> skipped, edits kept
+    assets.get<rb::MaterialAsset>(handle)->dirty = false;
+    CHECK(rb::reloadMaterialIfChanged(assets, handle)); // clean -> reloads from disk
+
+    fs::remove(path, ec);
+}
+
 int main() {
     shaderSourceParsing();
     glTypeMapping();
@@ -196,5 +264,7 @@ int main() {
     materialJsonRoundTrip();
     resolveLinksMaterialAndShader();
     materialComponentSceneRoundTrip();
+    materialSaveLoadFileRoundTrip();
+    dirtyMaterialSurvivesReload();
     return rbtest::summary("material");
 }
