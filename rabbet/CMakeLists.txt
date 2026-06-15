@@ -30,6 +30,8 @@ target_sources(rabbet
         serialize/ComponentRegistry.cpp
         serialize/BuiltinComponents.cpp
         serialize/SceneSerializer.cpp
+        serialize/Prefab.cpp
+        serialize/PrefabAssetResolveSystem.cpp
         core/Uuid.cpp
         assets/AssetMeta.cpp
         assets/AssetDatabase.cpp
@@ -103,6 +105,10 @@ target_sources(rabbet
             serialize/ComponentRegistry.h
             serialize/BuiltinComponents.h
             serialize/SceneSerializer.h
+            serialize/PrefabAsset.h
+            serialize/PrefabInstance.h
+            serialize/Prefab.h
+            serialize/PrefabAssetResolveSystem.h
             core/Uuid.h
             assets/AssetHandle.h
             assets/AssetType.h

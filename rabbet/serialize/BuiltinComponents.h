@@ -20,6 +20,7 @@
 #include "rabbet/physics/SphereCollider.h"
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptField.h"
+#include "rabbet/serialize/PrefabInstance.h"
 
 namespace rb {
 
@@ -98,6 +99,18 @@ inline void from_json(const nlohmann::json& j, MaterialComponent& m) {
         throw std::runtime_error("MaterialComponent: malformed material uuid '" + text + "'");
     }
     m.handle = {};
+}
+
+inline void to_json(nlohmann::json& j, const PrefabInstance& p) {
+    j = nlohmann::json{{"prefab", p.prefab.toString()}};
+}
+inline void from_json(const nlohmann::json& j, PrefabInstance& p) {
+    const std::string text = j.at("prefab").get<std::string>();
+    p.prefab = Uuid::fromString(text);
+    if (!text.empty() && !p.prefab.valid()) {
+        throw std::runtime_error("PrefabInstance: malformed prefab uuid '" + text + "'");
+    }
+    p.handle = {};
 }
 
 inline void to_json(nlohmann::json& j, const ScriptComponent& s) {
