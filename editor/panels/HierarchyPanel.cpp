@@ -2,18 +2,24 @@
 
 #include "editor/EditorContext.h"
 
+#include "rabbet/assets/AssetDatabase.h"
+#include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
+#include "rabbet/serialize/Prefab.h"
 #include "rabbet/serialize/SceneSerializer.h"
+#include "rabbet/util/Log.h"
 
 #include <glm/glm.hpp>
 #include <imgui.h>
 
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace rb::editor {
@@ -38,6 +44,27 @@ std::string displayName(rb::Scene& scene, rb::Entity e) {
         return n->value;
     }
     return "Entity " + std::to_string(e.index());
+}
+
+// Saves the entity as a reusable prefab under <assets>/prefabs/ and re-catalogues the database so
+// it appears in the Assets panel, ready to instantiate.
+void createPrefab(EditorContext& context, rb::Entity e) {
+    rb::Scene& scene = context.runtime.scene();
+    rb::AssetDatabase* database = context.runtime.tryResource<rb::AssetDatabase>();
+    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
+    if (database == nullptr || assets == nullptr || !scene.alive(e)) {
+        return;
+    }
+    const std::filesystem::path dir = database->root() / "prefabs";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const std::filesystem::path path = dir / (displayName(scene, e) + ".prefab.json");
+    if (rb::savePrefabToFile(scene, context.registry, e, path)) {
+        database->scan(database->root(), assets);
+        rb::log::info("prefab: saved '{}'", path.string());
+    } else {
+        rb::log::error("prefab: failed to save prefab '{}'", path.string());
+    }
 }
 
 } // namespace
@@ -88,6 +115,10 @@ void HierarchyPanel::onImGui() {
     ImGui::SameLine();
     if (ImGui::Button("Delete")) {
         toDelete = m_context.selected;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Create Prefab")) {
+        createPrefab(m_context, m_context.selected);
     }
     ImGui::EndDisabled();
     ImGui::Separator();

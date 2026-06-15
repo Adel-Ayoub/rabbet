@@ -23,6 +23,9 @@
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptField.h"
 #include "rabbet/serialize/ComponentRegistry.h"
+#include "rabbet/serialize/Prefab.h"
+#include "rabbet/serialize/PrefabAsset.h"
+#include "rabbet/serialize/PrefabInstance.h"
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/trigonometric.hpp>
@@ -377,6 +380,34 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e) {
             ImGui::Text("%s: %s", texture.name.c_str(),
                         texture.handle.valid() ? "resolved" : "unresolved");
         }
+    }
+}
+
+void drawPrefabInspector(EditorContext& context, rb::Entity e) {
+    rb::Scene& scene = context.runtime.scene();
+    rb::PrefabInstance& instance = scene.get<rb::PrefabInstance>(e);
+
+    if (!instance.prefab.valid()) {
+        ImGui::TextDisabled("Not linked to a prefab");
+        return;
+    }
+    ImGui::Text("Prefab %s", instance.prefab.toString().c_str());
+    ImGui::TextDisabled("%s", instance.handle.valid() ? "resolved" : "unresolved");
+
+    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
+    rb::PrefabAsset* prefab =
+        assets != nullptr ? assets->get<rb::PrefabAsset>(instance.handle) : nullptr;
+
+    ImGui::BeginDisabled(prefab == nullptr);
+    if (ImGui::Button("Revert to Prefab") && prefab != nullptr) {
+        // Re-applies the prefab's component data, discarding this instance's overrides.
+        rb::applyPrefab(scene, context.registry, e, *prefab);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Unlink")) {
+        instance.prefab = rb::Uuid{};
+        instance.handle = {};
     }
 }
 

@@ -64,6 +64,8 @@ void InspectorPanel::onImGui() {
                 // Needs the AssetManager (shader + reflected uniforms), which the type-erased
                 // registry hook cannot reach, so it is drawn directly with the editor context.
                 drawMaterialInspector(m_context, e);
+            } else if (entry.name == "PrefabInstance") {
+                drawPrefabInspector(m_context, e);
             } else if (entry.drawInspector != nullptr) {
                 entry.drawInspector(scene, e);
             } else {

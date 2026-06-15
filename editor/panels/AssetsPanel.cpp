@@ -20,6 +20,9 @@
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptImport.h"
 #include "rabbet/scripting/ScriptSystem.h"
+#include "rabbet/serialize/Prefab.h"
+#include "rabbet/serialize/PrefabAsset.h"
+#include "rabbet/serialize/PrefabInstance.h"
 #include "rabbet/util/Log.h"
 
 #include <imgui.h>
@@ -127,6 +130,23 @@ void assignMaterialToEntity(EditorContext& context, const rb::AssetDatabase::Rec
                   context.selected.index());
 }
 
+void instantiatePrefabAsset(EditorContext& context, const rb::AssetDatabase::Record& record) {
+    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
+    if (assets == nullptr) {
+        return;
+    }
+    const rb::AssetHandle<rb::PrefabAsset> handle = rb::loadPrefabAsset(*assets, record.path);
+    rb::PrefabAsset* prefab = assets->get<rb::PrefabAsset>(handle);
+    if (prefab == nullptr) {
+        rb::log::error("assets: failed to load prefab '{}'", record.path.string());
+        return;
+    }
+    const rb::Entity e = rb::instantiatePrefab(context.runtime.scene(), context.registry, *prefab);
+    context.runtime.scene().add<rb::PrefabInstance>(e, rb::PrefabInstance{record.id, {}});
+    context.selected = e;
+    rb::log::info("assets: instantiated prefab '{}' as entity {}", record.name, e.index());
+}
+
 void assignToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
     if (record.type == rb::AssetType::Model) {
         assignModelToEntity(context, record);
@@ -151,16 +171,24 @@ void AssetsPanel::onImGui() {
     const rb::AssetDatabase::Record* selected =
         m_selected.valid() ? database->find(m_selected) : nullptr;
 
-    const bool assignable = selected != nullptr && (selected->type == rb::AssetType::Model ||
-                                                    selected->type == rb::AssetType::Material ||
-                                                    selected->type == rb::AssetType::Script ||
-                                                    selected->type == rb::AssetType::Audio);
-    const bool canAssign = assignable && m_context.runtime.scene().alive(m_context.selected);
-    ImGui::BeginDisabled(!canAssign);
-    if (ImGui::Button("Assign to selected entity") && selected != nullptr) {
-        assignToEntity(m_context, *selected);
+    const bool isPrefab = selected != nullptr && selected->type == rb::AssetType::Prefab;
+    if (isPrefab) {
+        // A prefab is instantiated into a new entity rather than assigned to the selected one.
+        if (ImGui::Button("Instantiate")) {
+            instantiatePrefabAsset(m_context, *selected);
+        }
+    } else {
+        const bool assignable = selected != nullptr && (selected->type == rb::AssetType::Model ||
+                                                        selected->type == rb::AssetType::Material ||
+                                                        selected->type == rb::AssetType::Script ||
+                                                        selected->type == rb::AssetType::Audio);
+        const bool canAssign = assignable && m_context.runtime.scene().alive(m_context.selected);
+        ImGui::BeginDisabled(!canAssign);
+        if (ImGui::Button("Assign to selected entity") && selected != nullptr) {
+            assignToEntity(m_context, *selected);
+        }
+        ImGui::EndDisabled();
     }
-    ImGui::EndDisabled();
     ImGui::SameLine();
     if (selected != nullptr) {
         ImGui::TextDisabled("%s (%s)", selected->name.c_str(),

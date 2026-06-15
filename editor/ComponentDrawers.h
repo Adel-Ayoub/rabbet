@@ -21,4 +21,8 @@ void registerComponentDrawers(rb::ComponentRegistry& registry);
 // type-erased registry hook.
 void drawMaterialInspector(EditorContext& context, rb::Entity e);
 
+// Draws the PrefabInstance inspector (the prefab link + a "Revert to Prefab" action). Like the
+// material drawer it needs the AssetManager + registry, so it is called directly by the panel.
+void drawPrefabInspector(EditorContext& context, rb::Entity e);
+
 } // namespace rb::editor
