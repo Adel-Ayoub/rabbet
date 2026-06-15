@@ -1,13 +1,21 @@
 #include "editor/ComponentDrawers.h"
 
+#include "editor/EditorContext.h"
+
+#include "rabbet/assets/AssetManager.h"
 #include "rabbet/audio/SoundEmitter.h"
+#include "rabbet/core/Runtime.h"
 #include "rabbet/core/Uuid.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
+#include "rabbet/render/MaterialAsset.h"
+#include "rabbet/render/MaterialComponent.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
+#include "rabbet/render/ShaderAsset.h"
+#include "rabbet/render/ShaderUniform.h"
 #include "rabbet/scene/Camera.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Name.h"
@@ -22,7 +30,9 @@
 #include <magic_enum/magic_enum.hpp>
 
 #include <cstdio>
+#include <string>
 #include <type_traits>
+#include <vector>
 
 namespace rb::editor {
 namespace {
@@ -214,6 +224,80 @@ void drawSoundEmitter(rb::Scene& scene, rb::Entity e) {
     }
 }
 
+bool isColorName(const std::string& name) {
+    return name.find("olor") != std::string::npos || name.find("int") != std::string::npos ||
+           name.find("lbedo") != std::string::npos;
+}
+
+// One row per shader-reflected uniform. A material starts with no overrides (so it renders like
+// the built-in defaults); pressing "Override" adds one, which then drives the shader on top of
+// the per-surface values. Samplers are bound via texture slots, not edited here.
+void drawUniformOverride(rb::MaterialAsset& material, const rb::ShaderUniform& uniform) {
+    ImGui::PushID(uniform.name.c_str());
+    if (rb::isSamplerType(uniform.type)) {
+        ImGui::TextDisabled("%s  (sampler)", uniform.name.c_str());
+        ImGui::PopID();
+        return;
+    }
+
+    rb::MaterialUniform* existing = nullptr;
+    for (rb::MaterialUniform& value : material.uniforms) {
+        if (value.name == uniform.name) {
+            existing = &value;
+            break;
+        }
+    }
+
+    if (existing == nullptr) {
+        ImGui::TextDisabled("%s  (%s)", uniform.name.c_str(),
+                            std::string(rb::uniformTypeName(uniform.type)).c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Override")) {
+            rb::MaterialUniform created;
+            created.name = uniform.name;
+            created.type = uniform.type;
+            created.vec = glm::vec4(1.0f); // neutral starting point (white / 1.0)
+            material.uniforms.push_back(created);
+        }
+        ImGui::PopID();
+        return;
+    }
+
+    switch (uniform.type) {
+    case rb::UniformType::Float:
+        ImGui::DragFloat(uniform.name.c_str(), &existing->vec.x, 0.01f);
+        break;
+    case rb::UniformType::Vec2:
+        ImGui::DragFloat2(uniform.name.c_str(), &existing->vec.x, 0.01f);
+        break;
+    case rb::UniformType::Vec3:
+        if (isColorName(uniform.name)) {
+            ImGui::ColorEdit3(uniform.name.c_str(), &existing->vec.x);
+        } else {
+            ImGui::DragFloat3(uniform.name.c_str(), &existing->vec.x, 0.01f);
+        }
+        break;
+    case rb::UniformType::Vec4:
+        ImGui::ColorEdit4(uniform.name.c_str(), &existing->vec.x);
+        break;
+    case rb::UniformType::Int:
+        ImGui::DragInt(uniform.name.c_str(), &existing->integer);
+        break;
+    case rb::UniformType::Bool:
+        ImGui::Checkbox(uniform.name.c_str(), &existing->boolean);
+        break;
+    default:
+        break;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("x")) {
+        const std::string name = uniform.name;
+        std::erase_if(material.uniforms,
+                      [&name](const rb::MaterialUniform& value) { return value.name == name; });
+    }
+    ImGui::PopID();
+}
+
 } // namespace
 
 void registerComponentDrawers(rb::ComponentRegistry& registry) {
@@ -229,6 +313,71 @@ void registerComponentDrawers(rb::ComponentRegistry& registry) {
     registry.setDrawer("BoxCollider", &drawBoxCollider);
     registry.setDrawer("SphereCollider", &drawSphereCollider);
     registry.setDrawer("SoundEmitter", &drawSoundEmitter);
+}
+
+void drawMaterialInspector(EditorContext& context, rb::Entity e) {
+    rb::Scene& scene = context.runtime.scene();
+    rb::MaterialComponent& component = scene.get<rb::MaterialComponent>(e);
+
+    if (!component.material.valid()) {
+        ImGui::TextDisabled("No material assigned");
+        ImGui::TextDisabled("Assign a material from the Assets panel.");
+        return;
+    }
+    ImGui::Text("Material %s", component.material.toString().c_str());
+    ImGui::TextDisabled("%s",
+                        component.handle.valid() ? "resolved" : "unresolved (re-assign or import)");
+    if (ImGui::Button("Clear")) {
+        component.material = rb::Uuid{};
+        component.handle = {};
+        return;
+    }
+
+    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
+    if (assets == nullptr) {
+        return;
+    }
+    rb::MaterialAsset* material = assets->get<rb::MaterialAsset>(component.handle);
+    if (material == nullptr) {
+        return;
+    }
+
+    ImGui::SeparatorText("Shader");
+    if (!material->shader.valid()) {
+        ImGui::TextDisabled("No shader");
+        return;
+    }
+    ImGui::Text("Shader %s", material->shader.toString().c_str());
+    rb::ShaderAsset* shader = assets->get<rb::ShaderAsset>(material->shaderHandle);
+    ImGui::TextDisabled("%s", shader != nullptr ? "resolved" : "unresolved");
+
+    const bool hasFile = shader != nullptr && !shader->path.empty();
+    ImGui::BeginDisabled(!hasFile);
+    if (ImGui::Button("Reload Shader") && shader != nullptr) {
+        shader->sourceTimestamp = 0; // force the resolve poll to re-read + recompile
+    }
+    ImGui::EndDisabled();
+    if (!hasFile && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Built-in shaders have no file to reload.");
+    }
+
+    if (shader != nullptr) {
+        ImGui::SeparatorText("Uniforms");
+        if (shader->uniforms.empty()) {
+            ImGui::TextDisabled("(no material-editable uniforms reflected yet)");
+        }
+        for (const rb::ShaderUniform& uniform : shader->uniforms) {
+            drawUniformOverride(*material, uniform);
+        }
+    }
+
+    if (!material->textures.empty()) {
+        ImGui::SeparatorText("Textures");
+        for (const rb::MaterialTexture& texture : material->textures) {
+            ImGui::Text("%s: %s", texture.name.c_str(),
+                        texture.handle.valid() ? "resolved" : "unresolved");
+        }
+    }
 }
 
 } // namespace rb::editor

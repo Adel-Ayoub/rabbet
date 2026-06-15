@@ -1,5 +1,6 @@
 #include "editor/panels/InspectorPanel.h"
 
+#include "editor/ComponentDrawers.h"
 #include "editor/EditorContext.h"
 
 #include "rabbet/core/Runtime.h"
@@ -59,7 +60,11 @@ void InspectorPanel::onImGui() {
             ImGui::EndPopup();
         }
         if (open) {
-            if (entry.drawInspector != nullptr) {
+            if (entry.name == "MaterialComponent") {
+                // Needs the AssetManager (shader + reflected uniforms), which the type-erased
+                // registry hook cannot reach, so it is drawn directly with the editor context.
+                drawMaterialInspector(m_context, e);
+            } else if (entry.drawInspector != nullptr) {
                 entry.drawInspector(scene, e);
             } else {
                 ImGui::TextDisabled("(no inspector for this component)");
