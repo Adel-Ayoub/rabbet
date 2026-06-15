@@ -1,10 +1,15 @@
 #include "rabbet/render/RenderSystem.h"
 
 #include "rabbet/core/Runtime.h"
+#include "rabbet/render/BuiltinShaders.h"
 #include "rabbet/render/Lighting.h"
 #include "rabbet/render/Material.h"
+#include "rabbet/render/MaterialAsset.h"
+#include "rabbet/render/MaterialComponent.h"
 #include "rabbet/render/PbrMaterial.h"
 #include "rabbet/render/RenderView.h"
+#include "rabbet/render/ShaderAsset.h"
+#include "rabbet/render/ShaderUniform.h"
 #include "rabbet/render/Shadow.h"
 #include "rabbet/render/Viewport.h"
 #include "rabbet/render/gl/Mesh.h"
@@ -29,6 +34,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <vector>
 
 namespace rb {
 namespace {
@@ -37,25 +44,6 @@ constexpr std::size_t kMaxDirectionalLights = 4;
 constexpr std::size_t kMaxPointLights = 8;
 constexpr int kShadowMapSize = 2048;
 constexpr unsigned int kShadowTextureUnit = 1;
-
-constexpr const char* kVertexSource = R"(#version 410 core
-layout(location = 0) in vec3 aPosition;
-layout(location = 1) in vec3 aNormal;
-layout(location = 2) in vec2 aUv;
-uniform mat4 uModel;
-uniform mat3 uNormalMatrix;
-uniform mat4 uViewProjection;
-out vec3 vNormal;
-out vec3 vWorldPos;
-out vec2 vUv;
-void main() {
-    vec4 world = uModel * vec4(aPosition, 1.0);
-    vWorldPos = world.xyz;
-    vNormal = uNormalMatrix * aNormal;
-    vUv = aUv;
-    gl_Position = uViewProjection * world;
-}
-)";
 
 constexpr const char* kDepthVertex = R"(#version 410 core
 layout(location = 0) in vec3 aPosition;
@@ -104,151 +92,65 @@ void main() {
 }
 )";
 
-constexpr const char* kShadowFunctions = R"(
-uniform mat4 uLightSpace;
-uniform sampler2D uShadowMap;
-uniform int uHasShadowMap;
-float shadowFactor(vec3 worldPos, vec3 N, vec3 L) {
-    if (uHasShadowMap == 0) return 0.0;
-    vec4 lightClip = uLightSpace * vec4(worldPos, 1.0);
-    vec3 proj = lightClip.xyz / lightClip.w;
-    proj = proj * 0.5 + 0.5;
-    if (proj.z > 1.0) return 0.0;
-    float bias = max(0.0025 * (1.0 - dot(N, L)), 0.0005);
-    vec2 texelSize = 1.0 / vec2(textureSize(uShadowMap, 0));
-    float shadow = 0.0;
-    for (int x = -1; x <= 1; ++x) {
-        for (int y = -1; y <= 1; ++y) {
-            float depth = texture(uShadowMap, proj.xy + vec2(x, y) * texelSize).r;
-            shadow += proj.z - bias > depth ? 1.0 : 0.0;
-        }
-    }
-    return shadow / 9.0;
-}
-)";
-
-constexpr const char* kLightUniforms = R"(
-const int kMaxDir = 4;
-const int kMaxPoint = 8;
-uniform vec3 uViewPosition;
-uniform vec3 uAmbient;
-uniform int uDirectionalCount;
-uniform vec3 uDirectionalDirection[kMaxDir];
-uniform vec3 uDirectionalColor[kMaxDir];
-uniform int uPointCount;
-uniform vec3 uPointPosition[kMaxPoint];
-uniform vec3 uPointColor[kMaxPoint];
-uniform vec3 uPointAttenuation[kMaxPoint];
-)";
-
-const std::string kPhongFragment = std::string(R"(#version 410 core
-in vec3 vNormal;
-in vec3 vWorldPos;
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uTexture;
-uniform vec3 uTint;
-uniform float uSpecularStrength;
-uniform float uShininess;
-)") + kLightUniforms + kShadowFunctions + R"(
-vec3 shade(vec3 L, vec3 radiance, vec3 N, vec3 V, vec3 albedo) {
-    float diffuse = max(dot(N, L), 0.0);
-    vec3 reflection = reflect(-L, N);
-    float specular = pow(max(dot(V, reflection), 0.0), uShininess) * uSpecularStrength;
-    return radiance * (diffuse * albedo + vec3(specular));
-}
-void main() {
-    vec3 albedo = texture(uTexture, vUv).rgb * uTint;
-    vec3 N = normalize(vNormal);
-    vec3 V = normalize(uViewPosition - vWorldPos);
-    vec3 color = uAmbient * albedo;
-    for (int i = 0; i < uDirectionalCount; ++i) {
-        vec3 L = normalize(-uDirectionalDirection[i]);
-        vec3 contribution = shade(L, uDirectionalColor[i], N, V, albedo);
-        if (i == 0) contribution *= (1.0 - shadowFactor(vWorldPos, N, L));
-        color += contribution;
-    }
-    for (int i = 0; i < uPointCount; ++i) {
-        vec3 toLight = uPointPosition[i] - vWorldPos;
-        float distance = length(toLight);
-        vec3 a = uPointAttenuation[i];
-        float attenuation = 1.0 / (a.x + a.y * distance + a.z * distance * distance);
-        color += shade(toLight / max(distance, 0.0001), uPointColor[i] * attenuation, N, V, albedo);
-    }
-    FragColor = vec4(color, 1.0);
-}
-)";
-
-const std::string kPbrFragment = std::string(R"(#version 410 core
-in vec3 vNormal;
-in vec3 vWorldPos;
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uAlbedoTex;
-uniform vec3 uBaseColor;
-uniform float uMetallic;
-uniform float uRoughness;
-uniform float uAo;
-const float PI = 3.14159265359;
-)") + kLightUniforms + kShadowFunctions + R"(
-float distributionGGX(vec3 N, vec3 H, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float nh = max(dot(N, H), 0.0);
-    float d = nh * nh * (a2 - 1.0) + 1.0;
-    return a2 / (PI * d * d);
-}
-float geometrySchlick(float nv, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0;
-    return nv / (nv * (1.0 - k) + k);
-}
-float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-    return geometrySchlick(max(dot(N, V), 0.0), roughness) *
-           geometrySchlick(max(dot(N, L), 0.0), roughness);
-}
-vec3 fresnelSchlick(float cosTheta, vec3 f0) {
-    return f0 + (1.0 - f0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
-vec3 brdf(vec3 L, vec3 radiance, vec3 N, vec3 V, vec3 albedo, vec3 f0) {
-    vec3 H = normalize(V + L);
-    float ndf = distributionGGX(N, H, uRoughness);
-    float g = geometrySmith(N, V, L, uRoughness);
-    vec3 f = fresnelSchlick(max(dot(H, V), 0.0), f0);
-    vec3 specular = (ndf * g * f) /
-                    (4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001);
-    vec3 kd = (vec3(1.0) - f) * (1.0 - uMetallic);
-    return (kd * albedo / PI + specular) * radiance * max(dot(N, L), 0.0);
-}
-void main() {
-    vec3 albedo = texture(uAlbedoTex, vUv).rgb * uBaseColor;
-    vec3 N = normalize(vNormal);
-    vec3 V = normalize(uViewPosition - vWorldPos);
-    vec3 f0 = mix(vec3(0.04), albedo, uMetallic);
-    vec3 lo = vec3(0.0);
-    for (int i = 0; i < uDirectionalCount; ++i) {
-        vec3 L = normalize(-uDirectionalDirection[i]);
-        vec3 contribution = brdf(L, uDirectionalColor[i], N, V, albedo, f0);
-        if (i == 0) contribution *= (1.0 - shadowFactor(vWorldPos, N, L));
-        lo += contribution;
-    }
-    for (int i = 0; i < uPointCount; ++i) {
-        vec3 toLight = uPointPosition[i] - vWorldPos;
-        float distance = length(toLight);
-        vec3 a = uPointAttenuation[i];
-        float attenuation = 1.0 / (a.x + a.y * distance + a.z * distance * distance);
-        lo += brdf(toLight / max(distance, 0.0001), uPointColor[i] * attenuation, N, V, albedo, f0);
-    }
-    vec3 ambient = uAmbient * albedo * uAo;
-    vec3 color = ambient + lo;
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
-    FragColor = vec4(color, 1.0);
-}
-)";
-
 glm::mat3 normalMatrix(const glm::mat4& model) {
     return glm::transpose(glm::inverse(glm::mat3(model)));
+}
+
+// Builds the material-editable uniform list from a freshly compiled program: every active
+// uniform that is not engine-driven (transforms/camera/lights/shadows) and maps to a known
+// value kind. This is what the inspector turns into widgets.
+std::vector<ShaderUniform> reflectMaterialUniforms(const gl::Shader& shader) {
+    std::vector<ShaderUniform> result;
+    for (const gl::Shader::ActiveUniform& active : shader.activeUniforms()) {
+        if (isEngineUniform(active.name)) {
+            continue;
+        }
+        const UniformType type = uniformTypeFromGlType(active.type);
+        if (type == UniformType::Unknown) {
+            continue;
+        }
+        result.push_back(ShaderUniform{active.name, type});
+    }
+    return result;
+}
+
+// Uploads a material's uniform overrides and binds its textures on top of whatever per-surface
+// values were already set. Texture units 0 (albedo) and 1 (shadow map) are reserved, so material
+// textures start at unit 2. Setting a uniform the program lacks is a silent no-op.
+void applyMaterialOverrides(gl::Shader& program, const MaterialAsset& material,
+                            AssetManager& assets) {
+    for (const MaterialUniform& uniform : material.uniforms) {
+        switch (uniform.type) {
+        case UniformType::Int:
+            program.setInt(uniform.name, uniform.integer);
+            break;
+        case UniformType::Bool:
+            program.setInt(uniform.name, uniform.boolean ? 1 : 0);
+            break;
+        case UniformType::Float:
+            program.setFloat(uniform.name, uniform.vec.x);
+            break;
+        case UniformType::Vec2:
+            program.setVec2(uniform.name, glm::vec2(uniform.vec));
+            break;
+        case UniformType::Vec3:
+            program.setVec3(uniform.name, glm::vec3(uniform.vec));
+            break;
+        case UniformType::Vec4:
+            program.setVec4(uniform.name, uniform.vec);
+            break;
+        default:
+            break; // matrices / samplers are not editable values
+        }
+    }
+    unsigned int unit = 2;
+    for (const MaterialTexture& texture : material.textures) {
+        if (TextureAsset* asset = assets.get<TextureAsset>(texture.handle)) {
+            asset->texture.bind(unit);
+            program.setInt(texture.name, static_cast<int>(unit));
+            ++unit;
+        }
+    }
 }
 
 void uploadLights(gl::Shader& shader, const glm::mat4& viewProjection, const glm::vec3& viewPosition,
@@ -284,12 +186,44 @@ gl::Mesh* RenderSystem::primitiveMesh(PrimitiveShape shape) noexcept {
     return nullptr;
 }
 
-void RenderSystem::onStart(Runtime&) {
-    m_phong = gl::Shader::fromSource(kVertexSource, kPhongFragment);
+gl::Shader* RenderSystem::shaderProgram(AssetManager& assets, AssetHandle<ShaderAsset> handle,
+                                        const Uuid& id) {
+    ShaderAsset* asset = assets.get<ShaderAsset>(handle);
+    if (asset == nullptr) {
+        return nullptr;
+    }
+    if (const auto it = m_programCache.find(id);
+        it != m_programCache.end() && it->second.revision == asset->revision) {
+        return it->second.program ? &*it->second.program : nullptr;
+    }
+    std::optional<gl::Shader> compiled =
+        gl::Shader::fromSource(asset->vertexSource, asset->fragmentSource);
+    if (compiled) {
+        asset->uniforms = reflectMaterialUniforms(*compiled);
+    } else {
+        log::error("render system: failed to compile shader asset");
+    }
+    // Record the revision even on failure so a broken shader is not recompiled every frame; the
+    // next hot-reload (revision bump) retries.
+    CompiledProgram entry;
+    entry.revision = asset->revision;
+    entry.program = std::move(compiled);
+    const auto [pos, inserted] = m_programCache.insert_or_assign(id, std::move(entry));
+    (void)inserted;
+    return pos->second.program ? &*pos->second.program : nullptr;
+}
+
+void RenderSystem::onStart(Runtime& runtime) {
+    // Register the built-in shaders + default material so a MaterialComponent can reference the
+    // defaults without any asset file (and so examples that add an AssetManager get them too).
+    if (AssetManager* assets = runtime.tryResource<AssetManager>()) {
+        registerDefaultRenderAssets(*assets);
+    }
+    m_phong = gl::Shader::fromSource(builtinLitVertexSource(), builtinPhongFragmentSource());
     if (!m_phong) {
         log::error("render system: failed to build the Phong shader");
     }
-    m_pbr = gl::Shader::fromSource(kVertexSource, kPbrFragment);
+    m_pbr = gl::Shader::fromSource(builtinLitVertexSource(), builtinPbrFragmentSource());
     if (!m_pbr) {
         log::error("render system: failed to build the PBR shader");
     }
@@ -333,6 +267,59 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
             }
         });
     }
+
+    Scene& scene = runtime.scene();
+
+    // An entity whose material has resolved is drawn by the material pass below; the built-in
+    // passes skip it so its geometry is not drawn twice.
+    const auto materialDriven = [&scene](Entity e) {
+        const MaterialComponent* component = scene.tryGet<MaterialComponent>(e);
+        return component != nullptr && component->handle.valid();
+    };
+
+    // Sets per-entity and per-submesh uniforms and draws a model, applying a material's overrides
+    // on top of each submesh when one is supplied. Shared by the built-in ModelRenderer pass (no
+    // overrides) and the material pass so the two cannot drift: a default material renders a model
+    // identically to the built-in path.
+    const auto drawModelSubmeshes = [this, assets](gl::Shader& program, const glm::mat4& world,
+                                                   ModelAsset* model,
+                                                   const MaterialAsset* overrides) {
+        program.setMat4("uModel", world);
+        program.setMat3("uNormalMatrix", normalMatrix(world));
+        if (model == nullptr) {
+            // unresolved or missing model: draw a loud magenta placeholder, but only when both
+            // fallback resources exist (else skip this entity).
+            if (m_missingMesh && m_missingTexture) {
+                program.setVec3("uBaseColor", glm::vec3(1.0f, 0.0f, 1.0f));
+                program.setFloat("uMetallic", 0.0f);
+                program.setFloat("uRoughness", 1.0f);
+                program.setFloat("uAo", 1.0f);
+                m_missingTexture->bind(0);
+                if (overrides != nullptr && assets != nullptr) {
+                    applyMaterialOverrides(program, *overrides, *assets);
+                }
+                m_missingMesh->draw();
+            }
+            return;
+        }
+        for (const ModelAsset::Submesh& submesh : model->submeshes) {
+            program.setVec3("uBaseColor", submesh.baseColor);
+            program.setFloat("uMetallic", submesh.metallic);
+            program.setFloat("uRoughness", submesh.roughness);
+            program.setFloat("uAo", submesh.ao);
+            if (assets != nullptr) {
+                if (TextureAsset* texture = assets->get<TextureAsset>(submesh.albedo)) {
+                    texture->texture.bind(0);
+                } else if (m_missingTexture) {
+                    m_missingTexture->bind(0);
+                }
+            }
+            if (overrides != nullptr && assets != nullptr) {
+                applyMaterialOverrides(program, *overrides, *assets);
+            }
+            submesh.mesh.draw();
+        }
+    };
 
     const bool shadows = m_depth.has_value() && m_shadowMap.has_value() && lighting != nullptr &&
                          !lighting->directionalDirections.empty();
@@ -396,7 +383,10 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         m_phong->setInt("uHasShadowMap", hasShadow);
         m_phong->setMat4("uLightSpace", lightSpace);
         runtime.scene().each<WorldMatrix, gl::Mesh, Material>(
-            [this](Entity, WorldMatrix& world, gl::Mesh& mesh, Material& material) {
+            [this, &materialDriven](Entity e, WorldMatrix& world, gl::Mesh& mesh, Material& material) {
+                if (materialDriven(e)) {
+                    return; // shaded by the material pass instead
+                }
                 m_phong->setMat4("uModel", world.value);
                 m_phong->setMat3("uNormalMatrix", normalMatrix(world.value));
                 m_phong->setVec3("uTint", material.tint);
@@ -415,7 +405,11 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         m_pbr->setInt("uHasShadowMap", hasShadow);
         m_pbr->setMat4("uLightSpace", lightSpace);
         runtime.scene().each<WorldMatrix, gl::Mesh, PbrMaterial>(
-            [this](Entity, WorldMatrix& world, gl::Mesh& mesh, PbrMaterial& material) {
+            [this, &materialDriven](Entity e, WorldMatrix& world, gl::Mesh& mesh,
+                                    PbrMaterial& material) {
+                if (materialDriven(e)) {
+                    return; // shaded by the material pass instead
+                }
                 m_pbr->setMat4("uModel", world.value);
                 m_pbr->setMat3("uNormalMatrix", normalMatrix(world.value));
                 m_pbr->setVec3("uBaseColor", material.baseColor);
@@ -435,35 +429,13 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         m_pbr->setInt("uHasShadowMap", hasShadow);
         m_pbr->setMat4("uLightSpace", lightSpace);
         runtime.scene().each<WorldMatrix, ModelRenderer>(
-            [this, assets](Entity, WorldMatrix& world, ModelRenderer& renderer) {
-                m_pbr->setMat4("uModel", world.value);
-                m_pbr->setMat3("uNormalMatrix", normalMatrix(world.value));
+            [this, assets, &materialDriven, &drawModelSubmeshes](Entity e, WorldMatrix& world,
+                                                                 ModelRenderer& renderer) {
+                if (materialDriven(e)) {
+                    return; // shaded by the material pass instead
+                }
                 ModelAsset* model = assets->get<ModelAsset>(renderer.handle);
-                if (model == nullptr) {
-                    // unresolved or missing model: draw a loud magenta placeholder, but
-                    // only when both fallback resources exist (else skip this entity).
-                    if (m_missingMesh && m_missingTexture) {
-                        m_pbr->setVec3("uBaseColor", glm::vec3(1.0f, 0.0f, 1.0f));
-                        m_pbr->setFloat("uMetallic", 0.0f);
-                        m_pbr->setFloat("uRoughness", 1.0f);
-                        m_pbr->setFloat("uAo", 1.0f);
-                        m_missingTexture->bind(0);
-                        m_missingMesh->draw();
-                    }
-                    return;
-                }
-                for (const ModelAsset::Submesh& submesh : model->submeshes) {
-                    m_pbr->setVec3("uBaseColor", submesh.baseColor);
-                    m_pbr->setFloat("uMetallic", submesh.metallic);
-                    m_pbr->setFloat("uRoughness", submesh.roughness);
-                    m_pbr->setFloat("uAo", submesh.ao);
-                    if (TextureAsset* texture = assets->get<TextureAsset>(submesh.albedo)) {
-                        texture->texture.bind(0);
-                    } else if (m_missingTexture) {
-                        m_missingTexture->bind(0);
-                    }
-                    submesh.mesh.draw();
-                }
+                drawModelSubmeshes(*m_pbr, world.value, model, nullptr);
             });
     }
 
@@ -476,7 +448,10 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         m_pbr->setMat4("uLightSpace", lightSpace);
         m_whiteTexture->bind(0);
         runtime.scene().each<WorldMatrix, Primitive>(
-            [this](Entity, WorldMatrix& world, Primitive& primitive) {
+            [this, &materialDriven](Entity e, WorldMatrix& world, Primitive& primitive) {
+                if (materialDriven(e)) {
+                    return; // shaded by the material pass instead
+                }
                 gl::Mesh* mesh = primitiveMesh(primitive.shape);
                 if (mesh == nullptr) {
                     return;
@@ -488,6 +463,69 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                 m_pbr->setFloat("uRoughness", primitive.roughness);
                 m_pbr->setFloat("uAo", 1.0f);
                 mesh->draw();
+            });
+    }
+
+    // Data-driven material pass: entities with a resolved MaterialComponent are shaded by their
+    // material's shader (the built-in passes above skipped them). The material's uniform/texture
+    // overrides apply on top of the per-surface values, so the default PBR material renders a
+    // model exactly like the built-in path; a custom shader or overrides change the look.
+    if (assets != nullptr && runtime.scene().count<MaterialComponent>() > 0) {
+        runtime.scene().each<WorldMatrix, MaterialComponent>(
+            [&](Entity e, WorldMatrix& world, MaterialComponent& component) {
+                if (!component.handle.valid()) {
+                    return; // unresolved: left to the built-in fallback passes
+                }
+                MaterialAsset* material = assets->get<MaterialAsset>(component.handle);
+                if (material == nullptr) {
+                    return;
+                }
+                gl::Shader* program =
+                    shaderProgram(*assets, material->shaderHandle, material->shader);
+                if (program == nullptr) {
+                    program = m_pbr ? &*m_pbr : nullptr; // fall back so the entity still draws
+                }
+                if (program == nullptr) {
+                    return;
+                }
+                program->bind();
+                uploadLights(*program, viewProjection, view.position, lighting);
+                program->setInt("uAlbedoTex", 0);
+                program->setInt("uTexture", 0);
+                program->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
+                program->setInt("uHasShadowMap", hasShadow);
+                program->setMat4("uLightSpace", lightSpace);
+
+                if (ModelRenderer* renderer = scene.tryGet<ModelRenderer>(e)) {
+                    ModelAsset* model = assets->get<ModelAsset>(renderer->handle);
+                    drawModelSubmeshes(*program, world.value, model, material);
+                } else if (Primitive* primitive = scene.tryGet<Primitive>(e)) {
+                    if (gl::Mesh* mesh = primitiveMesh(primitive->shape)) {
+                        if (m_whiteTexture) {
+                            m_whiteTexture->bind(0);
+                        }
+                        program->setMat4("uModel", world.value);
+                        program->setMat3("uNormalMatrix", normalMatrix(world.value));
+                        program->setVec3("uBaseColor", primitive->color);
+                        program->setFloat("uMetallic", primitive->metallic);
+                        program->setFloat("uRoughness", primitive->roughness);
+                        program->setFloat("uAo", 1.0f);
+                        applyMaterialOverrides(*program, *material, *assets);
+                        mesh->draw();
+                    }
+                } else if (gl::Mesh* mesh = scene.tryGet<gl::Mesh>(e)) {
+                    if (m_whiteTexture) {
+                        m_whiteTexture->bind(0);
+                    }
+                    program->setMat4("uModel", world.value);
+                    program->setMat3("uNormalMatrix", normalMatrix(world.value));
+                    program->setVec3("uBaseColor", glm::vec3(1.0f));
+                    program->setFloat("uMetallic", 0.0f);
+                    program->setFloat("uRoughness", 0.8f);
+                    program->setFloat("uAo", 1.0f);
+                    applyMaterialOverrides(*program, *material, *assets);
+                    mesh->draw();
+                }
             });
     }
 

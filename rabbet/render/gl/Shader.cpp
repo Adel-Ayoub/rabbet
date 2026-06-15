@@ -5,6 +5,7 @@
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
 #include <utility>
 
 namespace rb::gl {
@@ -98,6 +99,35 @@ void Shader::bind() const noexcept {
     glUseProgram(m_program);
 }
 
+std::vector<Shader::ActiveUniform> Shader::activeUniforms() const {
+    std::vector<ActiveUniform> result;
+    GLint count = 0;
+    glGetProgramiv(m_program, GL_ACTIVE_UNIFORMS, &count);
+    if (count <= 0) {
+        return result;
+    }
+    GLint maxLength = 0;
+    glGetProgramiv(m_program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &maxLength);
+    std::string nameBuffer(static_cast<std::size_t>(std::max(maxLength, 1)), '\0');
+    result.reserve(static_cast<std::size_t>(count));
+    for (GLint i = 0; i < count; ++i) {
+        GLsizei written = 0;
+        GLint size = 0;
+        GLenum type = 0;
+        glGetActiveUniform(m_program, static_cast<GLuint>(i),
+                           static_cast<GLsizei>(nameBuffer.size()), &written, &size, &type,
+                           nameBuffer.data());
+        std::string name(nameBuffer.data(), static_cast<std::size_t>(written));
+        // Drivers append "[0]" to array uniforms; trim it so the name matches the source.
+        if (const std::size_t bracket = name.find('['); bracket != std::string::npos) {
+            name.resize(bracket);
+        }
+        result.push_back(
+            ActiveUniform{std::move(name), static_cast<unsigned int>(type), static_cast<int>(size)});
+    }
+    return result;
+}
+
 int Shader::uniformLocation(std::string_view name) {
     if (const auto it = m_uniformCache.find(name); it != m_uniformCache.end()) {
         return it->second;
@@ -114,6 +144,10 @@ void Shader::setInt(std::string_view name, int value) {
 
 void Shader::setFloat(std::string_view name, float value) {
     glUniform1f(uniformLocation(name), value);
+}
+
+void Shader::setVec2(std::string_view name, const glm::vec2& value) {
+    glUniform2fv(uniformLocation(name), 1, glm::value_ptr(value));
 }
 
 void Shader::setVec3(std::string_view name, const glm::vec3& value) {

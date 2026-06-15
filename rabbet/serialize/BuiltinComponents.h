@@ -12,6 +12,7 @@
 #include "rabbet/serialize/JsonGlm.h"
 #include "rabbet/core/Uuid.h"
 #include "rabbet/audio/SoundEmitter.h"
+#include "rabbet/render/MaterialComponent.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/physics/BoxCollider.h"
@@ -85,6 +86,18 @@ inline void from_json(const nlohmann::json& j, ModelRenderer& r) {
         throw std::runtime_error("ModelRenderer: malformed model uuid '" + text + "'");
     }
     r.handle = {};
+}
+
+inline void to_json(nlohmann::json& j, const MaterialComponent& m) {
+    j = nlohmann::json{{"material", m.material.toString()}};
+}
+inline void from_json(const nlohmann::json& j, MaterialComponent& m) {
+    const std::string text = j.at("material").get<std::string>();
+    m.material = Uuid::fromString(text);
+    if (!text.empty() && !m.material.valid()) {
+        throw std::runtime_error("MaterialComponent: malformed material uuid '" + text + "'");
+    }
+    m.handle = {};
 }
 
 inline void to_json(nlohmann::json& j, const ScriptComponent& s) {

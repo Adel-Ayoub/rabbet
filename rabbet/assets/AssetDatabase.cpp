@@ -36,8 +36,14 @@ AssetType assetTypeFromExtension(const std::filesystem::path& path) {
     if (endsWith(filename, ".prefab.json") || endsWith(filename, ".prefab")) {
         return AssetType::Prefab;
     }
+    if (endsWith(filename, ".material.json")) {
+        return AssetType::Material;
+    }
 
     const std::string ext = toLower(path.extension().string());
+    if (ext == ".shader" || ext == ".glsl") {
+        return AssetType::Shader;
+    }
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" ||
         ext == ".hdr" || ext == ".dds" || ext == ".ktx") {
         return AssetType::Texture;

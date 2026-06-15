@@ -1,8 +1,12 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
+#include <unordered_map>
 
+#include "rabbet/assets/AssetHandle.h"
 #include "rabbet/core/System.h"
+#include "rabbet/core/Uuid.h"
 #include "rabbet/ecs/Entity.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/render/gl/DepthMap.h"
@@ -12,6 +16,9 @@
 #include "rabbet/render/gl/Texture.h"
 
 namespace rb {
+
+class AssetManager;
+struct ShaderAsset;
 
 class RenderSystem final : public System {
 public:
@@ -26,6 +33,19 @@ public:
 private:
     [[nodiscard]] gl::Mesh* primitiveMesh(PrimitiveShape shape) noexcept;
 
+    // A compiled GL program for a ShaderAsset, cached by the asset's uuid and the source
+    // revision it was built from so a hot-reload (revision bump) triggers a recompile.
+    struct CompiledProgram {
+        std::optional<gl::Shader> program;
+        std::uint32_t revision = 0;
+    };
+
+    // Returns the cached program for a ShaderAsset, compiling (and reflecting its uniforms into
+    // the asset) on first use or after a hot-reload. Returns nullptr if the asset is missing or
+    // fails to compile, so the caller can fall back to a built-in program.
+    [[nodiscard]] gl::Shader* shaderProgram(AssetManager& assets, AssetHandle<ShaderAsset> handle,
+                                            const Uuid& id);
+
     std::optional<gl::Shader> m_phong;
     std::optional<gl::Shader> m_pbr;
     std::optional<gl::Shader> m_depth;
@@ -39,6 +59,7 @@ private:
     std::optional<gl::Mesh> m_primitiveSphere;
     std::optional<gl::Mesh> m_primitivePlane;
     std::optional<gl::Texture> m_whiteTexture;
+    std::unordered_map<Uuid, CompiledProgram> m_programCache;
 };
 
 } // namespace rb

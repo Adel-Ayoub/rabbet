@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -22,6 +23,15 @@ struct TransparentStringHash {
 
 class Shader {
 public:
+    // One active uniform as the driver reports it: the GLSL name (array "[0]" suffix stripped),
+    // the raw GL type enum, and the array length (1 for scalars). The render layer maps `type`
+    // to a UniformType and filters engine-driven names.
+    struct ActiveUniform {
+        std::string name;
+        unsigned int type = 0;
+        int size = 0;
+    };
+
     [[nodiscard]] static std::optional<Shader> fromSource(std::string_view vertexSource,
                                                           std::string_view fragmentSource);
 
@@ -33,8 +43,13 @@ public:
 
     void bind() const noexcept;
 
+    // Reflects every active uniform of the linked program via glGetActiveUniform. Requires the
+    // program to be linked (it is, post-fromSource). The order follows the driver's indices.
+    [[nodiscard]] std::vector<ActiveUniform> activeUniforms() const;
+
     void setInt(std::string_view name, int value);
     void setFloat(std::string_view name, float value);
+    void setVec2(std::string_view name, const glm::vec2& value);
     void setVec3(std::string_view name, const glm::vec3& value);
     void setVec3Array(std::string_view name, std::span<const glm::vec3> values);
     void setVec4(std::string_view name, const glm::vec4& value);

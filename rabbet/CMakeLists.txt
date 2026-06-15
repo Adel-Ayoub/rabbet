@@ -35,6 +35,12 @@ target_sources(rabbet
         assets/AssetDatabase.cpp
         render/ModelImport.cpp
         render/AssetResolveSystem.cpp
+        render/ShaderUniform.cpp
+        render/BuiltinShaders.cpp
+        render/ShaderImport.cpp
+        render/TextureImport.cpp
+        render/MaterialImport.cpp
+        render/MaterialAssetResolveSystem.cpp
         scripting/ScriptImport.cpp
         scripting/ScriptAssetResolveSystem.cpp
         scripting/ScriptSystem.cpp
@@ -109,6 +115,15 @@ target_sources(rabbet
             render/ModelImport.h
             render/Primitive.h
             render/AssetResolveSystem.h
+            render/ShaderUniform.h
+            render/ShaderAsset.h
+            render/BuiltinShaders.h
+            render/ShaderImport.h
+            render/TextureImport.h
+            render/MaterialAsset.h
+            render/MaterialComponent.h
+            render/MaterialImport.h
+            render/MaterialAssetResolveSystem.h
             scripting/ScriptField.h
             scripting/ScriptComponent.h
             scripting/ScriptAsset.h

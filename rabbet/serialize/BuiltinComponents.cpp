@@ -11,6 +11,7 @@ void registerBuiltinComponents(ComponentRegistry& registry) {
     registry.add<DirectionalLight>("DirectionalLight");
     registry.add<PointLight>("PointLight");
     registry.add<ModelRenderer>("ModelRenderer");
+    registry.add<MaterialComponent>("MaterialComponent");
     registry.add<Primitive>("Primitive");
     registry.add<ScriptComponent>("ScriptComponent");
     registry.add<RigidBody>("RigidBody");
