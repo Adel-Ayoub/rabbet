@@ -18,8 +18,11 @@
 #include "rabbet/platform/Window.h"
 #include "rabbet/physics/PhysicsSystem.h"
 #include "rabbet/render/AssetResolveSystem.h"
+#include "rabbet/render/BuiltinShaders.h"
 #include "rabbet/render/DebugDraw.h"
 #include "rabbet/render/Geometry.h"
+#include "rabbet/render/MaterialAssetResolveSystem.h"
+#include "rabbet/render/MaterialComponent.h"
 #include "rabbet/render/Image.h"
 #include "rabbet/render/ImageLoader.h"
 #include "rabbet/render/Lighting.h"
@@ -141,6 +144,9 @@ void Editor::buildDefaultScene() {
     m_runtime.addResource<rb::Viewport>();
     m_runtime.addResource<rb::RenderView>();
     rb::AssetManager& assets = m_runtime.addResource<rb::AssetManager>();
+    // Register the built-in shaders + default PBR material so the crate's MaterialComponent
+    // resolves to a real asset (the data-driven path) without depending on any asset file.
+    rb::registerDefaultRenderAssets(assets);
     rb::AssetDatabase& database = m_runtime.addResource<rb::AssetDatabase>();
     rb::Lighting& lighting = m_runtime.addResource<rb::Lighting>();
     lighting.ambient = glm::vec3(0.32f, 0.34f, 0.40f);
@@ -151,6 +157,7 @@ void Editor::buildDefaultScene() {
     // .lua handle current and polls for hot reloads.
     m_runtime.addSystem<rb::ScriptAssetResolveSystem>();
     m_runtime.addSystem<rb::AudioAssetResolveSystem>();
+    m_runtime.addSystem<rb::MaterialAssetResolveSystem>();
     m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::AudioSystem, rb::SystemPhase::Play>();
@@ -184,6 +191,12 @@ void Editor::buildDefaultScene() {
     renderer.model = assets.uuidOf(crate);
     renderer.handle = crate;
     scene.add<rb::ModelRenderer>(heroEntity, renderer);
+
+    // Shade the crate through the data-driven path: a MaterialComponent bound to the built-in
+    // default PBR material. With no uniform overrides it renders identically to the built-in
+    // model path, while the inspector now exposes the shader's reflected uniforms to edit.
+    scene.add<rb::MaterialComponent>(heroEntity,
+                                     rb::MaterialComponent{rb::builtin::kDefaultMaterial, {}});
     m_context.selected = heroEntity;
 
     // A sample Lua behavior: pressing Play slowly spins the hero (and hot-reloads on .lua edits).
