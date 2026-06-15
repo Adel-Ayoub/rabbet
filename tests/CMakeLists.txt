@@ -14,6 +14,7 @@ set(RABBET_TEST_SUITES
     script
     physics
     audio
+    material
     util_log
     scene_transform
     scene_camera
