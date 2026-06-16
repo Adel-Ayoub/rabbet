@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include "rabbet/assets/AssetHandle.h"
 #include "rabbet/core/System.h"
@@ -12,6 +13,7 @@
 #include "rabbet/render/gl/Cubemap.h"
 #include "rabbet/render/gl/DepthMap.h"
 #include "rabbet/render/gl/Mesh.h"
+#include "rabbet/render/gl/ParticleStream.h"
 #include "rabbet/render/gl/PickBuffer.h"
 #include "rabbet/render/gl/Shader.h"
 #include "rabbet/render/gl/Texture.h"
@@ -52,6 +54,7 @@ private:
     std::optional<gl::Shader> m_depth;
     std::optional<gl::Shader> m_pick;
     std::optional<gl::Shader> m_flat; // unlit single-colour, for collider wireframes
+    std::optional<gl::Shader> m_particle; // billboard sprites for the transparent particle pass
     std::optional<gl::DepthMap> m_shadowMap;
     std::optional<gl::PickBuffer> m_pickBuffer;
     std::optional<gl::Mesh> m_missingMesh;
@@ -63,6 +66,11 @@ private:
     // A 1x1 cubemap kept bound to the environment unit when no irradiance map is present, so the
     // lit shaders' samplerCube is always complete (some drivers validate every sampler per draw).
     std::optional<gl::Cubemap> m_fallbackCubemap;
+    // The particle pass: a reusable streaming buffer + a soft round dot used when an emitter has no
+    // sprite. The vertex scratch is kept across frames so billboard expansion does not re-allocate.
+    std::optional<gl::ParticleStream> m_particleStream;
+    std::optional<gl::Texture> m_particleTexture;
+    std::vector<gl::ParticleVertex> m_particleVertices;
     std::unordered_map<Uuid, CompiledProgram> m_programCache;
 };
 

@@ -15,6 +15,7 @@
 #include "rabbet/render/MaterialComponent.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
+#include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
@@ -254,6 +255,57 @@ inline void from_json(const nlohmann::json& j, SoundEmitter& s) {
     j.at("spatial").get_to(s.spatial);
     j.at("playOnStart").get_to(s.playOnStart);
     s.stream = j.value("stream", false); // tolerate scenes written before `stream` existed
+}
+
+NLOHMANN_JSON_SERIALIZE_ENUM(ParticleBlendMode, {
+                                                    {ParticleBlendMode::Additive, "Additive"},
+                                                    {ParticleBlendMode::Alpha, "Alpha"},
+                                                })
+
+inline void to_json(nlohmann::json& j, const ParticleEmitter& e) {
+    j = nlohmann::json{{"emissionRate", e.emissionRate},
+                       {"maxParticles", e.maxParticles},
+                       {"lifetime", e.lifetime},
+                       {"lifetimeJitter", e.lifetimeJitter},
+                       {"startSize", e.startSize},
+                       {"endSize", e.endSize},
+                       {"startColor", e.startColor},
+                       {"endColor", e.endColor},
+                       {"velocity", e.velocity},
+                       {"coneAngle", e.coneAngle},
+                       {"speedJitter", e.speedJitter},
+                       {"gravity", e.gravity},
+                       {"blendMode", e.blendMode},
+                       {"looping", e.looping},
+                       {"duration", e.duration},
+                       {"seed", e.seed},
+                       {"sprite", e.sprite.toString()}};
+}
+inline void from_json(const nlohmann::json& j, ParticleEmitter& e) {
+    // Tolerant reads: every field falls back to its default, so a partial or hand-edited emitter
+    // (or one written before a field was added) loads cleanly instead of throwing.
+    e.emissionRate = j.value("emissionRate", e.emissionRate);
+    e.maxParticles = j.value("maxParticles", e.maxParticles);
+    e.lifetime = j.value("lifetime", e.lifetime);
+    e.lifetimeJitter = j.value("lifetimeJitter", e.lifetimeJitter);
+    e.startSize = j.value("startSize", e.startSize);
+    e.endSize = j.value("endSize", e.endSize);
+    e.startColor = j.value("startColor", e.startColor);
+    e.endColor = j.value("endColor", e.endColor);
+    e.velocity = j.value("velocity", e.velocity);
+    e.coneAngle = j.value("coneAngle", e.coneAngle);
+    e.speedJitter = j.value("speedJitter", e.speedJitter);
+    e.gravity = j.value("gravity", e.gravity);
+    e.blendMode = j.value("blendMode", e.blendMode);
+    e.looping = j.value("looping", e.looping);
+    e.duration = j.value("duration", e.duration);
+    e.seed = j.value("seed", e.seed);
+    const std::string text = j.value("sprite", std::string{});
+    e.sprite = Uuid::fromString(text);
+    if (!text.empty() && !e.sprite.valid()) {
+        throw std::runtime_error("ParticleEmitter: malformed sprite uuid '" + text + "'");
+    }
+    e.handle = {};
 }
 
 void registerBuiltinComponents(ComponentRegistry& registry);

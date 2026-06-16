@@ -20,6 +20,7 @@ void registerBuiltinComponents(ComponentRegistry& registry) {
     registry.add<SphereCollider>("SphereCollider");
     registry.add<SoundEmitter>("SoundEmitter");
     registry.add<PrefabInstance>("PrefabInstance");
+    registry.add<ParticleEmitter>("ParticleEmitter");
 }
 
 } // namespace rb

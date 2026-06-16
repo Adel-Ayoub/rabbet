@@ -51,6 +51,9 @@ target_sources(rabbet
         audio/AudioImport.cpp
         audio/AudioAssetResolveSystem.cpp
         audio/AudioSystem.cpp
+        render/gl/ParticleStream.cpp
+        particle/ParticleSimulation.cpp
+        particle/ParticleSystem.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
         BASE_DIRS "${PROJECT_SOURCE_DIR}"
@@ -147,6 +150,13 @@ target_sources(rabbet
             audio/AudioImport.h
             audio/AudioAssetResolveSystem.h
             audio/AudioSystem.h
+            render/gl/ParticleStream.h
+            particle/Particle.h
+            particle/ParticleRng.h
+            particle/ParticleEmitter.h
+            particle/ParticleSimulation.h
+            particle/ParticleRenderData.h
+            particle/ParticleSystem.h
             render/DebugDraw.h)
 
 target_include_directories(rabbet PUBLIC

@@ -33,10 +33,13 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <vector>
+
+#include "rabbet/particle/ParticleRenderData.h"
 
 namespace rb {
 namespace {
@@ -91,6 +94,34 @@ out vec4 FragColor;
 uniform vec3 uColor;
 void main() {
     FragColor = vec4(uColor, 1.0);
+}
+)";
+
+// Billboard particles: the CPU expands each particle into a camera-facing quad in world space, so
+// the vertex shader is just a transform. The fragment modulates the sprite by the per-particle
+// life tint; the blend mode (additive / alpha) is set by the render pass, not the shader.
+constexpr const char* kParticleVertex = R"(#version 410 core
+layout(location = 0) in vec3 aPosition;
+layout(location = 1) in vec2 aUv;
+layout(location = 2) in vec4 aColor;
+uniform mat4 uViewProjection;
+out vec2 vUv;
+out vec4 vColor;
+void main() {
+    vUv = aUv;
+    vColor = aColor;
+    gl_Position = uViewProjection * vec4(aPosition, 1.0);
+}
+)";
+
+constexpr const char* kParticleFragment = R"(#version 410 core
+in vec2 vUv;
+in vec4 vColor;
+out vec4 FragColor;
+uniform sampler2D uTexture;
+void main() {
+    vec4 texel = texture(uTexture, vUv);
+    FragColor = vec4(texel.rgb * vColor.rgb, texel.a * vColor.a);
 }
 )";
 
@@ -199,6 +230,36 @@ void uploadLights(gl::Shader& shader, const glm::mat4& viewProjection, const glm
     shader.setVec2Array("uSpotCone", {lighting->spotCones.data(), spotCount});
 }
 
+// A soft round dot used as the default particle sprite when an emitter has no texture: white with
+// a smooth radial alpha falloff, so additive sparks glow and alpha puffs feather at the edges.
+gl::Texture buildSoftParticleTexture() {
+    constexpr int kSize = 64;
+    std::vector<std::byte> pixels(static_cast<std::size_t>(kSize) * kSize * 4);
+    const float center = (kSize - 1) * 0.5f;
+    for (int y = 0; y < kSize; ++y) {
+        for (int x = 0; x < kSize; ++x) {
+            const float dx = (static_cast<float>(x) - center) / center;
+            const float dy = (static_cast<float>(y) - center) / center;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            const float t = std::max(0.0f, 1.0f - d * d);
+            const auto alpha = static_cast<std::uint8_t>(std::min(1.0f, t * t) * 255.0f + 0.5f);
+            const std::size_t i = (static_cast<std::size_t>(y) * static_cast<std::size_t>(kSize) +
+                                   static_cast<std::size_t>(x)) *
+                                  4u;
+            pixels[i + 0] = std::byte{255};
+            pixels[i + 1] = std::byte{255};
+            pixels[i + 2] = std::byte{255};
+            pixels[i + 3] = std::byte{alpha};
+        }
+    }
+    gl::TextureConfig config;
+    config.srgb = false;
+    config.generateMipmaps = true;
+    config.linearFilter = true;
+    config.repeat = false; // clamp so the quad edge does not wrap the falloff
+    return gl::Texture::fromPixels(pixels, kSize, kSize, 4, config);
+}
+
 } // namespace
 
 gl::Mesh* RenderSystem::primitiveMesh(PrimitiveShape shape) noexcept {
@@ -263,6 +324,12 @@ void RenderSystem::onStart(Runtime& runtime) {
     if (!m_flat) {
         log::error("render system: failed to build the flat shader");
     }
+    m_particle = gl::Shader::fromSource(kParticleVertex, kParticleFragment);
+    if (!m_particle) {
+        log::error("render system: failed to build the particle shader");
+    }
+    m_particleStream = gl::ParticleStream::create();
+    m_particleTexture = buildSoftParticleTexture();
     m_shadowMap = gl::DepthMap::create(kShadowMapSize, kShadowMapSize);
     m_missingMesh = gl::Mesh::create(geometry::cube());
     m_missingTexture = gl::Texture::solid(255, 0, 255);
@@ -568,6 +635,80 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                     mesh->draw();
                 }
             });
+    }
+
+    // Transparent particle pass: camera-facing billboards drawn after the opaque + material passes,
+    // depth-tested against the scene (so geometry occludes them) but with depth writes off so they
+    // blend with each other instead of z-fighting. Additive sums light (glow), Alpha is a standard
+    // over-blend. Runs only when an emitter published particles, so a scene without one is
+    // byte-identical. State touched here is saved and restored so the pass is order-independent.
+    if (const ParticleRenderData* particles = runtime.tryResource<ParticleRenderData>();
+        m_particle && m_particleStream && m_particleTexture && particles != nullptr &&
+        !particles->batches.empty()) {
+        const glm::mat4& v = view.view;
+        const glm::vec3 camRight{v[0][0], v[1][0], v[2][0]};
+        const glm::vec3 camUp{v[0][1], v[1][1], v[2][1]};
+
+        const GLboolean wasBlend = glIsEnabled(GL_BLEND);
+        const GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
+        GLboolean depthWrite = GL_TRUE;
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
+
+        glEnable(GL_BLEND);
+        glDepthMask(GL_FALSE);
+        glDisable(GL_CULL_FACE); // billboards are double-sided; winding must not cull them
+
+        m_particle->bind();
+        m_particle->setMat4("uViewProjection", viewProjection);
+        m_particle->setInt("uTexture", 0);
+
+        for (const ParticleDrawBatch& batch : particles->batches) {
+            if (batch.particles.empty()) {
+                continue;
+            }
+            if (batch.blendMode == ParticleBlendMode::Additive) {
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            } else {
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            }
+
+            const gl::Texture* sprite = m_particleTexture ? &*m_particleTexture : nullptr;
+            if (assets != nullptr && batch.sprite.valid()) {
+                if (TextureAsset* texture = assets->get<TextureAsset>(batch.sprite)) {
+                    sprite = &texture->texture;
+                }
+            }
+            if (sprite != nullptr) {
+                sprite->bind(0);
+            }
+
+            m_particleVertices.clear();
+            m_particleVertices.reserve(batch.particles.size() * 6);
+            for (const ParticleBillboard& p : batch.particles) {
+                const glm::vec3 right = camRight * (p.size * 0.5f);
+                const glm::vec3 up = camUp * (p.size * 0.5f);
+                const glm::vec3 bl = p.position - right - up;
+                const glm::vec3 br = p.position + right - up;
+                const glm::vec3 tr = p.position + right + up;
+                const glm::vec3 tl = p.position - right + up;
+                m_particleVertices.push_back({bl, {0.0f, 0.0f}, p.color});
+                m_particleVertices.push_back({br, {1.0f, 0.0f}, p.color});
+                m_particleVertices.push_back({tr, {1.0f, 1.0f}, p.color});
+                m_particleVertices.push_back({bl, {0.0f, 0.0f}, p.color});
+                m_particleVertices.push_back({tr, {1.0f, 1.0f}, p.color});
+                m_particleVertices.push_back({tl, {0.0f, 1.0f}, p.color});
+            }
+            m_particleStream->upload(m_particleVertices);
+            m_particleStream->draw();
+        }
+
+        glDepthMask(depthWrite);
+        if (wasCull == GL_TRUE) {
+            glEnable(GL_CULL_FACE);
+        }
+        if (wasBlend == GL_FALSE) {
+            glDisable(GL_BLEND);
+        }
     }
 
     // Collider debug wireframes (toggled by the editor). Drawn unlit, depth-test off so the
