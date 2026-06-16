@@ -49,6 +49,10 @@ ModelMaterial convertMaterial(const aiMaterial& material) {
         material.Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS) {
         result.baseColor = {color.r, color.g, color.b};
     }
+    aiColor3D emissive{0.0f, 0.0f, 0.0f};
+    if (material.Get(AI_MATKEY_COLOR_EMISSIVE, emissive) == AI_SUCCESS) {
+        result.emissive = {emissive.r, emissive.g, emissive.b};
+    }
     aiString texturePath;
     if (material.GetTexture(aiTextureType_BASE_COLOR, 0, &texturePath) == AI_SUCCESS ||
         material.GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS) {

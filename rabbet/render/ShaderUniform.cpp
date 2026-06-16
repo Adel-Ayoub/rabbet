@@ -33,13 +33,16 @@ UniformType uniformTypeFromGlType(unsigned int glType) noexcept {
 
 bool isEngineUniform(std::string_view name) noexcept {
     // Light and primitive arrays reflect as "uPointPosition[0]" etc.; the prefix match below
-    // covers the indexed forms without listing each element.
-    if (name.starts_with("uDirectional") || name.starts_with("uPoint")) {
+    // covers the indexed forms without listing each element. (uEmissive is deliberately absent:
+    // like uBaseColor it is a per-surface value a material may override, not engine-driven.)
+    if (name.starts_with("uDirectional") || name.starts_with("uPoint") ||
+        name.starts_with("uSpot")) {
         return true;
     }
-    static constexpr std::array<std::string_view, 8> kReserved = {
-        "uModel",     "uNormalMatrix", "uViewProjection", "uViewPosition",
-        "uLightSpace", "uShadowMap",   "uHasShadowMap",   "uAmbient"};
+    static constexpr std::array<std::string_view, 11> kReserved = {
+        "uModel",      "uNormalMatrix",   "uViewProjection",      "uViewPosition",
+        "uLightSpace", "uShadowMap",      "uHasShadowMap",        "uAmbient",
+        "uIrradiance", "uHasEnvironment", "uEnvironmentIntensity"};
     for (const std::string_view reserved : kReserved) {
         if (name == reserved) {
             return true;

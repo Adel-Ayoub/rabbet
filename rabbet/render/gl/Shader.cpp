@@ -150,6 +150,14 @@ void Shader::setVec2(std::string_view name, const glm::vec2& value) {
     glUniform2fv(uniformLocation(name), 1, glm::value_ptr(value));
 }
 
+void Shader::setVec2Array(std::string_view name, std::span<const glm::vec2> values) {
+    if (values.empty()) {
+        return;
+    }
+    glUniform2fv(uniformLocation(name), static_cast<GLsizei>(values.size()),
+                 glm::value_ptr(values.front()));
+}
+
 void Shader::setVec3(std::string_view name, const glm::vec3& value) {
     glUniform3fv(uniformLocation(name), 1, glm::value_ptr(value));
 }

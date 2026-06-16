@@ -61,8 +61,12 @@ std::optional<ModelAsset> importModel(AssetManager& assets, const std::filesyste
                 ? &model->materials[static_cast<std::size_t>(part.materialIndex)]
                 : nullptr;
 
-        ModelAsset::Submesh submesh{gl::Mesh::create(part.data), glm::vec3(1.0f), options.metallic,
-                                    options.roughness, 1.0f, AssetHandle<TextureAsset>{}};
+        ModelAsset::Submesh submesh{gl::Mesh::create(part.data), glm::vec3(1.0f), glm::vec3(0.0f),
+                                    options.metallic, options.roughness, 1.0f,
+                                    AssetHandle<TextureAsset>{}};
+        if (material != nullptr) {
+            submesh.emissive = material->emissive;
+        }
         if (material != nullptr && !material->baseColorTexture.empty()) {
             auto it = textures.find(material->baseColorTexture);
             if (it == textures.end()) {

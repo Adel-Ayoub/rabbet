@@ -15,6 +15,8 @@ struct Primitive {
     glm::vec3 color{0.8f, 0.8f, 0.8f};
     float metallic = 0.0f;
     float roughness = 0.6f;
+    // Trailing so existing positional aggregate inits (shape/color/metallic/roughness) still compile.
+    glm::vec3 emissive{0.0f}; // self-illumination added on top of the lit result
 };
 
 } // namespace rb

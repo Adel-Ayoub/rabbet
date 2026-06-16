@@ -9,6 +9,7 @@
 #include "rabbet/core/Uuid.h"
 #include "rabbet/ecs/Entity.h"
 #include "rabbet/render/Primitive.h"
+#include "rabbet/render/gl/Cubemap.h"
 #include "rabbet/render/gl/DepthMap.h"
 #include "rabbet/render/gl/Mesh.h"
 #include "rabbet/render/gl/PickBuffer.h"
@@ -59,6 +60,9 @@ private:
     std::optional<gl::Mesh> m_primitiveSphere;
     std::optional<gl::Mesh> m_primitivePlane;
     std::optional<gl::Texture> m_whiteTexture;
+    // A 1x1 cubemap kept bound to the environment unit when no irradiance map is present, so the
+    // lit shaders' samplerCube is always complete (some drivers validate every sampler per draw).
+    std::optional<gl::Cubemap> m_fallbackCubemap;
     std::unordered_map<Uuid, CompiledProgram> m_programCache;
 };
 

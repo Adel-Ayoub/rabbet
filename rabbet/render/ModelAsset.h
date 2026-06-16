@@ -18,6 +18,7 @@ struct ModelAsset {
     struct Submesh {
         gl::Mesh mesh;
         glm::vec3 baseColor{1.0f};
+        glm::vec3 emissive{0.0f};
         float metallic = 0.0f;
         float roughness = 0.8f;
         float ao = 1.0f;

@@ -2,6 +2,7 @@
 
 #include "rabbet/core/Runtime.h"
 #include "rabbet/render/BuiltinShaders.h"
+#include "rabbet/render/EnvironmentLighting.h"
 #include "rabbet/render/Lighting.h"
 #include "rabbet/render/Material.h"
 #include "rabbet/render/MaterialAsset.h"
@@ -42,6 +43,7 @@ namespace {
 
 constexpr std::size_t kMaxDirectionalLights = 4;
 constexpr std::size_t kMaxPointLights = 8;
+constexpr std::size_t kMaxSpotLights = 4;
 constexpr int kShadowMapSize = 2048;
 constexpr unsigned int kShadowTextureUnit = 1;
 
@@ -153,14 +155,29 @@ void applyMaterialOverrides(gl::Shader& program, const MaterialAsset& material,
     }
 }
 
+// Texture unit for the environment irradiance cubemap. Units 0 (albedo) and 1 (shadow) are
+// reserved and material textures start at 2, so this sits clear of them (materials may use 2..6).
+constexpr unsigned int kEnvTextureUnit = 7;
+
+// Sets the per-program environment uniforms. The cubemap itself is bound once per frame (in
+// onUpdate) so the lit shaders' samplerCube is always backed by a complete texture, even when
+// the environment is off (some drivers validate every sampler per draw regardless of branching).
+void uploadEnvironment(gl::Shader& shader, const EnvironmentLight* env) {
+    shader.setInt("uIrradiance", static_cast<int>(kEnvTextureUnit));
+    shader.setInt("uHasEnvironment", (env != nullptr && env->enabled) ? 1 : 0);
+    shader.setFloat("uEnvironmentIntensity", env != nullptr ? env->intensity : 1.0f);
+}
+
 void uploadLights(gl::Shader& shader, const glm::mat4& viewProjection, const glm::vec3& viewPosition,
-                  const Lighting* lighting) {
+                  const Lighting* lighting, const EnvironmentLight* env) {
     shader.setMat4("uViewProjection", viewProjection);
     shader.setVec3("uViewPosition", viewPosition);
+    uploadEnvironment(shader, env);
     if (lighting == nullptr) {
         shader.setVec3("uAmbient", glm::vec3(0.1f));
         shader.setInt("uDirectionalCount", 0);
         shader.setInt("uPointCount", 0);
+        shader.setInt("uSpotCount", 0);
         return;
     }
     shader.setVec3("uAmbient", lighting->ambient);
@@ -173,6 +190,13 @@ void uploadLights(gl::Shader& shader, const glm::mat4& viewProjection, const glm
     shader.setVec3Array("uPointPosition", {lighting->pointPositions.data(), pointCount});
     shader.setVec3Array("uPointColor", {lighting->pointColors.data(), pointCount});
     shader.setVec3Array("uPointAttenuation", {lighting->pointAttenuations.data(), pointCount});
+    const auto spotCount = std::min(lighting->spotPositions.size(), kMaxSpotLights);
+    shader.setInt("uSpotCount", static_cast<int>(spotCount));
+    shader.setVec3Array("uSpotPosition", {lighting->spotPositions.data(), spotCount});
+    shader.setVec3Array("uSpotDirection", {lighting->spotDirections.data(), spotCount});
+    shader.setVec3Array("uSpotColor", {lighting->spotColors.data(), spotCount});
+    shader.setVec3Array("uSpotAttenuation", {lighting->spotAttenuations.data(), spotCount});
+    shader.setVec2Array("uSpotCone", {lighting->spotCones.data(), spotCount});
 }
 
 } // namespace
@@ -246,6 +270,7 @@ void RenderSystem::onStart(Runtime& runtime) {
     m_primitiveSphere = gl::Mesh::create(geometry::sphere());
     m_primitivePlane = gl::Mesh::create(geometry::quad());
     m_whiteTexture = gl::Texture::solid(255, 255, 255);
+    m_fallbackCubemap = gl::Cubemap::empty(1); // keeps the environment sampler complete when off
 }
 
 void RenderSystem::onUpdate(Runtime& runtime, float) {
@@ -255,6 +280,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
     const RenderView& view = runtime.resource<RenderView>();
     const glm::mat4 viewProjection = view.projection * view.view;
     const Lighting* lighting = runtime.tryResource<Lighting>();
+    const EnvironmentLight* environment = runtime.tryResource<EnvironmentLight>();
 
     AssetManager* assets = runtime.tryResource<AssetManager>();
     if (assets != nullptr) {
@@ -291,6 +317,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
             // fallback resources exist (else skip this entity).
             if (m_missingMesh && m_missingTexture) {
                 program.setVec3("uBaseColor", glm::vec3(1.0f, 0.0f, 1.0f));
+                program.setVec3("uEmissive", glm::vec3(0.0f));
                 program.setFloat("uMetallic", 0.0f);
                 program.setFloat("uRoughness", 1.0f);
                 program.setFloat("uAo", 1.0f);
@@ -304,6 +331,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         }
         for (const ModelAsset::Submesh& submesh : model->submeshes) {
             program.setVec3("uBaseColor", submesh.baseColor);
+            program.setVec3("uEmissive", submesh.emissive);
             program.setFloat("uMetallic", submesh.metallic);
             program.setFloat("uRoughness", submesh.roughness);
             program.setFloat("uAo", submesh.ao);
@@ -375,13 +403,22 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     const int hasShadow = shadows ? 1 : 0;
 
+    // Bind the environment irradiance (or a 1x1 fallback) to its reserved unit for the whole frame
+    // so every lit program's samplerCube stays complete; uHasEnvironment gates whether it is used.
+    if (const gl::Cubemap* envCube =
+            environment != nullptr ? &environment->irradiance
+                                   : (m_fallbackCubemap ? &*m_fallbackCubemap : nullptr)) {
+        envCube->bind(kEnvTextureUnit);
+    }
+
     if (m_phong && runtime.scene().count<Material>() > 0) {
         m_phong->bind();
-        uploadLights(*m_phong, viewProjection, view.position, lighting);
+        uploadLights(*m_phong, viewProjection, view.position, lighting, environment);
         m_phong->setInt("uTexture", 0);
         m_phong->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
         m_phong->setInt("uHasShadowMap", hasShadow);
         m_phong->setMat4("uLightSpace", lightSpace);
+        m_phong->setVec3("uEmissive", glm::vec3(0.0f));
         runtime.scene().each<WorldMatrix, gl::Mesh, Material>(
             [this, &materialDriven](Entity e, WorldMatrix& world, gl::Mesh& mesh, Material& material) {
                 if (materialDriven(e)) {
@@ -399,7 +436,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     if (m_pbr && runtime.scene().count<PbrMaterial>() > 0) {
         m_pbr->bind();
-        uploadLights(*m_pbr, viewProjection, view.position, lighting);
+        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment);
         m_pbr->setInt("uAlbedoTex", 0);
         m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
         m_pbr->setInt("uHasShadowMap", hasShadow);
@@ -413,6 +450,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                 m_pbr->setMat4("uModel", world.value);
                 m_pbr->setMat3("uNormalMatrix", normalMatrix(world.value));
                 m_pbr->setVec3("uBaseColor", material.baseColor);
+                m_pbr->setVec3("uEmissive", material.emissive);
                 m_pbr->setFloat("uMetallic", material.metallic);
                 m_pbr->setFloat("uRoughness", material.roughness);
                 m_pbr->setFloat("uAo", material.ao);
@@ -423,7 +461,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     if (m_pbr && assets != nullptr && runtime.scene().count<ModelRenderer>() > 0) {
         m_pbr->bind();
-        uploadLights(*m_pbr, viewProjection, view.position, lighting);
+        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment);
         m_pbr->setInt("uAlbedoTex", 0);
         m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
         m_pbr->setInt("uHasShadowMap", hasShadow);
@@ -441,7 +479,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     if (m_pbr && m_whiteTexture && runtime.scene().count<Primitive>() > 0) {
         m_pbr->bind();
-        uploadLights(*m_pbr, viewProjection, view.position, lighting);
+        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment);
         m_pbr->setInt("uAlbedoTex", 0);
         m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
         m_pbr->setInt("uHasShadowMap", hasShadow);
@@ -459,6 +497,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                 m_pbr->setMat4("uModel", world.value);
                 m_pbr->setMat3("uNormalMatrix", normalMatrix(world.value));
                 m_pbr->setVec3("uBaseColor", primitive.color);
+                m_pbr->setVec3("uEmissive", primitive.emissive);
                 m_pbr->setFloat("uMetallic", primitive.metallic);
                 m_pbr->setFloat("uRoughness", primitive.roughness);
                 m_pbr->setFloat("uAo", 1.0f);
@@ -489,7 +528,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                     return;
                 }
                 program->bind();
-                uploadLights(*program, viewProjection, view.position, lighting);
+                uploadLights(*program, viewProjection, view.position, lighting, environment);
                 program->setInt("uAlbedoTex", 0);
                 program->setInt("uTexture", 0);
                 program->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
@@ -507,6 +546,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                         program->setMat4("uModel", world.value);
                         program->setMat3("uNormalMatrix", normalMatrix(world.value));
                         program->setVec3("uBaseColor", primitive->color);
+                        program->setVec3("uEmissive", primitive->emissive);
                         program->setFloat("uMetallic", primitive->metallic);
                         program->setFloat("uRoughness", primitive->roughness);
                         program->setFloat("uAo", 1.0f);
@@ -520,6 +560,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                     program->setMat4("uModel", world.value);
                     program->setMat3("uNormalMatrix", normalMatrix(world.value));
                     program->setVec3("uBaseColor", glm::vec3(1.0f));
+                    program->setVec3("uEmissive", glm::vec3(0.0f));
                     program->setFloat("uMetallic", 0.0f);
                     program->setFloat("uRoughness", 0.8f);
                     program->setFloat("uAo", 1.0f);

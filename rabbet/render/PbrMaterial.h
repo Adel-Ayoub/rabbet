@@ -12,6 +12,8 @@ struct PbrMaterial {
     float metallic = 0.0f;
     float roughness = 0.5f;
     float ao = 1.0f;
+    // Trailing so existing positional aggregate inits (albedo/baseColor/metallic/roughness/ao) compile.
+    glm::vec3 emissive{0.0f};
 };
 
 } // namespace rb

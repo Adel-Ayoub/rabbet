@@ -33,6 +33,23 @@ Cubemap Cubemap::fromFaces(const std::array<Image, 6>& faces) {
     return Cubemap(id);
 }
 
+Cubemap Cubemap::empty(int size) {
+    unsigned int id = 0;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, id);
+    for (unsigned int face = 0; face < 6u; ++face) {
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGB16F, size, size, 0, GL_RGB,
+                     GL_FLOAT, nullptr);
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    return Cubemap(id);
+}
+
 Cubemap::Cubemap(Cubemap&& other) noexcept : m_id(std::exchange(other.m_id, 0)) {}
 
 Cubemap& Cubemap::operator=(Cubemap&& other) noexcept {

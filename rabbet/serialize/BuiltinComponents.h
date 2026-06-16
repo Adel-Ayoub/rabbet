@@ -77,6 +77,27 @@ inline void from_json(const nlohmann::json& j, PointLight& l) {
     j.at("quadratic").get_to(l.quadratic);
 }
 
+inline void to_json(nlohmann::json& j, const SpotLight& l) {
+    j = nlohmann::json{{"direction", l.direction},
+                       {"color", l.color},
+                       {"intensity", l.intensity},
+                       {"constant", l.constant},
+                       {"linear", l.linear},
+                       {"quadratic", l.quadratic},
+                       {"innerAngle", l.innerAngle},
+                       {"outerAngle", l.outerAngle}};
+}
+inline void from_json(const nlohmann::json& j, SpotLight& l) {
+    j.at("direction").get_to(l.direction);
+    j.at("color").get_to(l.color);
+    j.at("intensity").get_to(l.intensity);
+    j.at("constant").get_to(l.constant);
+    j.at("linear").get_to(l.linear);
+    j.at("quadratic").get_to(l.quadratic);
+    j.at("innerAngle").get_to(l.innerAngle);
+    j.at("outerAngle").get_to(l.outerAngle);
+}
+
 inline void to_json(nlohmann::json& j, const ModelRenderer& r) {
     j = nlohmann::json{{"model", r.model.toString()}};
 }
@@ -160,12 +181,16 @@ inline void from_json(const nlohmann::json& j, ScriptComponent& s) {
 }
 
 inline void to_json(nlohmann::json& j, const Primitive& p) {
-    j = nlohmann::json{
-        {"shape", p.shape}, {"color", p.color}, {"metallic", p.metallic}, {"roughness", p.roughness}};
+    j = nlohmann::json{{"shape", p.shape},
+                       {"color", p.color},
+                       {"emissive", p.emissive},
+                       {"metallic", p.metallic},
+                       {"roughness", p.roughness}};
 }
 inline void from_json(const nlohmann::json& j, Primitive& p) {
     j.at("shape").get_to(p.shape);
     j.at("color").get_to(p.color);
+    p.emissive = j.value("emissive", glm::vec3(0.0f)); // tolerate scenes written before emissive
     j.at("metallic").get_to(p.metallic);
     j.at("roughness").get_to(p.roughness);
 }

@@ -54,6 +54,7 @@ float shadowFactor(vec3 worldPos, vec3 N, vec3 L) {
 constexpr const char* kLightUniforms = R"(
 const int kMaxDir = 4;
 const int kMaxPoint = 8;
+const int kMaxSpot = 4;
 uniform vec3 uViewPosition;
 uniform vec3 uAmbient;
 uniform int uDirectionalCount;
@@ -63,6 +64,32 @@ uniform int uPointCount;
 uniform vec3 uPointPosition[kMaxPoint];
 uniform vec3 uPointColor[kMaxPoint];
 uniform vec3 uPointAttenuation[kMaxPoint];
+uniform int uSpotCount;
+uniform vec3 uSpotPosition[kMaxSpot];
+uniform vec3 uSpotDirection[kMaxSpot];
+uniform vec3 uSpotColor[kMaxSpot];
+uniform vec3 uSpotAttenuation[kMaxSpot];
+uniform vec2 uSpotCone[kMaxSpot]; // x = cos(inner), y = cos(outer)
+uniform samplerCube uIrradiance;
+uniform int uHasEnvironment;
+uniform float uEnvironmentIntensity;
+// Ambient light reaching a surface with normal N: convolved environment irradiance when enabled,
+// otherwise the flat ambient constant (so the result is identical to the pre-IBL path).
+vec3 ambientLight(vec3 N) {
+    if (uHasEnvironment == 1) {
+        return texture(uIrradiance, N).rgb * uEnvironmentIntensity;
+    }
+    return uAmbient;
+}
+float spotFalloff(int i, vec3 toLight, out vec3 L, out float attenuation) {
+    float dist = length(toLight);
+    L = toLight / max(dist, 0.0001);
+    vec3 a = uSpotAttenuation[i];
+    attenuation = 1.0 / (a.x + a.y * dist + a.z * dist * dist);
+    float cosTheta = dot(L, normalize(-uSpotDirection[i]));
+    return clamp((cosTheta - uSpotCone[i].y) / max(uSpotCone[i].x - uSpotCone[i].y, 0.0001),
+                 0.0, 1.0);
+}
 )";
 
 } // namespace
@@ -80,6 +107,7 @@ in vec2 vUv;
 out vec4 FragColor;
 uniform sampler2D uTexture;
 uniform vec3 uTint;
+uniform vec3 uEmissive;
 uniform float uSpecularStrength;
 uniform float uShininess;
 )") + kLightUniforms + kShadowFunctions + R"(
@@ -93,7 +121,7 @@ void main() {
     vec3 albedo = texture(uTexture, vUv).rgb * uTint;
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uViewPosition - vWorldPos);
-    vec3 color = uAmbient * albedo;
+    vec3 color = ambientLight(N) * albedo;
     for (int i = 0; i < uDirectionalCount; ++i) {
         vec3 L = normalize(-uDirectionalDirection[i]);
         vec3 contribution = shade(L, uDirectionalColor[i], N, V, albedo);
@@ -107,6 +135,13 @@ void main() {
         float attenuation = 1.0 / (a.x + a.y * distance + a.z * distance * distance);
         color += shade(toLight / max(distance, 0.0001), uPointColor[i] * attenuation, N, V, albedo);
     }
+    for (int i = 0; i < uSpotCount; ++i) {
+        vec3 L;
+        float attenuation;
+        float cone = spotFalloff(i, uSpotPosition[i] - vWorldPos, L, attenuation);
+        color += shade(L, uSpotColor[i] * attenuation * cone, N, V, albedo);
+    }
+    color += uEmissive;
     FragColor = vec4(color, 1.0);
 }
 )";
@@ -121,6 +156,7 @@ in vec2 vUv;
 out vec4 FragColor;
 uniform sampler2D uAlbedoTex;
 uniform vec3 uBaseColor;
+uniform vec3 uEmissive;
 uniform float uMetallic;
 uniform float uRoughness;
 uniform float uAo;
@@ -174,8 +210,14 @@ void main() {
         float attenuation = 1.0 / (a.x + a.y * distance + a.z * distance * distance);
         lo += brdf(toLight / max(distance, 0.0001), uPointColor[i] * attenuation, N, V, albedo, f0);
     }
-    vec3 ambient = uAmbient * albedo * uAo;
-    vec3 color = ambient + lo;
+    for (int i = 0; i < uSpotCount; ++i) {
+        vec3 L;
+        float attenuation;
+        float cone = spotFalloff(i, uSpotPosition[i] - vWorldPos, L, attenuation);
+        lo += brdf(L, uSpotColor[i] * attenuation * cone, N, V, albedo, f0);
+    }
+    vec3 ambient = ambientLight(N) * albedo * uAo;
+    vec3 color = ambient + lo + uEmissive;
     color = color / (color + vec3(1.0));
     color = pow(color, vec3(1.0 / 2.2));
     FragColor = vec4(color, 1.0);

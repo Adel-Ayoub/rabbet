@@ -12,6 +12,7 @@ namespace rb {
 struct ModelMaterial {
     std::string baseColorTexture;
     glm::vec3 baseColor{1.0f};
+    glm::vec3 emissive{0.0f};
 };
 
 struct ModelMesh {

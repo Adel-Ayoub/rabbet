@@ -39,6 +39,7 @@ target_sources(rabbet
         render/AssetResolveSystem.cpp
         render/ShaderUniform.cpp
         render/BuiltinShaders.cpp
+        render/EnvironmentLighting.cpp
         render/ShaderImport.cpp
         render/TextureImport.cpp
         render/MaterialImport.cpp
@@ -95,6 +96,7 @@ target_sources(rabbet
             scene/Light.h
             scene/LightSystem.h
             render/Lighting.h
+            render/EnvironmentLighting.h
             render/Image.h
             render/ImageLoader.h
             render/Model.h
