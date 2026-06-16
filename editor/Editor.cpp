@@ -32,6 +32,7 @@
 #include "rabbet/render/RenderDevice.h"
 #include "rabbet/render/RenderSystem.h"
 #include "rabbet/render/RenderView.h"
+#include "rabbet/render/EnvironmentLighting.h"
 #include "rabbet/render/Skybox.h"
 #include "rabbet/render/SkyboxSystem.h"
 #include "rabbet/render/Viewport.h"
@@ -122,6 +123,8 @@ Editor::Editor(rb::Window& window, rb::RenderDevice& device)
     static const std::string iniPath =
         (std::filesystem::path(RB_EDITOR_WORKSPACE) / "forge.ini").string();
     io.IniFilename = iniPath.c_str();
+    // The default scratch scene lives in the workspace too, so saving never litters the launch dir.
+    m_scenePath = (std::filesystem::path(RB_EDITOR_WORKSPACE) / "rabbet_editor.scene.json").string();
     applyStyle();
     loadFonts();
     ImGui_ImplGlfw_InitForOpenGL(m_window.handle(), true);
@@ -174,6 +177,11 @@ void Editor::buildDefaultScene() {
     // Real sky: a cubemap skybox.
     m_runtime.addResource<rb::Skybox>(rb::Skybox{loadCubemap(assetsRoot / "skybox/sky"),
                                                  rb::gl::Mesh::create(rb::geometry::cube())});
+
+    // Diffuse image-based ambient convolved from that skybox, off by default (the viewport
+    // "Environment" toggle switches it on). Built once here while the GL context is current.
+    m_runtime.addResource<rb::EnvironmentLight>(
+        rb::buildEnvironmentLight(m_runtime.resource<rb::Skybox>().cubemap));
 
     rb::Scene& scene = m_runtime.scene();
 

@@ -5,6 +5,7 @@
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/render/DebugDraw.h"
+#include "rabbet/render/EnvironmentLighting.h"
 #include "rabbet/scene/Transform.h"
 
 #include <ImGuizmo.h>
@@ -80,6 +81,13 @@ void ViewportPanel::drawGizmo(const ImVec2& imageMin, const ImVec2& imageSize) {
     if (rb::DebugDraw* debug = m_context.runtime.tryResource<rb::DebugDraw>()) {
         ImGui::SameLine();
         ImGui::Checkbox("Colliders", &debug->colliders);
+    }
+    if (rb::EnvironmentLight* env = m_context.runtime.tryResource<rb::EnvironmentLight>()) {
+        ImGui::SameLine();
+        ImGui::Checkbox("Environment", &env->enabled);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Light ambient from the skybox (diffuse image-based lighting).");
+        }
     }
     ImGui::EndGroup();
 

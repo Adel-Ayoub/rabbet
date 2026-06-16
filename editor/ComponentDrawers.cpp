@@ -106,10 +106,24 @@ void drawPointLight(rb::Scene& scene, rb::Entity e) {
     ImGui::DragFloat("Quadratic", &l.quadratic, 0.001f, 0.0f, 2.0f);
 }
 
+void drawSpotLight(rb::Scene& scene, rb::Entity e) {
+    rb::SpotLight& l = scene.get<rb::SpotLight>(e);
+    ImGui::ColorEdit3("Color", &l.color.x);
+    ImGui::DragFloat("Intensity", &l.intensity, 0.05f, 0.0f, 50.0f);
+    ImGui::DragFloat3("Direction", &l.direction.x, 0.02f);
+    ImGui::DragFloat("Inner Angle", &l.innerAngle, 0.5f, 0.0f, l.outerAngle);
+    ImGui::DragFloat("Outer Angle", &l.outerAngle, 0.5f, 0.0f, 89.9f);
+    ImGui::DragFloat("Constant", &l.constant, 0.01f, 0.0f, 5.0f);
+    ImGui::DragFloat("Linear", &l.linear, 0.001f, 0.0f, 2.0f);
+    ImGui::DragFloat("Quadratic", &l.quadratic, 0.001f, 0.0f, 2.0f);
+}
+
 void drawPrimitive(rb::Scene& scene, rb::Entity e) {
     rb::Primitive& p = scene.get<rb::Primitive>(e);
     enumCombo("Shape", p.shape);
     ImGui::ColorEdit3("Color", &p.color.x);
+    ImGui::ColorEdit3("Emissive", &p.emissive.x,
+                      ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
     ImGui::DragFloat("Metallic", &p.metallic, 0.01f, 0.0f, 1.0f);
     ImGui::DragFloat("Roughness", &p.roughness, 0.01f, 0.0f, 1.0f);
 }
@@ -231,7 +245,7 @@ void drawSoundEmitter(rb::Scene& scene, rb::Entity e) {
 
 bool isColorName(const std::string& name) {
     return name.find("olor") != std::string::npos || name.find("int") != std::string::npos ||
-           name.find("lbedo") != std::string::npos;
+           name.find("lbedo") != std::string::npos || name.find("missive") != std::string::npos;
 }
 
 // One row per shader-reflected uniform. A material starts with no overrides (so it renders like
@@ -315,6 +329,7 @@ void registerComponentDrawers(rb::ComponentRegistry& registry) {
     registry.setDrawer("Camera", &drawCamera);
     registry.setDrawer("DirectionalLight", &drawDirectionalLight);
     registry.setDrawer("PointLight", &drawPointLight);
+    registry.setDrawer("SpotLight", &drawSpotLight);
     registry.setDrawer("Primitive", &drawPrimitive);
     registry.setDrawer("ModelRenderer", &drawModelRenderer);
     registry.setDrawer("ScriptComponent", &drawScript);

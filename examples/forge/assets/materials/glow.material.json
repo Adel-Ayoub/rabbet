@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "shader": "b1117d00000000010000000000000050",
+  "uniforms": [
+    { "name": "uEmissive", "type": "Vec3", "value": [3.0, 1.4, 0.4] }
+  ],
+  "textures": []
+}

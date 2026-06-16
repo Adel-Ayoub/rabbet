@@ -104,6 +104,11 @@ void HierarchyPanel::onImGui() {
             scene.add<rb::PointLight>(e, rb::PointLight{});
             toSelect = e;
         }
+        if (ImGui::MenuItem("Spot Light")) {
+            const rb::Entity e = createEmpty(scene, "Spot Light");
+            scene.add<rb::SpotLight>(e, rb::SpotLight{});
+            toSelect = e;
+        }
         ImGui::EndPopup();
     }
 

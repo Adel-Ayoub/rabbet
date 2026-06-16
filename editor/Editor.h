@@ -57,7 +57,7 @@ private:
     EditorCamera m_camera;
     std::optional<rb::gl::Framebuffer> m_framebuffer;
     rb::RenderSystem* m_renderSystem = nullptr; // owned by m_runtime; used for picking
-    std::string m_scenePath = "rabbet_editor.scene.json";
+    std::string m_scenePath; // set in the constructor to a workspace-local path
     bool m_cameraActive = false;
 
     // Play mode: a snapshot is taken on Play and reloaded on Stop, so gameplay edits
