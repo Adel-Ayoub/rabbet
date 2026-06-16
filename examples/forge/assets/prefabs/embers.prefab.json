@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "components": {
+    "Name": { "value": "Embers" },
+    "Transform": {
+      "position": [0.0, 0.0, 0.0],
+      "rotation": [1.0, 0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+    },
+    "ParticleEmitter": {
+      "emissionRate": 40.0,
+      "maxParticles": 300,
+      "lifetime": 1.8,
+      "lifetimeJitter": 0.6,
+      "startSize": 0.18,
+      "endSize": 0.02,
+      "startColor": [1.0, 0.7, 0.25, 1.0],
+      "endColor": [0.8, 0.1, 0.0, 0.0],
+      "velocity": [0.0, 1.4, 0.0],
+      "coneAngle": 22.0,
+      "speedJitter": 0.35,
+      "gravity": [0.0, 0.8, 0.0],
+      "blendMode": "Additive",
+      "looping": true,
+      "duration": 5.0,
+      "seed": 1337,
+      "sprite": "9f8e7d6c5b4a39281706f5e4d3c2b1a0"
+    }
+  }
+}
