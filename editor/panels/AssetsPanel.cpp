@@ -10,12 +10,15 @@
 #include "rabbet/audio/SoundEmitter.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/render/MaterialAsset.h"
 #include "rabbet/render/MaterialComponent.h"
 #include "rabbet/render/MaterialImport.h"
 #include "rabbet/render/ModelAsset.h"
 #include "rabbet/render/ModelImport.h"
 #include "rabbet/render/ModelRenderer.h"
+#include "rabbet/render/TextureAsset.h"
+#include "rabbet/render/TextureImport.h"
 #include "rabbet/scripting/ScriptAsset.h"
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptImport.h"
@@ -130,6 +133,30 @@ void assignMaterialToEntity(EditorContext& context, const rb::AssetDatabase::Rec
                   context.selected.index());
 }
 
+// A texture is assigned as a particle sprite, so it targets an existing ParticleEmitter rather than
+// creating a component (unlike a model, a bare texture is not itself a renderable thing).
+void assignTextureToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
+    rb::Scene& scene = context.runtime.scene();
+    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
+    if (assets == nullptr || !scene.alive(context.selected)) {
+        return;
+    }
+    rb::ParticleEmitter* emitter = scene.tryGet<rb::ParticleEmitter>(context.selected);
+    if (emitter == nullptr) {
+        rb::log::warn("assets: select an entity with a Particle Emitter to assign a sprite");
+        return;
+    }
+    const rb::AssetHandle<rb::TextureAsset> handle = rb::loadTextureAsset(*assets, record.path);
+    if (!handle.valid()) {
+        rb::log::error("assets: failed to load texture '{}'", record.path.string());
+        return;
+    }
+    emitter->sprite = record.id;
+    emitter->handle = {}; // AssetResolveSystem repopulates it from the uuid
+    rb::log::info("assets: assigned sprite '{}' to entity {}", record.name,
+                  context.selected.index());
+}
+
 void instantiatePrefabAsset(EditorContext& context, const rb::AssetDatabase::Record& record) {
     rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
     if (assets == nullptr) {
@@ -156,6 +183,8 @@ void assignToEntity(EditorContext& context, const rb::AssetDatabase::Record& rec
         assignScriptToEntity(context, record);
     } else if (record.type == rb::AssetType::Audio) {
         assignAudioToEntity(context, record);
+    } else if (record.type == rb::AssetType::Texture) {
+        assignTextureToEntity(context, record);
     }
 }
 
@@ -181,7 +210,8 @@ void AssetsPanel::onImGui() {
         const bool assignable = selected != nullptr && (selected->type == rb::AssetType::Model ||
                                                         selected->type == rb::AssetType::Material ||
                                                         selected->type == rb::AssetType::Script ||
-                                                        selected->type == rb::AssetType::Audio);
+                                                        selected->type == rb::AssetType::Audio ||
+                                                        selected->type == rb::AssetType::Texture);
         const bool canAssign = assignable && m_context.runtime.scene().alive(m_context.selected);
         ImGui::BeginDisabled(!canAssign);
         if (ImGui::Button("Assign to selected entity") && selected != nullptr) {

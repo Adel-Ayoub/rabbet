@@ -6,6 +6,7 @@
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Name.h"
@@ -107,6 +108,12 @@ void HierarchyPanel::onImGui() {
         if (ImGui::MenuItem("Spot Light")) {
             const rb::Entity e = createEmpty(scene, "Spot Light");
             scene.add<rb::SpotLight>(e, rb::SpotLight{});
+            toSelect = e;
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Particle Emitter")) {
+            const rb::Entity e = createEmpty(scene, "Particle Emitter");
+            scene.add<rb::ParticleEmitter>(e, rb::ParticleEmitter{});
             toSelect = e;
         }
         ImGui::EndPopup();

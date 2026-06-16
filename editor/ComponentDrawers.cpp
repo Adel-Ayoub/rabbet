@@ -7,6 +7,7 @@
 #include "rabbet/core/Runtime.h"
 #include "rabbet/core/Uuid.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
@@ -34,6 +35,7 @@
 #include <imgui.h>
 #include <magic_enum/magic_enum.hpp>
 
+#include <cstdint>
 #include <cstdio>
 #include <string>
 #include <type_traits>
@@ -243,6 +245,56 @@ void drawSoundEmitter(rb::Scene& scene, rb::Entity e) {
     }
 }
 
+// All-data drawer: the sprite reference is assigned from the Assets panel (it needs the asset
+// database), so here we show the bound uuid and edit every simulation/appearance field live.
+void drawParticleEmitter(rb::Scene& scene, rb::Entity e) {
+    rb::ParticleEmitter& p = scene.get<rb::ParticleEmitter>(e);
+
+    ImGui::DragFloat("Emission Rate", &p.emissionRate, 0.5f, 0.0f, 10000.0f);
+    ImGui::DragInt("Max Particles", &p.maxParticles, 1.0f, 0, 100000);
+    enumCombo("Blend Mode", p.blendMode);
+    ImGui::Checkbox("Looping", &p.looping);
+    if (!p.looping) {
+        ImGui::DragFloat("Duration", &p.duration, 0.1f, 0.0f, 600.0f);
+    }
+
+    ImGui::SeparatorText("Life");
+    ImGui::DragFloat("Lifetime", &p.lifetime, 0.05f, 0.01f, 600.0f);
+    ImGui::DragFloat("Lifetime Jitter", &p.lifetimeJitter, 0.05f, 0.0f, 600.0f);
+
+    ImGui::SeparatorText("Motion");
+    ImGui::DragFloat3("Velocity", &p.velocity.x, 0.05f);
+    ImGui::DragFloat("Cone Angle", &p.coneAngle, 0.5f, 0.0f, 89.9f);
+    ImGui::DragFloat("Speed Jitter", &p.speedJitter, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat3("Gravity", &p.gravity.x, 0.05f);
+
+    ImGui::SeparatorText("Appearance");
+    ImGui::DragFloat("Start Size", &p.startSize, 0.01f, 0.0f, 100.0f);
+    ImGui::DragFloat("End Size", &p.endSize, 0.01f, 0.0f, 100.0f);
+    constexpr ImGuiColorEditFlags colorFlags =
+        ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float | ImGuiColorEditFlags_AlphaPreviewHalf;
+    ImGui::ColorEdit4("Start Color", &p.startColor.x, colorFlags);
+    ImGui::ColorEdit4("End Color", &p.endColor.x, colorFlags);
+
+    int seed = static_cast<int>(p.seed);
+    if (ImGui::DragInt("Seed", &seed, 1.0f, 0, 1000000)) {
+        p.seed = static_cast<std::uint32_t>(seed < 0 ? 0 : seed);
+    }
+
+    ImGui::SeparatorText("Sprite");
+    if (!p.sprite.valid()) {
+        ImGui::TextDisabled("No sprite (soft dot)");
+        ImGui::TextDisabled("Assign a texture from the Assets panel.");
+    } else {
+        ImGui::Text("Sprite %s", p.sprite.toString().c_str());
+        ImGui::TextDisabled("%s", p.handle.valid() ? "resolved" : "unresolved (re-assign or import)");
+        if (ImGui::Button("Clear Sprite")) {
+            p.sprite = rb::Uuid{};
+            p.handle = {};
+        }
+    }
+}
+
 bool isColorName(const std::string& name) {
     return name.find("olor") != std::string::npos || name.find("int") != std::string::npos ||
            name.find("lbedo") != std::string::npos || name.find("missive") != std::string::npos;
@@ -337,6 +389,7 @@ void registerComponentDrawers(rb::ComponentRegistry& registry) {
     registry.setDrawer("BoxCollider", &drawBoxCollider);
     registry.setDrawer("SphereCollider", &drawSphereCollider);
     registry.setDrawer("SoundEmitter", &drawSoundEmitter);
+    registry.setDrawer("ParticleEmitter", &drawParticleEmitter);
 }
 
 void drawMaterialInspector(EditorContext& context, rb::Entity e) {

@@ -38,6 +38,7 @@
 #include "rabbet/render/Viewport.h"
 #include "rabbet/render/gl/Cubemap.h"
 #include "rabbet/render/gl/Mesh.h"
+#include "rabbet/particle/ParticleSystem.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/LightSystem.h"
 #include "rabbet/scene/Name.h"
@@ -169,6 +170,9 @@ void Editor::buildDefaultScene() {
     m_runtime.addSystem<rb::TransformSystem>();
     m_runtime.addSystem<rb::LightSystem>();
     m_runtime.addSystem<rb::AssetResolveSystem>();
+    // ParticleSystem is Always (emitters preview without Play) and runs after AssetResolveSystem so
+    // a sprite handle is resolved before it publishes, and before RenderSystem consumes it.
+    m_runtime.addSystem<rb::ParticleSystem>();
     m_runtime.addSystem<rb::SkyboxSystem>();
     m_renderSystem = &m_runtime.addSystem<rb::RenderSystem>();
 
