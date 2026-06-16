@@ -20,6 +20,7 @@ set(RABBET_TEST_SUITES
     scene_camera
     scene_light
     lighting_extended
+    particle
     render_geometry
     render_shadow
     render_sky
