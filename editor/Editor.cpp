@@ -38,6 +38,7 @@
 #include "rabbet/render/Viewport.h"
 #include "rabbet/render/gl/Cubemap.h"
 #include "rabbet/render/gl/Mesh.h"
+#include "rabbet/render/PostProcess.h"
 #include "rabbet/particle/ParticleSystem.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/LightSystem.h"
@@ -333,12 +334,16 @@ void Editor::drawDockspaceAndMenu() {
 }
 
 void Editor::renderScene(int width, int height, float dt) {
-    if (!m_framebuffer.has_value()) {
-        m_framebuffer = rb::gl::Framebuffer::create(width, height);
+    // An enabled PostProcess switches the scene target to linear HDR (RGBA16F) so the post chain can
+    // tone-map; without one the scene renders straight to an LDR target exactly as before.
+    rb::PostProcess* post = rb::activePostProcess(m_runtime.scene());
+    const bool hdr = post != nullptr;
+    if (!m_framebuffer.has_value() || m_framebufferHdr != hdr) {
+        m_framebuffer = rb::gl::Framebuffer::create(width, height, hdr);
+        m_framebufferHdr = hdr;
     } else {
         m_framebuffer->resize(width, height);
     }
-    m_context.viewportTexture = m_framebuffer->colorTexture();
 
     rb::Viewport& viewport = m_runtime.resource<rb::Viewport>();
     viewport.width = width;
@@ -358,6 +363,10 @@ void Editor::renderScene(int width, int height, float dt) {
     m_device.clear();
     m_runtime.tick(dt);
     rb::gl::Framebuffer::unbind();
+
+    m_context.viewportTexture =
+        hdr ? m_postProcessor.process(m_framebuffer->colorTexture(), width, height, *post)
+            : m_framebuffer->colorTexture();
 }
 
 void Editor::newScene() {
@@ -410,6 +419,7 @@ void Editor::run() {
     // Input lives as a resource so the ScriptSystem (and any gameplay system) can query it.
     rb::Input& input = m_runtime.addResource<rb::Input>(m_window.handle());
     m_runtime.start();
+    m_postProcessor.init(); // compile the post shaders now that a GL context is current
 
     rb::FrameClock clock;
     while (!m_window.shouldClose()) {

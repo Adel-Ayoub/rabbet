@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include "rabbet/core/Runtime.h"
+#include "rabbet/render/PostProcessor.h"
 #include "rabbet/render/gl/Framebuffer.h"
 #include "rabbet/serialize/ComponentRegistry.h"
 
@@ -56,6 +57,8 @@ private:
     PanelManager m_panels;
     EditorCamera m_camera;
     std::optional<rb::gl::Framebuffer> m_framebuffer;
+    bool m_framebufferHdr = false; // the scene FBO is RGBA16F while a post-process is active
+    rb::PostProcessor m_postProcessor;          // HDR -> LDR chain, run when post-processing is on
     rb::RenderSystem* m_renderSystem = nullptr; // owned by m_runtime; used for picking
     std::string m_scenePath; // set in the constructor to a workspace-local path
     bool m_cameraActive = false;

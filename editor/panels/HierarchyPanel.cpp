@@ -7,6 +7,7 @@
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/particle/ParticleEmitter.h"
+#include "rabbet/render/PostProcess.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Name.h"
@@ -114,6 +115,13 @@ void HierarchyPanel::onImGui() {
         if (ImGui::MenuItem("Particle Emitter")) {
             const rb::Entity e = createEmpty(scene, "Particle Emitter");
             scene.add<rb::ParticleEmitter>(e, rb::ParticleEmitter{});
+            toSelect = e;
+        }
+        if (ImGui::MenuItem("Post Process")) {
+            const rb::Entity e = createEmpty(scene, "Post Process");
+            rb::PostProcess pp;
+            pp.enabled = true; // created on -> the HDR pipeline engages immediately
+            scene.add<rb::PostProcess>(e, pp);
             toSelect = e;
         }
         ImGui::EndPopup();

@@ -6,6 +6,7 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/render/DebugDraw.h"
 #include "rabbet/render/EnvironmentLighting.h"
+#include "rabbet/render/PostProcess.h"
 #include "rabbet/scene/Transform.h"
 
 #include <ImGuizmo.h>
@@ -87,6 +88,21 @@ void ViewportPanel::drawGizmo(const ImVec2& imageMin, const ImVec2& imageSize) {
         ImGui::Checkbox("Environment", &env->enabled);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Light ambient from the skybox (diffuse image-based lighting).");
+        }
+    }
+    // Quick toggle for the scene's post-processing (the first PostProcess component), for A/B
+    // comparison without leaving the viewport. Editing the full settings lives in the inspector.
+    rb::PostProcess* post = nullptr;
+    m_context.runtime.scene().each<rb::PostProcess>([&post](rb::Entity, rb::PostProcess& p) {
+        if (post == nullptr) {
+            post = &p;
+        }
+    });
+    if (post != nullptr) {
+        ImGui::SameLine();
+        ImGui::Checkbox("Post", &post->enabled);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("HDR tone-mapping, bloom, colour grade, and FXAA.");
         }
     }
     ImGui::EndGroup();

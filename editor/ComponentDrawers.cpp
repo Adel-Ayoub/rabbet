@@ -8,6 +8,7 @@
 #include "rabbet/core/Uuid.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/particle/ParticleEmitter.h"
+#include "rabbet/render/PostProcess.h"
 #include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
@@ -295,6 +296,31 @@ void drawParticleEmitter(rb::Scene& scene, rb::Entity e) {
     }
 }
 
+// Post-processing settings for the scene (a single enabled instance drives the editor's view).
+void drawPostProcess(rb::Scene& scene, rb::Entity e) {
+    rb::PostProcess& p = scene.get<rb::PostProcess>(e);
+    ImGui::Checkbox("Enabled", &p.enabled);
+
+    ImGui::SeparatorText("Tonemap");
+    enumCombo("Operator", p.tonemap);
+    ImGui::DragFloat("Exposure (EV)", &p.exposure, 0.05f, -8.0f, 8.0f);
+    ImGui::DragFloat("Gamma", &p.gamma, 0.01f, 1.0f, 3.0f);
+
+    ImGui::SeparatorText("Bloom");
+    ImGui::Checkbox("Bloom", &p.bloom);
+    ImGui::DragFloat("Threshold", &p.bloomThreshold, 0.02f, 0.0f, 20.0f);
+    ImGui::DragFloat("Knee", &p.bloomKnee, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Intensity", &p.bloomIntensity, 0.005f, 0.0f, 2.0f);
+
+    ImGui::SeparatorText("Grade");
+    ImGui::DragFloat("Contrast", &p.contrast, 0.01f, 0.0f, 2.0f);
+    ImGui::DragFloat("Saturation", &p.saturation, 0.01f, 0.0f, 2.0f);
+    ImGui::DragFloat("Vignette", &p.vignette, 0.01f, 0.0f, 1.0f);
+
+    ImGui::SeparatorText("Anti-aliasing");
+    ImGui::Checkbox("FXAA", &p.fxaa);
+}
+
 bool isColorName(const std::string& name) {
     return name.find("olor") != std::string::npos || name.find("int") != std::string::npos ||
            name.find("lbedo") != std::string::npos || name.find("missive") != std::string::npos;
@@ -390,6 +416,7 @@ void registerComponentDrawers(rb::ComponentRegistry& registry) {
     registry.setDrawer("SphereCollider", &drawSphereCollider);
     registry.setDrawer("SoundEmitter", &drawSoundEmitter);
     registry.setDrawer("ParticleEmitter", &drawParticleEmitter);
+    registry.setDrawer("PostProcess", &drawPostProcess);
 }
 
 void drawMaterialInspector(EditorContext& context, rb::Entity e) {
