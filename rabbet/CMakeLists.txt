@@ -54,6 +54,9 @@ target_sources(rabbet
         render/gl/ParticleStream.cpp
         particle/ParticleSimulation.cpp
         particle/ParticleSystem.cpp
+        render/PostProcess.cpp
+        render/PostProcessor.cpp
+        render/gl/ColorTarget.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
         BASE_DIRS "${PROJECT_SOURCE_DIR}"
@@ -157,6 +160,10 @@ target_sources(rabbet
             particle/ParticleSimulation.h
             particle/ParticleRenderData.h
             particle/ParticleSystem.h
+            render/Tonemap.h
+            render/PostProcess.h
+            render/PostProcessor.h
+            render/gl/ColorTarget.h
             render/DebugDraw.h)
 
 target_include_directories(rabbet PUBLIC

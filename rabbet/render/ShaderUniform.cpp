@@ -39,10 +39,10 @@ bool isEngineUniform(std::string_view name) noexcept {
         name.starts_with("uSpot")) {
         return true;
     }
-    static constexpr std::array<std::string_view, 11> kReserved = {
+    static constexpr std::array<std::string_view, 12> kReserved = {
         "uModel",      "uNormalMatrix",   "uViewProjection",      "uViewPosition",
         "uLightSpace", "uShadowMap",      "uHasShadowMap",        "uAmbient",
-        "uIrradiance", "uHasEnvironment", "uEnvironmentIntensity"};
+        "uIrradiance", "uHasEnvironment", "uEnvironmentIntensity", "uHdrOutput"};
     for (const std::string_view reserved : kReserved) {
         if (name == reserved) {
             return true;

@@ -21,6 +21,7 @@ void registerBuiltinComponents(ComponentRegistry& registry) {
     registry.add<SoundEmitter>("SoundEmitter");
     registry.add<PrefabInstance>("PrefabInstance");
     registry.add<ParticleEmitter>("ParticleEmitter");
+    registry.add<PostProcess>("PostProcess");
 }
 
 } // namespace rb

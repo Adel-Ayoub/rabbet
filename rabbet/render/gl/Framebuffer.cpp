@@ -9,7 +9,7 @@
 
 namespace rb::gl {
 
-Framebuffer Framebuffer::create(int width, int height) {
+Framebuffer Framebuffer::create(int width, int height, bool hdr) {
     unsigned int fbo = 0;
     unsigned int color = 0;
     unsigned int depth = 0;
@@ -27,7 +27,7 @@ Framebuffer Framebuffer::create(int width, int height) {
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depth);
 
-    Framebuffer framebuffer(fbo, color, depth, 0, 0);
+    Framebuffer framebuffer(fbo, color, depth, 0, 0, hdr);
     framebuffer.allocate(width, height);
 
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
@@ -43,8 +43,12 @@ void Framebuffer::allocate(int width, int height) noexcept {
     m_width = std::max(width, 1);
     m_height = std::max(height, 1);
     glBindTexture(GL_TEXTURE_2D, m_color);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 nullptr);
+    if (m_hdr) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, m_width, m_height, 0, GL_RGBA, GL_FLOAT, nullptr);
+    } else {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     nullptr);
+    }
     glBindRenderbuffer(GL_RENDERBUFFER, m_depth);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, m_width, m_height);
 }
@@ -52,7 +56,7 @@ void Framebuffer::allocate(int width, int height) noexcept {
 Framebuffer::Framebuffer(Framebuffer&& other) noexcept
     : m_fbo(std::exchange(other.m_fbo, 0)), m_color(std::exchange(other.m_color, 0)),
       m_depth(std::exchange(other.m_depth, 0)), m_width(std::exchange(other.m_width, 0)),
-      m_height(std::exchange(other.m_height, 0)) {}
+      m_height(std::exchange(other.m_height, 0)), m_hdr(other.m_hdr) {}
 
 Framebuffer& Framebuffer::operator=(Framebuffer&& other) noexcept {
     if (this != &other) {
@@ -62,6 +66,7 @@ Framebuffer& Framebuffer::operator=(Framebuffer&& other) noexcept {
         m_depth = std::exchange(other.m_depth, 0);
         m_width = std::exchange(other.m_width, 0);
         m_height = std::exchange(other.m_height, 0);
+        m_hdr = other.m_hdr;
     }
     return *this;
 }

@@ -160,6 +160,7 @@ uniform vec3 uEmissive;
 uniform float uMetallic;
 uniform float uRoughness;
 uniform float uAo;
+uniform int uHdrOutput; // 1: emit linear HDR for the post pipeline; 0 (default): inline tonemap+gamma
 const float PI = 3.14159265359;
 )") + kLightUniforms + kShadowFunctions + R"(
 float distributionGGX(vec3 N, vec3 H, float roughness) {
@@ -218,8 +219,12 @@ void main() {
     }
     vec3 ambient = ambientLight(N) * albedo * uAo;
     vec3 color = ambient + lo + uEmissive;
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
+    // With post-processing on, the scene renders into a linear HDR target and tone-mapping + gamma
+    // happen in the composite pass; otherwise tone-map and encode here exactly as before.
+    if (uHdrOutput == 0) {
+        color = color / (color + vec3(1.0));
+        color = pow(color, vec3(1.0 / 2.2));
+    }
     FragColor = vec4(color, 1.0);
 }
 )";

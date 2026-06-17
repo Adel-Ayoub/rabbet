@@ -19,6 +19,7 @@
 #include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
+#include "rabbet/render/PostProcess.h"
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptField.h"
 #include "rabbet/serialize/PrefabInstance.h"
@@ -306,6 +307,42 @@ inline void from_json(const nlohmann::json& j, ParticleEmitter& e) {
         throw std::runtime_error("ParticleEmitter: malformed sprite uuid '" + text + "'");
     }
     e.handle = {};
+}
+
+NLOHMANN_JSON_SERIALIZE_ENUM(TonemapOperator, {
+                                                  {TonemapOperator::ACES, "ACES"},
+                                                  {TonemapOperator::Reinhard, "Reinhard"},
+                                                  {TonemapOperator::Filmic, "Filmic"},
+                                              })
+
+inline void to_json(nlohmann::json& j, const PostProcess& p) {
+    j = nlohmann::json{{"enabled", p.enabled},
+                       {"tonemap", p.tonemap},
+                       {"exposure", p.exposure},
+                       {"gamma", p.gamma},
+                       {"bloom", p.bloom},
+                       {"bloomThreshold", p.bloomThreshold},
+                       {"bloomKnee", p.bloomKnee},
+                       {"bloomIntensity", p.bloomIntensity},
+                       {"contrast", p.contrast},
+                       {"saturation", p.saturation},
+                       {"vignette", p.vignette},
+                       {"fxaa", p.fxaa}};
+}
+inline void from_json(const nlohmann::json& j, PostProcess& p) {
+    // Tolerant reads: each field falls back to its default so partial / older settings load cleanly.
+    p.enabled = j.value("enabled", p.enabled);
+    p.tonemap = j.value("tonemap", p.tonemap);
+    p.exposure = j.value("exposure", p.exposure);
+    p.gamma = j.value("gamma", p.gamma);
+    p.bloom = j.value("bloom", p.bloom);
+    p.bloomThreshold = j.value("bloomThreshold", p.bloomThreshold);
+    p.bloomKnee = j.value("bloomKnee", p.bloomKnee);
+    p.bloomIntensity = j.value("bloomIntensity", p.bloomIntensity);
+    p.contrast = j.value("contrast", p.contrast);
+    p.saturation = j.value("saturation", p.saturation);
+    p.vignette = j.value("vignette", p.vignette);
+    p.fxaa = j.value("fxaa", p.fxaa);
 }
 
 void registerBuiltinComponents(ComponentRegistry& registry);

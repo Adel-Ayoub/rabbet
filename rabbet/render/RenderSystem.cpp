@@ -8,6 +8,7 @@
 #include "rabbet/render/MaterialAsset.h"
 #include "rabbet/render/MaterialComponent.h"
 #include "rabbet/render/PbrMaterial.h"
+#include "rabbet/render/PostProcess.h"
 #include "rabbet/render/RenderView.h"
 #include "rabbet/render/ShaderAsset.h"
 #include "rabbet/render/ShaderUniform.h"
@@ -200,9 +201,12 @@ void uploadEnvironment(gl::Shader& shader, const EnvironmentLight* env) {
 }
 
 void uploadLights(gl::Shader& shader, const glm::mat4& viewProjection, const glm::vec3& viewPosition,
-                  const Lighting* lighting, const EnvironmentLight* env) {
+                  const Lighting* lighting, const EnvironmentLight* env, int hdrOutput) {
     shader.setMat4("uViewProjection", viewProjection);
     shader.setVec3("uViewPosition", viewPosition);
+    // 1 when a post-process pass will tone-map, so the lit shaders emit linear HDR; 0 keeps the
+    // built-in inline tone-map + gamma (a no-op uniform on shaders that lack it, e.g. Phong).
+    shader.setInt("uHdrOutput", hdrOutput);
     uploadEnvironment(shader, env);
     if (lighting == nullptr) {
         shader.setVec3("uAmbient", glm::vec3(0.1f));
@@ -363,6 +367,10 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     Scene& scene = runtime.scene();
 
+    // When a post-process pass is active the lit shaders emit linear HDR (the post chain tone-maps);
+    // otherwise they keep their inline tone-map + gamma so the direct path is byte-identical.
+    const int hdrOutput = activePostProcess(scene) != nullptr ? 1 : 0;
+
     // An entity whose material has resolved is drawn by the material pass below; the built-in
     // passes skip it so its geometry is not drawn twice.
     const auto materialDriven = [&scene](Entity e) {
@@ -480,7 +488,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     if (m_phong && runtime.scene().count<Material>() > 0) {
         m_phong->bind();
-        uploadLights(*m_phong, viewProjection, view.position, lighting, environment);
+        uploadLights(*m_phong, viewProjection, view.position, lighting, environment, hdrOutput);
         m_phong->setInt("uTexture", 0);
         m_phong->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
         m_phong->setInt("uHasShadowMap", hasShadow);
@@ -503,7 +511,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     if (m_pbr && runtime.scene().count<PbrMaterial>() > 0) {
         m_pbr->bind();
-        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment);
+        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment, hdrOutput);
         m_pbr->setInt("uAlbedoTex", 0);
         m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
         m_pbr->setInt("uHasShadowMap", hasShadow);
@@ -528,7 +536,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     if (m_pbr && assets != nullptr && runtime.scene().count<ModelRenderer>() > 0) {
         m_pbr->bind();
-        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment);
+        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment, hdrOutput);
         m_pbr->setInt("uAlbedoTex", 0);
         m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
         m_pbr->setInt("uHasShadowMap", hasShadow);
@@ -546,7 +554,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
 
     if (m_pbr && m_whiteTexture && runtime.scene().count<Primitive>() > 0) {
         m_pbr->bind();
-        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment);
+        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment, hdrOutput);
         m_pbr->setInt("uAlbedoTex", 0);
         m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
         m_pbr->setInt("uHasShadowMap", hasShadow);
@@ -595,7 +603,7 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                     return;
                 }
                 program->bind();
-                uploadLights(*program, viewProjection, view.position, lighting, environment);
+                uploadLights(*program, viewProjection, view.position, lighting, environment, hdrOutput);
                 program->setInt("uAlbedoTex", 0);
                 program->setInt("uTexture", 0);
                 program->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));

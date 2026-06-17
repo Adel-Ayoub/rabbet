@@ -2,13 +2,13 @@
 
 namespace rb::gl {
 
-// An offscreen render target: one RGBA8 colour texture (sampled by the editor
-// viewport) plus a depth renderbuffer (written, never sampled). RAII, move-only,
-// mirroring DepthMap. resize() reuses the same GL object ids so a texture handle
-// handed to ImGui stays valid across viewport resizes.
+// An offscreen render target: one colour texture (sampled by the editor viewport) plus a depth
+// renderbuffer (written, never sampled). RGBA8 by default; `hdr` makes it RGBA16F so the scene can
+// be rendered in linear HDR for the post-processing pipeline. RAII, move-only, mirroring DepthMap.
+// resize() reuses the same GL object ids so a texture handle handed to ImGui stays valid.
 class Framebuffer {
 public:
-    [[nodiscard]] static Framebuffer create(int width, int height);
+    [[nodiscard]] static Framebuffer create(int width, int height, bool hdr = false);
 
     Framebuffer(const Framebuffer&) = delete;
     Framebuffer& operator=(const Framebuffer&) = delete;
@@ -26,9 +26,9 @@ public:
     [[nodiscard]] bool valid() const noexcept { return m_fbo != 0; }
 
 private:
-    Framebuffer(unsigned int fbo, unsigned int color, unsigned int depth, int width,
-                int height) noexcept
-        : m_fbo(fbo), m_color(color), m_depth(depth), m_width(width), m_height(height) {}
+    Framebuffer(unsigned int fbo, unsigned int color, unsigned int depth, int width, int height,
+                bool hdr) noexcept
+        : m_fbo(fbo), m_color(color), m_depth(depth), m_width(width), m_height(height), m_hdr(hdr) {}
     void destroy() noexcept;
     void allocate(int width, int height) noexcept;
 
@@ -37,6 +37,7 @@ private:
     unsigned int m_depth = 0;
     int m_width = 0;
     int m_height = 0;
+    bool m_hdr = false;
 };
 
 } // namespace rb::gl
