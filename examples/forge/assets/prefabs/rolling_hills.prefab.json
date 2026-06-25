@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "components": {
+    "Name": {
+      "value": "Rolling Hills"
+    },
+    "Transform": {
+      "position": [
+        0.0,
+        -2.0,
+        0.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "TerrainComponent": {
+      "size": 80.0,
+      "resolution": 192,
+      "heightScale": 14.0,
+      "source": "Heightmap",
+      "heightmap": "7e44a1d0000000000000000000000a01",
+      "seed": 1337,
+      "octaves": 5,
+      "frequency": 2.5,
+      "lacunarity": 2.0,
+      "gain": 0.5,
+      "layers": [
+        {
+          "albedo": "7e44a1d0000000000000000000000a02",
+          "tiling": 24.0,
+          "heightRange": [
+            0.0,
+            0.55
+          ],
+          "slopeRange": [
+            0.0,
+            0.4
+          ],
+          "sharpness": 0.12
+        },
+        {
+          "albedo": "7e44a1d0000000000000000000000a03",
+          "tiling": 16.0,
+          "heightRange": [
+            0.0,
+            1.0
+          ],
+          "slopeRange": [
+            0.3,
+            1.0
+          ],
+          "sharpness": 0.12
+        },
+        {
+          "albedo": "7e44a1d0000000000000000000000a04",
+          "tiling": 20.0,
+          "heightRange": [
+            0.7,
+            1.0
+          ],
+          "slopeRange": [
+            0.0,
+            0.5
+          ],
+          "sharpness": 0.1
+        }
+      ],
+      "blend": "HeightSlope",
+      "splat": ""
+    }
+  }
+}
