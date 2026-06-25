@@ -21,6 +21,7 @@ set(RABBET_TEST_SUITES
     scene_light
     lighting_extended
     particle
+    terrain
     tonemap
     render_geometry
     render_shadow
