@@ -2,7 +2,9 @@
 
 #include "editor/EditorContext.h"
 
+#include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
+#include "rabbet/assets/AssetType.h"
 #include "rabbet/audio/SoundEmitter.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/core/Uuid.h"
@@ -26,6 +28,7 @@
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptField.h"
 #include "rabbet/serialize/ComponentRegistry.h"
+#include "rabbet/terrain/TerrainComponent.h"
 #include "rabbet/util/Log.h"
 #include "rabbet/serialize/Prefab.h"
 #include "rabbet/serialize/PrefabAsset.h"
@@ -399,6 +402,43 @@ bool drawUniformOverride(rb::MaterialAsset& material, const rb::ShaderUniform& u
     return changed;
 }
 
+// A combo over the catalogued Texture assets (plus "(none)") that writes the chosen uuid. This is
+// how terrain assigns its heightmap / layer albedos / splat: multi-slot assignment is clearer inline
+// than routing a single Assets-panel action to a hidden "active slot".
+bool textureSlot(const char* label, rb::AssetDatabase& database, rb::Uuid& target) {
+    std::string current = "(none)";
+    if (target.valid()) {
+        if (const rb::AssetDatabase::Record* record = database.find(target)) {
+            current = record->name;
+        } else {
+            current = target.toString().substr(0, 8); // assigned but not catalogued
+        }
+    }
+    bool changed = false;
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        if (ImGui::Selectable("(none)", !target.valid())) {
+            target = rb::Uuid{};
+            changed = true;
+        }
+        for (const rb::AssetDatabase::Record& record : database.records()) {
+            if (record.type != rb::AssetType::Texture) {
+                continue;
+            }
+            const bool selected = record.id == target;
+            const std::string item = record.name + "##" + record.id.toString();
+            if (ImGui::Selectable(item.c_str(), selected)) {
+                target = record.id;
+                changed = true;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
 } // namespace
 
 void registerComponentDrawers(rb::ComponentRegistry& registry) {
@@ -531,6 +571,68 @@ void drawPrefabInspector(EditorContext& context, rb::Entity e) {
     if (ImGui::Button("Unlink")) {
         instance.prefab = rb::Uuid{};
         instance.handle = {};
+    }
+}
+
+void drawTerrainInspector(EditorContext& context, rb::Entity e) {
+    rb::Scene& scene = context.runtime.scene();
+    rb::TerrainComponent& t = scene.get<rb::TerrainComponent>(e);
+    rb::AssetDatabase* database = context.runtime.tryResource<rb::AssetDatabase>();
+    if (database == nullptr) {
+        ImGui::TextDisabled("No asset database (textures cannot be assigned)");
+    }
+
+    ImGui::SeparatorText("Shape");
+    ImGui::DragFloat("Size", &t.size, 0.5f, 1.0f, 4096.0f);
+    ImGui::DragInt("Resolution", &t.resolution, 1.0f, 2, 512);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Vertices per side. The mesh rebuilds shortly after you stop editing.");
+    }
+    ImGui::DragFloat("Height Scale", &t.heightScale, 0.1f, 0.0f, 1000.0f);
+
+    ImGui::SeparatorText("Height Source");
+    enumCombo("Source", t.source);
+    if (t.source == rb::TerrainHeightSource::Heightmap) {
+        if (database != nullptr) {
+            textureSlot("Heightmap", *database, t.heightmap);
+        }
+        ImGui::TextDisabled("Grayscale image; read on the CPU for the heightfield.");
+    } else if (t.source == rb::TerrainHeightSource::Noise) {
+        int seed = static_cast<int>(t.seed);
+        if (ImGui::DragInt("Seed", &seed, 1.0f, 0, 1000000)) {
+            t.seed = static_cast<std::uint32_t>(seed < 0 ? 0 : seed);
+        }
+        ImGui::DragInt("Octaves", &t.octaves, 1.0f, 1, 12);
+        ImGui::DragFloat("Frequency", &t.frequency, 0.05f, 0.1f, 64.0f);
+        ImGui::DragFloat("Lacunarity", &t.lacunarity, 0.01f, 1.0f, 4.0f);
+        ImGui::DragFloat("Gain", &t.gain, 0.01f, 0.0f, 1.0f);
+    }
+
+    ImGui::SeparatorText("Layers");
+    ImGui::DragInt("Layer Count", &t.layerCount, 0.1f, 1, rb::TerrainComponent::kMaxLayers);
+    for (int i = 0; i < t.layerCount; ++i) {
+        ImGui::PushID(i);
+        rb::TerrainLayer& layer = t.layers[static_cast<std::size_t>(i)];
+        ImGui::Text("Layer %d", i);
+        if (database != nullptr) {
+            textureSlot("Albedo", *database, layer.albedo);
+        }
+        ImGui::DragFloat("Tiling", &layer.tiling, 0.25f, 0.1f, 256.0f);
+        ImGui::DragFloat2("Height Range", &layer.heightRange.x, 0.01f, 0.0f, 1.0f);
+        ImGui::DragFloat2("Slope Range", &layer.slopeRange.x, 0.01f, 0.0f, 1.0f);
+        ImGui::DragFloat("Sharpness", &layer.sharpness, 0.005f, 0.0f, 0.5f);
+        ImGui::PopID();
+    }
+
+    ImGui::SeparatorText("Blend");
+    enumCombo("Mode", t.blend);
+    if (t.blend == rb::TerrainBlend::Splatmap) {
+        if (database != nullptr) {
+            textureSlot("Splat Map", *database, t.splat);
+        }
+        ImGui::TextDisabled("RGBA channels -> layers 0..3");
+    } else {
+        ImGui::TextDisabled("Auto-blend from each layer's height + slope range.");
     }
 }
 

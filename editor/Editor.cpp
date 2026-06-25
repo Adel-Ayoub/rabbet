@@ -40,6 +40,7 @@
 #include "rabbet/render/gl/Mesh.h"
 #include "rabbet/render/PostProcess.h"
 #include "rabbet/particle/ParticleSystem.h"
+#include "rabbet/terrain/TerrainSystem.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/LightSystem.h"
 #include "rabbet/scene/Name.h"
@@ -174,6 +175,9 @@ void Editor::buildDefaultScene() {
     // ParticleSystem is Always (emitters preview without Play) and runs after AssetResolveSystem so
     // a sprite handle is resolved before it publishes, and before RenderSystem consumes it.
     m_runtime.addSystem<rb::ParticleSystem>();
+    // TerrainSystem is Always too (terrain previews in edit mode) and runs after AssetResolveSystem
+    // so layer/splat handles resolve before it publishes, and before RenderSystem consumes them.
+    m_runtime.addSystem<rb::TerrainSystem>();
     m_runtime.addSystem<rb::SkyboxSystem>();
     m_renderSystem = &m_runtime.addSystem<rb::RenderSystem>();
 

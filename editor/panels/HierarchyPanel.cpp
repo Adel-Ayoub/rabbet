@@ -13,6 +13,7 @@
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/serialize/Prefab.h"
+#include "rabbet/terrain/TerrainComponent.h"
 #include "rabbet/serialize/SceneSerializer.h"
 #include "rabbet/util/Log.h"
 
@@ -122,6 +123,22 @@ void HierarchyPanel::onImGui() {
             rb::PostProcess pp;
             pp.enabled = true; // created on -> the HDR pipeline engages immediately
             scene.add<rb::PostProcess>(e, pp);
+            toSelect = e;
+        }
+        if (ImGui::MenuItem("Terrain")) {
+            const rb::Entity e = createEmpty(scene, "Terrain");
+            rb::TerrainComponent terrain;
+            terrain.size = 48.0f;
+            terrain.resolution = 96;
+            terrain.heightScale = 6.0f;
+            // Two slope-banded layers so the height/slope auto-blend is visible the moment albedos
+            // are assigned (flats vs. slopes); both fall back to grey until then.
+            terrain.layerCount = 2;
+            terrain.layers[0].slopeRange = {0.0f, 0.35f};
+            terrain.layers[0].tiling = 18.0f;
+            terrain.layers[1].slopeRange = {0.25f, 1.0f};
+            terrain.layers[1].tiling = 12.0f;
+            scene.add<rb::TerrainComponent>(e, terrain);
             toSelect = e;
         }
         ImGui::EndPopup();

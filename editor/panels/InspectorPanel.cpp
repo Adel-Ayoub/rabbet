@@ -66,6 +66,10 @@ void InspectorPanel::onImGui() {
                 drawMaterialInspector(m_context, e);
             } else if (entry.name == "PrefabInstance") {
                 drawPrefabInspector(m_context, e);
+            } else if (entry.name == "TerrainComponent") {
+                // Needs the AssetDatabase to assign heightmap / layer / splat textures, which the
+                // type-erased registry hook cannot reach.
+                drawTerrainInspector(m_context, e);
             } else if (entry.drawInspector != nullptr) {
                 entry.drawInspector(scene, e);
             } else {

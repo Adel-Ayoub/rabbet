@@ -25,4 +25,8 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e);
 // material drawer it needs the AssetManager + registry, so it is called directly by the panel.
 void drawPrefabInspector(EditorContext& context, rb::Entity e);
 
+// Draws the TerrainComponent inspector. It assigns the heightmap / layer albedos / splat from the
+// catalogued Texture assets (needs the AssetDatabase), so the InspectorPanel calls it directly.
+void drawTerrainInspector(EditorContext& context, rb::Entity e);
+
 } // namespace rb::editor
