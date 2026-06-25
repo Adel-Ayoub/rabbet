@@ -36,6 +36,8 @@ set(RABBET_TEST_SUITES
     assets_manager
     assets_meta
     assets_database
+    asset_tree
+    thumbnail_cache
     assets_render
     assets_scene_file
     assets_resolve)
