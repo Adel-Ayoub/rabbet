@@ -1,9 +1,12 @@
 #include "editor/panels/HierarchyPanel.h"
 
+#include "editor/AssetAssign.h"
 #include "editor/EditorContext.h"
 
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
+#include "rabbet/assets/AssetType.h"
+#include "rabbet/core/Uuid.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/particle/ParticleEmitter.h"
@@ -162,10 +165,23 @@ void HierarchyPanel::onImGui() {
     ImGui::Separator();
 
     const std::vector<rb::Entity> entities = scene.entities();
+    rb::AssetDatabase* database = m_context.runtime.tryResource<rb::AssetDatabase>();
     for (const rb::Entity e : entities) {
         const std::string label = displayName(scene, e) + "##" + std::to_string(e.index());
         if (ImGui::Selectable(label.c_str(), e == m_context.selected)) {
             toSelect = e;
+        }
+        // Drop an asset from the Assets browser onto a row: a prefab instantiates, anything else is
+        // assigned to this entity by its type.
+        if (const rb::Uuid dropped = acceptAssetDropTarget(); dropped.valid() && database != nullptr) {
+            if (const rb::AssetDatabase::Record* record = database->find(dropped)) {
+                if (record->type == rb::AssetType::Prefab) {
+                    instantiatePrefabAsset(m_context, *record);
+                } else {
+                    assignAssetToEntity(m_context, *record, e);
+                    toSelect = e;
+                }
+            }
         }
         if (ImGui::BeginPopupContextItem(label.c_str())) {
             if (ImGui::MenuItem("Duplicate")) {

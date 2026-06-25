@@ -57,6 +57,8 @@ add_executable(forge
     LogBuffer.cpp
     EditorCamera.cpp
     ComponentDrawers.cpp
+    ThumbnailRenderer.cpp
+    AssetAssign.cpp
     panels/ConsolePanel.cpp
     panels/HierarchyPanel.cpp
     panels/ViewportPanel.cpp

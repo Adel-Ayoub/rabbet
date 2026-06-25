@@ -133,6 +133,8 @@ Editor::Editor(rb::Window& window, rb::RenderDevice& device)
     ImGui_ImplGlfw_InitForOpenGL(m_window.handle(), true);
     ImGui_ImplOpenGL3_Init("#version 410");
 
+    m_context.thumbnails = &m_thumbnails;
+
     m_panels.add<HierarchyPanel>(m_context);
     m_panels.add<ViewportPanel>(m_context);
     m_panels.add<InspectorPanel>(m_context);
@@ -424,6 +426,7 @@ void Editor::run() {
     rb::Input& input = m_runtime.addResource<rb::Input>(m_window.handle());
     m_runtime.start();
     m_postProcessor.init(); // compile the post shaders now that a GL context is current
+    m_thumbnails.init();    // compile the preview shader + build preview geometry
 
     rb::FrameClock clock;
     while (!m_window.shouldClose()) {
@@ -460,6 +463,7 @@ void Editor::run() {
         ImGuizmo::BeginFrame();
 
         drawDockspaceAndMenu();
+        m_thumbnails.beginFrame(); // cap new asset previews rendered this frame
         m_panels.render();
 
         const float dt = clock.tick();

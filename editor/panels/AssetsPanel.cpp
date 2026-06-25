@@ -1,190 +1,107 @@
 #include "editor/panels/AssetsPanel.h"
 
+#include "editor/AssetAssign.h"
 #include "editor/EditorContext.h"
+#include "editor/ThumbnailRenderer.h"
 
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
+#include "rabbet/assets/AssetTree.h"
 #include "rabbet/assets/AssetType.h"
-#include "rabbet/audio/AudioAsset.h"
-#include "rabbet/audio/AudioImport.h"
-#include "rabbet/audio/SoundEmitter.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
-#include "rabbet/particle/ParticleEmitter.h"
-#include "rabbet/render/MaterialAsset.h"
-#include "rabbet/render/MaterialComponent.h"
-#include "rabbet/render/MaterialImport.h"
-#include "rabbet/render/ModelAsset.h"
-#include "rabbet/render/ModelImport.h"
-#include "rabbet/render/ModelRenderer.h"
-#include "rabbet/render/TextureAsset.h"
-#include "rabbet/render/TextureImport.h"
-#include "rabbet/scripting/ScriptAsset.h"
-#include "rabbet/scripting/ScriptComponent.h"
-#include "rabbet/scripting/ScriptImport.h"
-#include "rabbet/scripting/ScriptSystem.h"
-#include "rabbet/serialize/Prefab.h"
-#include "rabbet/serialize/PrefabAsset.h"
-#include "rabbet/serialize/PrefabInstance.h"
-#include "rabbet/util/Log.h"
 
 #include <imgui.h>
 
-#include <array>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace rb::editor {
 namespace {
 
-constexpr std::array<rb::AssetType, 8> kBrowseOrder = {
-    rb::AssetType::Model,   rb::AssetType::Material, rb::AssetType::Shader,
-    rb::AssetType::Script,  rb::AssetType::Audio,    rb::AssetType::Texture,
-    rb::AssetType::Scene,   rb::AssetType::Prefab};
-
-void assignModelToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
-    rb::Scene& scene = context.runtime.scene();
-    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
-    if (assets == nullptr || !scene.alive(context.selected)) {
-        return;
-    }
-    // Import on demand so the reference resolves now; AssetResolveSystem keeps the
-    // handle current after. The uuid is what survives save/load — set it, then let
-    // the resolve system repopulate the runtime handle.
-    const rb::AssetHandle<rb::ModelAsset> handle = rb::loadModelAsset(*assets, record.path);
-    if (!handle.valid()) {
-        rb::log::error("assets: failed to import '{}'", record.path.string());
-        return;
-    }
-    rb::ModelRenderer* renderer = scene.tryGet<rb::ModelRenderer>(context.selected);
-    if (renderer == nullptr) {
-        renderer = &scene.add<rb::ModelRenderer>(context.selected, rb::ModelRenderer{});
-    }
-    renderer->model = record.id;
-    renderer->handle = {};
-    rb::log::info("assets: assigned model '{}' to entity {}", record.name,
-                  context.selected.index());
+[[nodiscard]] bool isAssignable(rb::AssetType type) {
+    return type == rb::AssetType::Model || type == rb::AssetType::Material ||
+           type == rb::AssetType::Script || type == rb::AssetType::Audio ||
+           type == rb::AssetType::Texture;
 }
 
-void assignScriptToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
-    rb::Scene& scene = context.runtime.scene();
-    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
-    if (assets == nullptr || !scene.alive(context.selected)) {
-        return;
+// Short tag drawn on placeholder tiles for asset kinds with no rendered preview.
+[[nodiscard]] const char* typeTag(rb::AssetType type) {
+    switch (type) {
+    case rb::AssetType::Script:
+        return "LUA";
+    case rb::AssetType::Audio:
+        return "SND";
+    case rb::AssetType::Scene:
+        return "SCN";
+    case rb::AssetType::Prefab:
+        return "PFB";
+    case rb::AssetType::Shader:
+        return "GLSL";
+    case rb::AssetType::Mesh:
+        return "MSH";
+    case rb::AssetType::Material:
+        return "MAT";
+    case rb::AssetType::Model:
+        return "MDL";
+    case rb::AssetType::Texture:
+        return "TEX";
+    case rb::AssetType::Unknown:
+        break;
     }
-    const rb::AssetHandle<rb::ScriptAsset> handle = rb::loadScriptAsset(*assets, record.path);
-    if (!handle.valid()) {
-        rb::log::error("assets: failed to load script '{}'", record.path.string());
-        return;
-    }
-    rb::ScriptComponent* script = scene.tryGet<rb::ScriptComponent>(context.selected);
-    if (script == nullptr) {
-        script = &scene.add<rb::ScriptComponent>(context.selected, rb::ScriptComponent{});
-    }
-    script->script = record.id;
-    script->handle = {}; // ScriptAssetResolveSystem repopulates it from the uuid
-    script->fields.clear();
-    if (const rb::ScriptAsset* asset = assets->get<rb::ScriptAsset>(handle)) {
-        rb::introspectScriptFields(asset->source, script->fields);
-    }
-    rb::log::info("assets: assigned script '{}' to entity {}", record.name,
-                  context.selected.index());
+    return "?";
 }
 
-void assignAudioToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
-    rb::Scene& scene = context.runtime.scene();
-    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
-    if (assets == nullptr || !scene.alive(context.selected)) {
-        return;
+[[nodiscard]] std::string ellipsize(const std::string& text, std::size_t limit) {
+    if (text.size() <= limit) {
+        return text;
     }
-    const rb::AssetHandle<rb::AudioAsset> handle = rb::loadAudioAsset(*assets, record.path);
-    if (!handle.valid()) {
-        rb::log::error("assets: failed to load audio '{}'", record.path.string());
-        return;
-    }
-    rb::SoundEmitter* emitter = scene.tryGet<rb::SoundEmitter>(context.selected);
-    if (emitter == nullptr) {
-        emitter = &scene.add<rb::SoundEmitter>(context.selected, rb::SoundEmitter{});
-    }
-    emitter->sound = record.id;
-    emitter->handle = {}; // AudioAssetResolveSystem repopulates it from the uuid
-    rb::log::info("assets: assigned audio '{}' to entity {}", record.name,
-                  context.selected.index());
+    return text.substr(0, limit > 2 ? limit - 2 : limit) + "..";
 }
 
-void assignMaterialToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
-    rb::Scene& scene = context.runtime.scene();
-    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
-    if (assets == nullptr || !scene.alive(context.selected)) {
-        return;
+// Descends to the folder node addressed by `rel` (relative to the root); nullptr if it is gone.
+[[nodiscard]] const rb::AssetTree* folderAt(const rb::AssetTree& root,
+                                            const std::filesystem::path& rel) {
+    const rb::AssetTree* node = &root;
+    for (const std::filesystem::path& part : rel) {
+        const std::string component = part.string();
+        if (component.empty() || component == ".") {
+            continue;
+        }
+        const rb::AssetTree* next = nullptr;
+        for (const rb::AssetTree& folder : node->folders) {
+            if (folder.name == component) {
+                next = &folder;
+                break;
+            }
+        }
+        if (next == nullptr) {
+            return nullptr;
+        }
+        node = next;
     }
-    const rb::AssetHandle<rb::MaterialAsset> handle = rb::loadMaterialAsset(*assets, record.path);
-    if (!handle.valid()) {
-        rb::log::error("assets: failed to load material '{}'", record.path.string());
-        return;
-    }
-    rb::MaterialComponent* material = scene.tryGet<rb::MaterialComponent>(context.selected);
-    if (material == nullptr) {
-        material = &scene.add<rb::MaterialComponent>(context.selected, rb::MaterialComponent{});
-    }
-    material->material = record.id;
-    material->handle = {}; // MaterialAssetResolveSystem repopulates it from the uuid
-    rb::log::info("assets: assigned material '{}' to entity {}", record.name,
-                  context.selected.index());
+    return node;
 }
 
-// A texture is assigned as a particle sprite, so it targets an existing ParticleEmitter rather than
-// creating a component (unlike a model, a bare texture is not itself a renderable thing).
-void assignTextureToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
-    rb::Scene& scene = context.runtime.scene();
-    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
-    if (assets == nullptr || !scene.alive(context.selected)) {
-        return;
-    }
-    rb::ParticleEmitter* emitter = scene.tryGet<rb::ParticleEmitter>(context.selected);
-    if (emitter == nullptr) {
-        rb::log::warn("assets: select an entity with a Particle Emitter to assign a sprite");
-        return;
-    }
-    const rb::AssetHandle<rb::TextureAsset> handle = rb::loadTextureAsset(*assets, record.path);
-    if (!handle.valid()) {
-        rb::log::error("assets: failed to load texture '{}'", record.path.string());
-        return;
-    }
-    emitter->sprite = record.id;
-    emitter->handle = {}; // AssetResolveSystem repopulates it from the uuid
-    rb::log::info("assets: assigned sprite '{}' to entity {}", record.name,
-                  context.selected.index());
-}
-
-void instantiatePrefabAsset(EditorContext& context, const rb::AssetDatabase::Record& record) {
-    rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
-    if (assets == nullptr) {
-        return;
-    }
-    const rb::AssetHandle<rb::PrefabAsset> handle = rb::loadPrefabAsset(*assets, record.path);
-    rb::PrefabAsset* prefab = assets->get<rb::PrefabAsset>(handle);
-    if (prefab == nullptr) {
-        rb::log::error("assets: failed to load prefab '{}'", record.path.string());
-        return;
-    }
-    const rb::Entity e = rb::instantiatePrefab(context.runtime.scene(), context.registry, *prefab);
-    context.runtime.scene().add<rb::PrefabInstance>(e, rb::PrefabInstance{record.id, {}});
-    context.selected = e;
-    rb::log::info("assets: instantiated prefab '{}' as entity {}", record.name, e.index());
-}
-
-void assignToEntity(EditorContext& context, const rb::AssetDatabase::Record& record) {
-    if (record.type == rb::AssetType::Model) {
-        assignModelToEntity(context, record);
-    } else if (record.type == rb::AssetType::Material) {
-        assignMaterialToEntity(context, record);
-    } else if (record.type == rb::AssetType::Script) {
-        assignScriptToEntity(context, record);
-    } else if (record.type == rb::AssetType::Audio) {
-        assignAudioToEntity(context, record);
-    } else if (record.type == rb::AssetType::Texture) {
-        assignTextureToEntity(context, record);
+void drawFolderTree(const rb::AssetTree& node, std::filesystem::path& current) {
+    for (const rb::AssetTree& folder : node.folders) {
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (folder.folders.empty()) {
+            flags |= ImGuiTreeNodeFlags_Leaf;
+        }
+        if (folder.path == current) {
+            flags |= ImGuiTreeNodeFlags_Selected;
+        }
+        const std::string label = folder.name + "##" + folder.path.string();
+        const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+        if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+            current = folder.path;
+        }
+        if (open) {
+            drawFolderTree(folder, current);
+            ImGui::TreePop();
+        }
     }
 }
 
@@ -196,26 +113,23 @@ void AssetsPanel::onImGui() {
         ImGui::TextDisabled("No asset database");
         return;
     }
+    rb::AssetManager* assets = m_context.runtime.tryResource<rb::AssetManager>();
+    ThumbnailRenderer* thumbs = m_context.thumbnails;
 
     const rb::AssetDatabase::Record* selected =
         m_selected.valid() ? database->find(m_selected) : nullptr;
 
-    const bool isPrefab = selected != nullptr && selected->type == rb::AssetType::Prefab;
-    if (isPrefab) {
-        // A prefab is instantiated into a new entity rather than assigned to the selected one.
+    // Action bar: assign the selected asset to the selected entity, or instantiate a prefab.
+    if (selected != nullptr && selected->type == rb::AssetType::Prefab) {
         if (ImGui::Button("Instantiate")) {
             instantiatePrefabAsset(m_context, *selected);
         }
     } else {
-        const bool assignable = selected != nullptr && (selected->type == rb::AssetType::Model ||
-                                                        selected->type == rb::AssetType::Material ||
-                                                        selected->type == rb::AssetType::Script ||
-                                                        selected->type == rb::AssetType::Audio ||
-                                                        selected->type == rb::AssetType::Texture);
-        const bool canAssign = assignable && m_context.runtime.scene().alive(m_context.selected);
+        const bool canAssign = selected != nullptr && isAssignable(selected->type) &&
+                               m_context.runtime.scene().alive(m_context.selected);
         ImGui::BeginDisabled(!canAssign);
         if (ImGui::Button("Assign to selected entity") && selected != nullptr) {
-            assignToEntity(m_context, *selected);
+            assignAssetToEntity(m_context, *selected, m_context.selected);
         }
         ImGui::EndDisabled();
     }
@@ -224,37 +138,145 @@ void AssetsPanel::onImGui() {
         ImGui::TextDisabled("%s (%s)", selected->name.c_str(),
                             std::string(rb::assetTypeName(selected->type)).c_str());
     } else {
-        ImGui::TextDisabled("%zu assets — select one", database->size());
+        ImGui::TextDisabled("%zu assets", database->size());
+    }
+    ImGui::SameLine();
+    // Right-align the grid/list toggle.
+    ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x +
+                         ImGui::GetCursorPosX() - 110.0f);
+    if (ImGui::SmallButton(m_grid ? "List view" : "Grid view")) {
+        m_grid = !m_grid;
+    }
+
+    // Breadcrumbs: clickable path from the root to the current folder.
+    if (ImGui::SmallButton("assets")) {
+        m_folder.clear();
+    }
+    std::filesystem::path crumb;
+    for (const std::filesystem::path& part : m_folder) {
+        crumb /= part;
+        ImGui::SameLine();
+        ImGui::TextUnformatted(">");
+        ImGui::SameLine();
+        if (ImGui::SmallButton((part.string() + "##bc_" + crumb.string()).c_str())) {
+            m_folder = crumb;
+        }
     }
     ImGui::Separator();
 
-    const std::filesystem::path& root = database->root();
-    for (const rb::AssetType type : kBrowseOrder) {
-        int count = 0;
-        for (const rb::AssetDatabase::Record& record : database->records()) {
-            if (record.type == type) {
-                ++count;
+    const rb::AssetTree tree = rb::buildAssetTree(database->root(), database->records());
+
+    // Left: folder tree. Right: the current folder's contents.
+    ImGui::BeginChild("##assetTree", ImVec2(150.0f, 0.0f), ImGuiChildFlags_Borders);
+    {
+        ImGuiTreeNodeFlags rootFlags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Leaf;
+        if (m_folder.empty()) {
+            rootFlags |= ImGuiTreeNodeFlags_Selected;
+        }
+        ImGui::TreeNodeEx("assets##root", rootFlags);
+        if (ImGui::IsItemClicked()) {
+            m_folder.clear();
+        }
+        ImGui::TreePop();
+        drawFolderTree(tree, m_folder);
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    const rb::AssetTree* node = folderAt(tree, m_folder);
+    if (node == nullptr) {
+        m_folder.clear();
+        node = &tree;
+    }
+
+    ImGui::BeginChild("##assetContents", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
+    if (m_grid) {
+        const float tile = 72.0f;
+        const float cell = tile + ImGui::GetStyle().ItemSpacing.x;
+        const int columns = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cell));
+        int column = 0;
+        const auto wrap = [&]() {
+            if (column % columns != columns - 1) {
+                ImGui::SameLine();
+            }
+            ++column;
+        };
+
+        for (const rb::AssetTree& folder : node->folders) {
+            ImGui::PushID(("d_" + folder.path.string()).c_str());
+            ImGui::BeginGroup();
+            if (ImGui::Button((ellipsize(folder.name, 9) + "##f").c_str(), ImVec2(tile, tile))) {
+                m_folder = folder.path;
+            }
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
+            ImGui::TextUnformatted(ellipsize(folder.name, 11).c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+            ImGui::PopID();
+            wrap();
+        }
+
+        for (const rb::AssetTree::Leaf& leaf : node->assets) {
+            ImGui::PushID(leaf.id.toString().c_str());
+            ImGui::BeginGroup();
+            unsigned int texture = 0;
+            const rb::AssetDatabase::Record* record = database->find(leaf.id);
+            if (thumbs != nullptr && assets != nullptr && record != nullptr) {
+                texture = thumbs->thumbnail(*assets, *record);
+            }
+            const bool isSelected = leaf.id == m_selected;
+            bool clicked = false;
+            if (texture != 0) {
+                const ImVec4 bg = isSelected ? ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive)
+                                             : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+                clicked = ImGui::ImageButton("##t", static_cast<ImTextureID>(texture),
+                                             ImVec2(tile, tile), ImVec2(0.0f, 1.0f),
+                                             ImVec2(1.0f, 0.0f), bg);
+            } else {
+                if (isSelected) {
+                    ImGui::PushStyleColor(ImGuiCol_Button,
+                                          ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                }
+                clicked = ImGui::Button((std::string(typeTag(leaf.type)) + "##t").c_str(),
+                                        ImVec2(tile, tile));
+                if (isSelected) {
+                    ImGui::PopStyleColor();
+                }
+            }
+            if (clicked) {
+                m_selected = leaf.id;
+            }
+            beginAssetDragSource(leaf.id, leaf.name);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
+            ImGui::TextUnformatted(ellipsize(leaf.name, 11).c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s (%s)", leaf.name.c_str(),
+                                  std::string(rb::assetTypeName(leaf.type)).c_str());
+            }
+            ImGui::PopID();
+            wrap();
+        }
+    } else {
+        for (const rb::AssetTree& folder : node->folders) {
+            const std::string label = "[ " + folder.name + " ]##d_" + folder.path.string();
+            if (ImGui::Selectable(label.c_str())) {
+                m_folder = folder.path;
             }
         }
-        if (count == 0) {
-            continue;
-        }
-        const std::string header =
-            std::string(rb::assetTypeName(type)) + " (" + std::to_string(count) + ")";
-        if (!ImGui::CollapsingHeader(header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-            continue;
-        }
-        for (const rb::AssetDatabase::Record& record : database->records()) {
-            if (record.type != type) {
-                continue;
+        for (const rb::AssetTree::Leaf& leaf : node->assets) {
+            const std::string label =
+                leaf.name + "    (" + std::string(rb::assetTypeName(leaf.type)) + ")##" +
+                leaf.id.toString();
+            if (ImGui::Selectable(label.c_str(), leaf.id == m_selected)) {
+                m_selected = leaf.id;
             }
-            const std::string rel = record.path.lexically_relative(root).string();
-            const std::string label = record.name + "    " + rel + "##" + record.id.toString();
-            if (ImGui::Selectable(label.c_str(), record.id == m_selected)) {
-                m_selected = record.id;
-            }
+            beginAssetDragSource(leaf.id, leaf.name);
         }
     }
+    ImGui::EndChild();
 }
 
 } // namespace rb::editor

@@ -14,6 +14,7 @@
 #include "editor/EditorContext.h"
 #include "editor/LogBuffer.h"
 #include "editor/PanelManager.h"
+#include "editor/ThumbnailRenderer.h"
 
 namespace rb {
 class Window;
@@ -59,6 +60,7 @@ private:
     std::optional<rb::gl::Framebuffer> m_framebuffer;
     bool m_framebufferHdr = false; // the scene FBO is RGBA16F while a post-process is active
     rb::PostProcessor m_postProcessor;          // HDR -> LDR chain, run when post-processing is on
+    ThumbnailRenderer m_thumbnails;             // offscreen asset previews for the Assets panel
     rb::RenderSystem* m_renderSystem = nullptr; // owned by m_runtime; used for picking
     std::string m_scenePath; // set in the constructor to a workspace-local path
     bool m_cameraActive = false;
