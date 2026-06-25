@@ -26,6 +26,12 @@ struct ModelAsset {
     };
 
     std::vector<Submesh> submeshes;
+
+    // A bounding sphere over all submesh vertices, in the model's local space, so a previewer
+    // (and, later, frustum culling) can frame the model without re-reading its geometry. Defaults
+    // to the unit sphere for a model with no vertices.
+    glm::vec3 boundsCenter{0.0f};
+    float boundsRadius = 1.0f;
 };
 
 template <>

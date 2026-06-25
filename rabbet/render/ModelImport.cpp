@@ -1,6 +1,7 @@
 #include "rabbet/render/ModelImport.h"
 
 #include <cstddef>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -54,7 +55,20 @@ std::optional<ModelAsset> importModel(AssetManager& assets, const std::filesyste
 
     ModelAsset result;
     result.submeshes.reserve(model->meshes.size());
+
+    // Accumulate a local-space AABB over every submesh vertex as we go, then derive a bounding
+    // sphere from it (used to frame previews). Tracked here while the CPU vertices are still in
+    // hand; the gl::Mesh upload discards them.
+    glm::vec3 boundsMin(std::numeric_limits<float>::max());
+    glm::vec3 boundsMax(std::numeric_limits<float>::lowest());
+    bool anyVertex = false;
+
     for (const ModelMesh& part : model->meshes) {
+        for (const Vertex& vertex : part.data.vertices) {
+            boundsMin = glm::min(boundsMin, vertex.position);
+            boundsMax = glm::max(boundsMax, vertex.position);
+            anyVertex = true;
+        }
         const ModelMaterial* material =
             (part.materialIndex >= 0 &&
              static_cast<std::size_t>(part.materialIndex) < model->materials.size())
@@ -83,6 +97,14 @@ std::optional<ModelAsset> importModel(AssetManager& assets, const std::filesyste
             submesh.albedo = whiteHandle();
         }
         result.submeshes.push_back(std::move(submesh));
+    }
+
+    if (anyVertex) {
+        result.boundsCenter = (boundsMin + boundsMax) * 0.5f;
+        result.boundsRadius = glm::length(boundsMax - result.boundsCenter);
+        if (result.boundsRadius <= 0.0f) {
+            result.boundsRadius = 1.0f; // a single-point or degenerate model still frames
+        }
     }
 
     log::info("imported model '{}': {} submesh(es)", path.string(), result.submeshes.size());

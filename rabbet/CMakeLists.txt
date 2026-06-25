@@ -35,6 +35,7 @@ target_sources(rabbet
         core/Uuid.cpp
         assets/AssetMeta.cpp
         assets/AssetDatabase.cpp
+        assets/AssetTree.cpp
         render/ModelImport.cpp
         render/AssetResolveSystem.cpp
         render/ShaderUniform.cpp
@@ -126,6 +127,8 @@ target_sources(rabbet
             assets/AssetManager.h
             assets/AssetMeta.h
             assets/AssetDatabase.h
+            assets/AssetTree.h
+            assets/ThumbnailCache.h
             render/TextureAsset.h
             render/ModelAsset.h
             render/ModelRenderer.h
