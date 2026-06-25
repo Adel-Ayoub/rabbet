@@ -16,6 +16,7 @@
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/particle/ParticleEmitter.h"
+#include "rabbet/terrain/TerrainComponent.h"
 #include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
@@ -343,6 +344,96 @@ inline void from_json(const nlohmann::json& j, PostProcess& p) {
     p.saturation = j.value("saturation", p.saturation);
     p.vignette = j.value("vignette", p.vignette);
     p.fxaa = j.value("fxaa", p.fxaa);
+}
+
+NLOHMANN_JSON_SERIALIZE_ENUM(TerrainHeightSource, {
+                                                      {TerrainHeightSource::Flat, "Flat"},
+                                                      {TerrainHeightSource::Heightmap, "Heightmap"},
+                                                      {TerrainHeightSource::Noise, "Noise"},
+                                                  })
+
+NLOHMANN_JSON_SERIALIZE_ENUM(TerrainBlend, {
+                                               {TerrainBlend::HeightSlope, "HeightSlope"},
+                                               {TerrainBlend::Splatmap, "Splatmap"},
+                                           })
+
+inline void to_json(nlohmann::json& j, const TerrainLayer& layer) {
+    j = nlohmann::json{{"albedo", layer.albedo.toString()},
+                       {"tiling", layer.tiling},
+                       {"heightRange", layer.heightRange},
+                       {"slopeRange", layer.slopeRange},
+                       {"sharpness", layer.sharpness}};
+}
+inline void from_json(const nlohmann::json& j, TerrainLayer& layer) {
+    const std::string text = j.value("albedo", std::string{});
+    layer.albedo = Uuid::fromString(text);
+    if (!text.empty() && !layer.albedo.valid()) {
+        throw std::runtime_error("TerrainLayer: malformed albedo uuid '" + text + "'");
+    }
+    layer.handle = {};
+    layer.tiling = j.value("tiling", layer.tiling);
+    layer.heightRange = j.value("heightRange", layer.heightRange);
+    layer.slopeRange = j.value("slopeRange", layer.slopeRange);
+    layer.sharpness = j.value("sharpness", layer.sharpness);
+}
+
+inline void to_json(nlohmann::json& j, const TerrainComponent& t) {
+    const int count =
+        t.layerCount < 0 ? 0 : (t.layerCount > TerrainComponent::kMaxLayers
+                                    ? TerrainComponent::kMaxLayers : t.layerCount);
+    nlohmann::json layers = nlohmann::json::array();
+    for (int i = 0; i < count; ++i) {
+        layers.push_back(t.layers[static_cast<std::size_t>(i)]);
+    }
+    j = nlohmann::json{{"size", t.size},
+                       {"resolution", t.resolution},
+                       {"heightScale", t.heightScale},
+                       {"source", t.source},
+                       {"heightmap", t.heightmap.toString()},
+                       {"seed", t.seed},
+                       {"octaves", t.octaves},
+                       {"frequency", t.frequency},
+                       {"lacunarity", t.lacunarity},
+                       {"gain", t.gain},
+                       {"layers", layers},
+                       {"blend", t.blend},
+                       {"splat", t.splat.toString()}};
+}
+inline void from_json(const nlohmann::json& j, TerrainComponent& t) {
+    // Tolerant reads: each field falls back to its default so partial / older terrains load cleanly.
+    t.size = j.value("size", t.size);
+    t.resolution = j.value("resolution", t.resolution);
+    t.heightScale = j.value("heightScale", t.heightScale);
+    t.source = j.value("source", t.source);
+    const std::string heightmap = j.value("heightmap", std::string{});
+    t.heightmap = Uuid::fromString(heightmap);
+    if (!heightmap.empty() && !t.heightmap.valid()) {
+        throw std::runtime_error("TerrainComponent: malformed heightmap uuid '" + heightmap + "'");
+    }
+    t.seed = j.value("seed", t.seed);
+    t.octaves = j.value("octaves", t.octaves);
+    t.frequency = j.value("frequency", t.frequency);
+    t.lacunarity = j.value("lacunarity", t.lacunarity);
+    t.gain = j.value("gain", t.gain);
+    t.layers = {};
+    int count = 0;
+    if (j.contains("layers") && j.at("layers").is_array()) {
+        for (const auto& entry : j.at("layers")) {
+            if (count >= TerrainComponent::kMaxLayers) {
+                break;
+            }
+            t.layers[static_cast<std::size_t>(count)] = entry.get<TerrainLayer>();
+            ++count;
+        }
+    }
+    t.layerCount = count > 0 ? count : 1; // always keep at least the base layer
+    t.blend = j.value("blend", t.blend);
+    const std::string splat = j.value("splat", std::string{});
+    t.splat = Uuid::fromString(splat);
+    if (!splat.empty() && !t.splat.valid()) {
+        throw std::runtime_error("TerrainComponent: malformed splat uuid '" + splat + "'");
+    }
+    t.splatHandle = {};
 }
 
 void registerBuiltinComponents(ComponentRegistry& registry);

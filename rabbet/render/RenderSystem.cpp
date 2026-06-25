@@ -38,9 +38,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "rabbet/particle/ParticleRenderData.h"
+#include "rabbet/terrain/TerrainRenderData.h"
 
 namespace rb {
 namespace {
@@ -332,6 +334,11 @@ void RenderSystem::onStart(Runtime& runtime) {
     if (!m_particle) {
         log::error("render system: failed to build the particle shader");
     }
+    m_terrain = gl::Shader::fromSource(builtinTerrainVertexSource(), builtinTerrainFragmentSource());
+    if (!m_terrain) {
+        log::error("render system: failed to build the terrain shader");
+    }
+    m_terrainFallback = gl::Texture::solid(128, 128, 128); // neutral grey for unassigned layers
     m_particleStream = gl::ParticleStream::create();
     m_particleTexture = buildSoftParticleTexture();
     m_shadowMap = gl::DepthMap::create(kShadowMapSize, kShadowMapSize);
@@ -643,6 +650,101 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
                     mesh->draw();
                 }
             });
+    }
+
+    // Terrain pass: lit, splat-blended heightfields published by TerrainSystem. Opaque (depth-write
+    // on), drawn after the other opaque passes. Each entity's CPU mesh is uploaded once and cached,
+    // re-uploaded only when its revision changes. Runs only when a terrain published a draw, so a
+    // scene with no TerrainComponent is byte-identical to before this phase (the resource is absent).
+    if (const TerrainRenderData* terrain = runtime.tryResource<TerrainRenderData>();
+        m_terrain && m_terrainFallback && terrain != nullptr && !terrain->draws.empty()) {
+        constexpr unsigned int kLayerUnit0 = 2; // units 0 (albedo) / 1 (shadow) / 7 (env) reserved
+        constexpr unsigned int kSplatUnit = 6;
+        const gl::Texture& fallback = *m_terrainFallback;
+
+        m_terrain->bind();
+        uploadLights(*m_terrain, viewProjection, view.position, lighting, environment, hdrOutput);
+        m_terrain->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
+        m_terrain->setInt("uHasShadowMap", hasShadow);
+        m_terrain->setMat4("uLightSpace", lightSpace);
+        m_terrain->setFloat("uMetallic", 0.0f);
+        m_terrain->setFloat("uRoughness", 0.92f);
+        for (int i = 0; i < 4; ++i) {
+            m_terrain->setInt("uLayerAlbedo[" + std::to_string(i) + "]",
+                              static_cast<int>(kLayerUnit0) + i);
+        }
+        m_terrain->setInt("uSplat", static_cast<int>(kSplatUnit));
+
+        for (const TerrainDraw& draw : terrain->draws) {
+            const WorldMatrix* world = scene.tryGet<WorldMatrix>(draw.entity);
+            if (draw.mesh == nullptr || world == nullptr) {
+                continue;
+            }
+            TerrainMeshCache& cache = m_terrainMeshes[draw.entity];
+            if (!cache.mesh.has_value() || cache.revision != draw.revision) {
+                cache.mesh = gl::Mesh::create(*draw.mesh);
+                cache.revision = draw.revision;
+            }
+
+            m_terrain->setMat4("uModel", world->value);
+            m_terrain->setMat3("uNormalMatrix", normalMatrix(world->value));
+            m_terrain->setFloat("uHeightScale", draw.heightScale);
+            m_terrain->setInt("uLayerCount", draw.layerCount);
+            m_terrain->setInt("uBlendMode", draw.blend == TerrainBlend::Splatmap ? 1 : 0);
+
+            for (int i = 0; i < 4; ++i) {
+                const std::string idx = "[" + std::to_string(i) + "]";
+                const gl::Texture* tex = &fallback;
+                glm::vec2 heightRange{0.0f, 1.0f};
+                glm::vec2 slopeRange{0.0f, 1.0f};
+                float tiling = 1.0f;
+                float sharpness = 0.12f;
+                if (i < draw.layerCount) {
+                    const TerrainLayerBinding& layer = draw.layers[static_cast<std::size_t>(i)];
+                    if (assets != nullptr && layer.albedo.valid()) {
+                        if (TextureAsset* asset = assets->get<TextureAsset>(layer.albedo)) {
+                            tex = &asset->texture;
+                        }
+                    }
+                    heightRange = layer.heightRange;
+                    slopeRange = layer.slopeRange;
+                    tiling = layer.tiling;
+                    sharpness = layer.sharpness;
+                }
+                tex->bind(kLayerUnit0 + static_cast<unsigned int>(i));
+                m_terrain->setFloat("uLayerTiling" + idx, tiling);
+                m_terrain->setVec2("uLayerHeightRange" + idx, heightRange);
+                m_terrain->setVec2("uLayerSlopeRange" + idx, slopeRange);
+                m_terrain->setFloat("uLayerSharpness" + idx, sharpness);
+            }
+
+            const gl::Texture* splat = &fallback;
+            int hasSplat = 0;
+            if (draw.blend == TerrainBlend::Splatmap && assets != nullptr && draw.splat.valid()) {
+                if (TextureAsset* asset = assets->get<TextureAsset>(draw.splat)) {
+                    splat = &asset->texture;
+                    hasSplat = 1;
+                }
+            }
+            splat->bind(kSplatUnit);
+            m_terrain->setInt("uHasSplat", hasSplat);
+
+            cache.mesh->draw();
+        }
+
+        // Release cached meshes for terrains no longer drawn (entity destroyed or component removed).
+        for (auto it = m_terrainMeshes.begin(); it != m_terrainMeshes.end();) {
+            const bool present = std::any_of(
+                terrain->draws.begin(), terrain->draws.end(),
+                [&](const TerrainDraw& draw) { return draw.entity == it->first; });
+            if (present) {
+                ++it;
+            } else {
+                it = m_terrainMeshes.erase(it);
+            }
+        }
+    } else if (!m_terrainMeshes.empty()) {
+        m_terrainMeshes.clear();
     }
 
     // Transparent particle pass: camera-facing billboards drawn after the opaque + material passes,

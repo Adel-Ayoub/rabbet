@@ -22,6 +22,7 @@ void registerBuiltinComponents(ComponentRegistry& registry) {
     registry.add<PrefabInstance>("PrefabInstance");
     registry.add<ParticleEmitter>("ParticleEmitter");
     registry.add<PostProcess>("PostProcess");
+    registry.add<TerrainComponent>("TerrainComponent");
 }
 
 } // namespace rb

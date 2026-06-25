@@ -43,6 +43,14 @@ private:
         std::uint32_t revision = 0;
     };
 
+    // A terrain entity's uploaded mesh, cached by entity. The TerrainSystem owns the CPU mesh and
+    // bumps a revision on every rebuild; this re-uploads only when that revision changes, so a
+    // static terrain costs one upload, not one per frame.
+    struct TerrainMeshCache {
+        std::optional<gl::Mesh> mesh;
+        std::uint32_t revision = 0;
+    };
+
     // Returns the cached program for a ShaderAsset, compiling (and reflecting its uniforms into
     // the asset) on first use or after a hot-reload. Returns nullptr if the asset is missing or
     // fails to compile, so the caller can fall back to a built-in program.
@@ -55,6 +63,7 @@ private:
     std::optional<gl::Shader> m_pick;
     std::optional<gl::Shader> m_flat; // unlit single-colour, for collider wireframes
     std::optional<gl::Shader> m_particle; // billboard sprites for the transparent particle pass
+    std::optional<gl::Shader> m_terrain;  // lit splat-blended heightfield terrain
     std::optional<gl::DepthMap> m_shadowMap;
     std::optional<gl::PickBuffer> m_pickBuffer;
     std::optional<gl::Mesh> m_missingMesh;
@@ -72,6 +81,10 @@ private:
     std::optional<gl::Texture> m_particleTexture;
     std::vector<gl::ParticleVertex> m_particleVertices;
     std::unordered_map<Uuid, CompiledProgram> m_programCache;
+    // A neutral grey bound to every unassigned terrain layer/splat unit so the samplers stay
+    // complete (some drivers validate every sampler per draw, even unused ones).
+    std::optional<gl::Texture> m_terrainFallback;
+    std::unordered_map<Entity, TerrainMeshCache> m_terrainMeshes;
 };
 
 } // namespace rb

@@ -8,6 +8,15 @@
 namespace nlohmann {
 
 template <>
+struct adl_serializer<glm::vec2> {
+    static void to_json(json& j, const glm::vec2& v) { j = json{v.x, v.y}; }
+    static void from_json(const json& j, glm::vec2& v) {
+        v.x = j.at(0).get<float>();
+        v.y = j.at(1).get<float>();
+    }
+};
+
+template <>
 struct adl_serializer<glm::vec3> {
     static void to_json(json& j, const glm::vec3& v) { j = json{v.x, v.y, v.z}; }
     static void from_json(const json& j, glm::vec3& v) {

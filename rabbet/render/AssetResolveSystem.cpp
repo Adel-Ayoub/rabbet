@@ -10,6 +10,7 @@
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/TextureAsset.h"
 #include "rabbet/render/TextureImport.h"
+#include "rabbet/terrain/TerrainComponent.h"
 
 namespace rb {
 
@@ -36,6 +37,28 @@ void AssetResolveSystem::onUpdate(Runtime& runtime, float) {
                 emitter.handle = loadTextureAsset(*assets, *path);
             }
         }
+    });
+    // Terrain layer albedos + splat map resolve like particle sprites (find then lazy-load from the
+    // catalogued source). The heightmap is NOT resolved here: TerrainSystem reads its pixels CPU-side
+    // for mesh generation, never as a bound GL texture.
+    const auto resolveTexture = [assets](const Uuid& id) -> AssetHandle<TextureAsset> {
+        if (!id.valid()) {
+            return {};
+        }
+        AssetHandle<TextureAsset> handle = assets->find<TextureAsset>(id);
+        if (!handle.valid()) {
+            if (const std::optional<std::filesystem::path> path = assets->sourcePath(id)) {
+                handle = loadTextureAsset(*assets, *path);
+            }
+        }
+        return handle;
+    };
+    runtime.scene().each<TerrainComponent>([&resolveTexture](Entity, TerrainComponent& terrain) {
+        for (int i = 0; i < terrain.layerCount && i < TerrainComponent::kMaxLayers; ++i) {
+            TerrainLayer& layer = terrain.layers[static_cast<std::size_t>(i)];
+            layer.handle = resolveTexture(layer.albedo);
+        }
+        terrain.splatHandle = resolveTexture(terrain.splat);
     });
 }
 

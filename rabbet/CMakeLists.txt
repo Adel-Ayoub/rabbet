@@ -54,6 +54,9 @@ target_sources(rabbet
         render/gl/ParticleStream.cpp
         particle/ParticleSimulation.cpp
         particle/ParticleSystem.cpp
+        terrain/TerrainHeightField.cpp
+        terrain/TerrainMesh.cpp
+        terrain/TerrainSystem.cpp
         render/PostProcess.cpp
         render/PostProcessor.cpp
         render/gl/ColorTarget.cpp
@@ -160,6 +163,11 @@ target_sources(rabbet
             particle/ParticleSimulation.h
             particle/ParticleRenderData.h
             particle/ParticleSystem.h
+            terrain/TerrainComponent.h
+            terrain/TerrainHeightField.h
+            terrain/TerrainMesh.h
+            terrain/TerrainRenderData.h
+            terrain/TerrainSystem.h
             render/Tonemap.h
             render/PostProcess.h
             render/PostProcessor.h

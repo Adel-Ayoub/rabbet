@@ -24,6 +24,11 @@ inline constexpr Uuid kDefaultMaterial{0xB1117D00'00000001ULL, 0x000000000000005
 [[nodiscard]] const std::string& builtinPbrFragmentSource();
 [[nodiscard]] const std::string& builtinPhongFragmentSource();
 
+// The built-in terrain shader: a lit, splat-blended heightfield shader sharing the PBR brdf + light
+// helpers. A dedicated render pass compiles it (it is not a material-assignable ShaderAsset).
+[[nodiscard]] const std::string& builtinTerrainVertexSource();
+[[nodiscard]] const std::string& builtinTerrainFragmentSource();
+
 // Registers the built-in PBR and Phong shaders, plus a default PBR material (no overrides) that
 // binds the PBR shader, into the AssetManager under the fixed uuids above. Idempotent: a second
 // call is a no-op. Lets a MaterialComponent reference the defaults without any asset file.
