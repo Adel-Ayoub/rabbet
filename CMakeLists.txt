@@ -16,18 +16,30 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Compile with the include-path environment variables (CPATH and friends) unset: the
+# compiler searches them ahead of every -isystem dir, so a package manager's installed
+# headers would silently shadow the pinned FetchContent ones (sol2 probes <lua/lua.h>,
+# letting a system lua displace the vendored copy).
+if(UNIX AND NOT CMAKE_C_COMPILER_LAUNCHER AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    set(_rabbet_scrub_env env -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u OBJC_INCLUDE_PATH)
+    set(CMAKE_C_COMPILER_LAUNCHER ${_rabbet_scrub_env})
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${_rabbet_scrub_env})
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(RabbetWarnings)
 
 enable_testing()
 
 include(FetchContent)
+# Every fetched dependency is built from its pinned source, never resolved from a system
+# package: a packaged dep puts the package manager's include dir on every compile line,
+# where an installed lua can shadow the vendored one through sol2's <lua/lua.h> probe.
 FetchContent_Declare(
     glfw
     GIT_REPOSITORY https://github.com/glfw/glfw.git
     GIT_TAG 3.4
-    GIT_SHALLOW ON
-    FIND_PACKAGE_ARGS NAMES glfw3)
+    GIT_SHALLOW ON)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -54,8 +66,7 @@ FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG v3.11.3
-    GIT_SHALLOW ON
-    FIND_PACKAGE_ARGS NAMES nlohmann_json)
+    GIT_SHALLOW ON)
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 FetchContent_MakeAvailable(nlohmann_json)
 if(TARGET nlohmann_json)
@@ -73,8 +84,7 @@ FetchContent_Declare(
     assimp
     GIT_REPOSITORY https://github.com/assimp/assimp.git
     GIT_TAG v5.4.3
-    GIT_SHALLOW ON
-    FIND_PACKAGE_ARGS NAMES assimp)
+    GIT_SHALLOW ON)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
