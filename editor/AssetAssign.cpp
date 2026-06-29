@@ -190,22 +190,22 @@ void instantiatePrefabAsset(EditorContext& context, const rb::AssetDatabase::Rec
     rb::log::info("assets: instantiated prefab '{}' as entity {}", record.name, e.index());
 }
 
-void beginAssetDragSource(const rb::Uuid& id, const std::string& name) {
+void beginAssetDragSource(const rb::Uuid& id, rb::AssetType type, const std::string& name) {
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-        const std::string text = id.toString();
-        ImGui::SetDragDropPayload(kAssetDragType, text.c_str(), text.size() + 1);
+        const AssetDragPayload payload{id, type};
+        ImGui::SetDragDropPayload(kAssetDragType, &payload, sizeof(payload));
         ImGui::TextUnformatted(name.c_str());
         ImGui::EndDragDropSource();
     }
 }
 
-rb::Uuid acceptAssetDropTarget() {
-    rb::Uuid result;
+AssetDragPayload acceptAssetDropTarget() {
+    AssetDragPayload result;
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kAssetDragType)) {
-            if (payload->Data != nullptr && payload->DataSize > 0) {
-                // The payload is NUL-terminated (sent as size + 1), so read it as a C-string.
-                result = rb::Uuid::fromString(static_cast<const char*>(payload->Data));
+            if (payload->Data != nullptr &&
+                payload->DataSize == static_cast<int>(sizeof(AssetDragPayload))) {
+                result = *static_cast<const AssetDragPayload*>(payload->Data);
             }
         }
         ImGui::EndDragDropTarget();

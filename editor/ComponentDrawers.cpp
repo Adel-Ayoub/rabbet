@@ -297,11 +297,11 @@ void drawParticleEmitter(rb::Scene& scene, rb::Entity e) {
             p.handle = {};
         }
     }
-    // Drop a texture from the browser to set the sprite (AssetResolveSystem imports + resolves it;
-    // a non-texture simply fails to resolve and falls back to the soft dot).
+    // Drop a texture from the browser to set the sprite (AssetResolveSystem imports + resolves it).
     ImGui::Selectable("(drop a texture here)##spritedrop");
-    if (const rb::Uuid dropped = acceptAssetDropTarget(); dropped.valid()) {
-        p.sprite = dropped;
+    if (const AssetDragPayload dropped = acceptAssetDropTarget();
+        dropped.valid() && dropped.type == rb::AssetType::Texture) {
+        p.sprite = dropped.id;
         p.handle = {};
     }
 }
@@ -444,28 +444,21 @@ bool textureSlot(const char* label, rb::AssetDatabase& database, rb::Uuid& targe
         ImGui::EndCombo();
     }
     // Drop a Texture asset from the browser straight onto the slot.
-    if (const rb::Uuid dropped = acceptAssetDropTarget(); dropped.valid()) {
-        if (const rb::AssetDatabase::Record* record = database.find(dropped);
-            record != nullptr && record->type == rb::AssetType::Texture) {
-            target = dropped;
-            changed = true;
-        }
+    if (const AssetDragPayload dropped = acceptAssetDropTarget();
+        dropped.valid() && dropped.type == rb::AssetType::Texture) {
+        target = dropped.id;
+        changed = true;
     }
     return changed;
 }
 
 // Rebinds a MaterialComponent when a Material asset is dropped on the previous item.
-bool acceptMaterialDrop(EditorContext& context, rb::MaterialComponent& component) {
-    const rb::Uuid dropped = acceptAssetDropTarget();
-    if (!dropped.valid()) {
+bool acceptMaterialDrop(rb::MaterialComponent& component) {
+    const AssetDragPayload dropped = acceptAssetDropTarget();
+    if (!dropped.valid() || dropped.type != rb::AssetType::Material) {
         return false;
     }
-    rb::AssetDatabase* database = context.runtime.tryResource<rb::AssetDatabase>();
-    const rb::AssetDatabase::Record* record = database != nullptr ? database->find(dropped) : nullptr;
-    if (record == nullptr || record->type != rb::AssetType::Material) {
-        return false;
-    }
-    component.material = dropped;
+    component.material = dropped.id;
     component.handle = {}; // MaterialAssetResolveSystem repopulates it from the uuid
     return true;
 }
@@ -497,7 +490,7 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e) {
     if (!component.material.valid()) {
         ImGui::TextDisabled("No material assigned");
         ImGui::Selectable("(drop a Material asset here)##matdrop0");
-        if (acceptMaterialDrop(context, component)) {
+        if (acceptMaterialDrop(component)) {
             return;
         }
         ImGui::TextDisabled("...or assign one from the Assets panel.");
@@ -514,7 +507,7 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e) {
     ImGui::SameLine();
     ImGui::Selectable("(drop a Material to rebind)##matdrop1", false, ImGuiSelectableFlags_None,
                       ImVec2(220.0f, 0.0f));
-    if (acceptMaterialDrop(context, component)) {
+    if (acceptMaterialDrop(component)) {
         return;
     }
 

@@ -6,7 +6,6 @@
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/assets/AssetType.h"
-#include "rabbet/core/Uuid.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/particle/ParticleEmitter.h"
@@ -173,8 +172,9 @@ void HierarchyPanel::onImGui() {
         }
         // Drop an asset from the Assets browser onto a row: a prefab instantiates, anything else is
         // assigned to this entity by its type.
-        if (const rb::Uuid dropped = acceptAssetDropTarget(); dropped.valid() && database != nullptr) {
-            if (const rb::AssetDatabase::Record* record = database->find(dropped)) {
+        if (const AssetDragPayload dropped = acceptAssetDropTarget();
+            dropped.valid() && database != nullptr) {
+            if (const rb::AssetDatabase::Record* record = database->find(dropped.id)) {
                 if (record->type == rb::AssetType::Prefab) {
                     instantiatePrefabAsset(m_context, *record);
                 } else {

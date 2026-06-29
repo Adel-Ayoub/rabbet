@@ -247,7 +247,7 @@ void AssetsPanel::onImGui() {
             if (clicked) {
                 m_selected = leaf.id;
             }
-            beginAssetDragSource(leaf.id, leaf.name);
+            beginAssetDragSource(leaf.id, leaf.type, leaf.name);
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + tile);
             ImGui::TextUnformatted(ellipsize(leaf.name, 11).c_str());
             ImGui::PopTextWrapPos();
@@ -273,7 +273,7 @@ void AssetsPanel::onImGui() {
             if (ImGui::Selectable(label.c_str(), leaf.id == m_selected)) {
                 m_selected = leaf.id;
             }
-            beginAssetDragSource(leaf.id, leaf.name);
+            beginAssetDragSource(leaf.id, leaf.type, leaf.name);
         }
     }
     ImGui::EndChild();
