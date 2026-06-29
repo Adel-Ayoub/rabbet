@@ -1,9 +1,14 @@
+#include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/BoxCollider.h"
+#include "rabbet/physics/PhysicsControl.h"
 #include "rabbet/physics/PhysicsSystem.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/scene/Transform.h"
+#include "rabbet/scripting/ScriptAsset.h"
+#include "rabbet/scripting/ScriptComponent.h"
+#include "rabbet/scripting/ScriptSystem.h"
 #include "tests/Test.h"
 
 #include <glm/glm.hpp>
@@ -127,6 +132,84 @@ void accumulatorGatesAndCaps() {
     CHECK(dropped < 1.0f);
 }
 
+// A queued SetVelocity command drives the body that tick, the queue drains, the stepped
+// velocity is published in PhysicsState, and onPlayEnd clears the bridge.
+void velocityCommandDrivesBodyAndPublishes() {
+    rb::Runtime runtime;
+    rb::PhysicsSystem physics;
+    const rb::Entity box =
+        makeBox(runtime, glm::vec3(0.0f, 5.0f, 0.0f), rb::BodyType::Dynamic, false);
+    physics.onPlayBegin(runtime);
+
+    rb::PhysicsCommands& commands = runtime.resource<rb::PhysicsCommands>();
+    commands.queue.push_back(
+        {box, rb::PhysicsCommands::Op::SetVelocity, glm::vec3(5.0f, 0.0f, 0.0f)});
+    for (int i = 0; i < 60; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    const float x = runtime.scene().get<rb::Transform>(box).position.x;
+    CHECK(x > 4.0f); // ~5 m/s for ~1 s (minus Jolt's default damping)
+    CHECK(x < 6.0f);
+    CHECK(commands.queue.empty()); // drained by the first update
+
+    const rb::PhysicsState& state = runtime.resource<rb::PhysicsState>();
+    const auto it = state.linearVelocity.find(box);
+    CHECK(it != state.linearVelocity.end());
+    if (it != state.linearVelocity.end()) {
+        CHECK(it->second.x > 4.0f);
+    }
+    physics.onPlayEnd(runtime);
+    CHECK(runtime.resource<rb::PhysicsState>().linearVelocity.empty());
+}
+
+// An impulse on a 1 kg floating body reads back as velocity of the impulse magnitude.
+void impulseAcceleratesBody() {
+    rb::Runtime runtime;
+    rb::PhysicsSystem physics;
+    const rb::Entity box = makeBox(runtime, glm::vec3(0.0f), rb::BodyType::Dynamic, false);
+    physics.onPlayBegin(runtime);
+    runtime.resource<rb::PhysicsCommands>().queue.push_back(
+        {box, rb::PhysicsCommands::Op::Impulse, glm::vec3(0.0f, 0.0f, 3.0f)});
+    for (int i = 0; i < 30; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    const float z = runtime.scene().get<rb::Transform>(box).position.z;
+    CHECK(z > 1.0f); // ~3 m/s for ~0.5 s
+    CHECK(z < 2.0f);
+}
+
+// End to end through the real scheduler, ordered as the editor registers it (ScriptSystem
+// before PhysicsSystem): a script's set_velocity moves its own rigidbody.
+void scriptDrivesPhysicsBody() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = rb::Uuid::generate();
+    rb::ScriptAsset asset;
+    asset.source = "function on_update(self, dt) self:set_velocity(3.0, 0.0, 0.0) end\n";
+    assets.add<rb::ScriptAsset>(std::move(asset), id);
+
+    const rb::Entity ball =
+        makeBox(runtime, glm::vec3(0.0f, 5.0f, 0.0f), rb::BodyType::Dynamic, false);
+    rb::ScriptComponent component;
+    component.script = id;
+    component.handle = assets.find<rb::ScriptAsset>(id);
+    runtime.scene().add<rb::ScriptComponent>(ball, component);
+
+    runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
+    runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
+    runtime.start();
+    runtime.beginPlay();
+    runtime.setPlaying(true);
+    for (int i = 0; i < 60; ++i) {
+        runtime.tick(kStep);
+    }
+    const float x = runtime.scene().get<rb::Transform>(ball).position.x;
+    CHECK(x > 2.0f); // ~3 m/s held for ~1 s
+    CHECK(x < 4.0f);
+    runtime.setPlaying(false);
+    runtime.endPlay();
+}
+
 } // namespace
 
 int main() {
@@ -135,5 +218,8 @@ int main() {
     noGravityFloats();
     rebuildsBetweenSessions();
     accumulatorGatesAndCaps();
+    velocityCommandDrivesBodyAndPublishes();
+    impulseAcceleratesBody();
+    scriptDrivesPhysicsBody();
     return rbtest::summary("physics");
 }

@@ -1,6 +1,8 @@
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/physics/PhysicsControl.h"
+#include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scripting/ScriptAsset.h"
 #include "rabbet/scripting/ScriptAssetResolveSystem.h"
@@ -194,6 +196,142 @@ void fieldsSurviveSerialization() {
     CHECK(found);
 }
 
+// world.find resolves another entity by its Name and hands back the same live handle as
+// `self`, so a script can read and drive other entities' transforms; a miss returns nil.
+void worldFindAndCrossEntityAccess() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = addScript(assets,
+                                  "function on_update(self, dt)\n"
+                                  "  local target = world.find(\"Target\")\n"
+                                  "  if target then target:set_position(5.0, 6.0, 7.0) end\n"
+                                  "  if world.find(\"Nobody\") ~= nil then\n"
+                                  "    self:set_position(-1.0, 0.0, 0.0)\n"
+                                  "  end\n"
+                                  "end\n");
+    const rb::Entity mover = scriptedEntity(runtime, id);
+    const rb::Entity target = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(target, rb::Transform{});
+    runtime.scene().add<rb::Name>(target, rb::Name{"Target"});
+
+    rb::ScriptSystem scripts;
+    scripts.onPlayBegin(runtime);
+    scripts.onUpdate(runtime, 0.016f);
+
+    CHECK(approx(runtime.scene().get<rb::Transform>(target).position.x, 5.0f));
+    CHECK(approx(runtime.scene().get<rb::Transform>(target).position.y, 6.0f));
+    CHECK(approx(posX(runtime, mover), 0.0f)); // find("Nobody") returned nil
+}
+
+// distance_to measures between two live entities (3-4-5 triangle from the origin).
+void distanceQueryBetweenEntities() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = addScript(assets,
+                                  "function on_update(self, dt)\n"
+                                  "  local target = world.find(\"Target\")\n"
+                                  "  self:set_position(self:distance_to(target), 0.0, 0.0)\n"
+                                  "end\n");
+    const rb::Entity mover = scriptedEntity(runtime, id);
+    const rb::Entity target = runtime.scene().create();
+    rb::Transform where;
+    where.position = {3.0f, 4.0f, 0.0f};
+    runtime.scene().add<rb::Transform>(target, where);
+    runtime.scene().add<rb::Name>(target, rb::Name{"Target"});
+
+    rb::ScriptSystem scripts;
+    scripts.onPlayBegin(runtime);
+    scripts.onUpdate(runtime, 0.016f);
+    CHECK(approx(posX(runtime, mover), 5.0f));
+}
+
+// world.destroy is deferred to end-of-tick (the handle stays valid inside the same tick),
+// the entity is gone afterwards, and a kept handle reports invalid + infinite distance.
+void worldDestroyDefersAndInvalidatesHandles() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid killer = addScript(
+        assets,
+        "prey = nil\n"
+        "function on_update(self, dt)\n"
+        "  if prey == nil then\n"
+        "    prey = world.find(\"Prey\")\n"
+        "    world.destroy(prey)\n"
+        "    if prey:valid() then self:translate(1.0, 0.0, 0.0) end\n"
+        "  else\n"
+        "    if not prey:valid() then self:translate(10.0, 0.0, 0.0) end\n"
+        "    if prey:distance_to(prey) == math.huge then self:translate(100.0, 0.0, 0.0) end\n"
+        "  end\n"
+        "end\n");
+    const rb::Entity a = scriptedEntity(runtime, killer);
+    const rb::Entity b = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(b, rb::Transform{});
+    runtime.scene().add<rb::Name>(b, rb::Name{"Prey"});
+
+    rb::ScriptSystem scripts;
+    scripts.onPlayBegin(runtime);
+    scripts.onUpdate(runtime, 0.016f);
+    CHECK(approx(posX(runtime, a), 1.0f)); // still valid at destroy time -> deferred
+    CHECK(!runtime.scene().alive(b));      // applied once the tick finished
+    scripts.onUpdate(runtime, 0.016f);
+    CHECK(approx(posX(runtime, a), 111.0f)); // invalid handle + infinite distance
+}
+
+// A script can destroy its own entity; the pool is not corrupted and later ticks are safe.
+void selfDestroyIsSafe() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid suicide =
+        addScript(assets, "function on_update(self, dt) world.destroy(self) end\n");
+    const rb::Uuid mover =
+        addScript(assets, "function on_update(self, dt) self:translate(1.0, 0.0, 0.0) end\n");
+    const rb::Entity doomed = scriptedEntity(runtime, suicide);
+    const rb::Entity other = scriptedEntity(runtime, mover);
+
+    rb::ScriptSystem scripts;
+    scripts.onPlayBegin(runtime);
+    scripts.onUpdate(runtime, 0.016f);
+    CHECK(!runtime.scene().alive(doomed));
+    scripts.onUpdate(runtime, 0.016f);
+    CHECK(runtime.scene().alive(other));
+    CHECK(approx(posX(runtime, other), 2.0f)); // unaffected, ticked both frames
+}
+
+// The physics bindings write into PhysicsCommands and read from PhysicsState, and no-op
+// safely when the bridge resources are absent (no PhysicsSystem in the session).
+void physicsBindingsUseBridgeResources() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = addScript(assets,
+                                  "function on_update(self, dt)\n"
+                                  "  self:set_velocity(1.0, 2.0, 3.0)\n"
+                                  "  self:impulse(4.0, 5.0, 6.0)\n"
+                                  "  local vx, vy, vz = self:velocity()\n"
+                                  "  self:set_position(vx, vy, vz)\n"
+                                  "end\n");
+    const rb::Entity e = scriptedEntity(runtime, id);
+
+    rb::ScriptSystem scripts;
+    scripts.onPlayBegin(runtime);
+    scripts.onUpdate(runtime, 0.016f); // no bridge resources yet: everything no-ops
+    CHECK(approx(posX(runtime, e), 0.0f));
+
+    rb::PhysicsCommands& commands = runtime.addResource<rb::PhysicsCommands>();
+    rb::PhysicsState& state = runtime.addResource<rb::PhysicsState>();
+    state.linearVelocity[e] = {7.0f, 8.0f, 9.0f};
+    scripts.onUpdate(runtime, 0.016f);
+
+    CHECK(commands.queue.size() == 2u);
+    if (commands.queue.size() == 2u) {
+        CHECK(commands.queue[0].entity == e);
+        CHECK(commands.queue[0].op == rb::PhysicsCommands::Op::SetVelocity);
+        CHECK(approx(commands.queue[0].value.y, 2.0f));
+        CHECK(commands.queue[1].op == rb::PhysicsCommands::Op::Impulse);
+        CHECK(approx(commands.queue[1].value.z, 6.0f));
+    }
+    CHECK(approx(posX(runtime, e), 7.0f)); // velocity() read the published state
+}
+
 } // namespace
 
 int main() {
@@ -203,5 +341,10 @@ int main() {
     revisionBumpHotReloads();
     inputWithoutResourceIsSafe();
     fieldsSurviveSerialization();
+    worldFindAndCrossEntityAccess();
+    distanceQueryBetweenEntities();
+    worldDestroyDefersAndInvalidatesHandles();
+    selfDestroyIsSafe();
+    physicsBindingsUseBridgeResources();
     return rbtest::summary("script");
 }
