@@ -19,8 +19,10 @@ void introspectScriptFields(const std::string& source, std::vector<ScriptField>&
 // environment compiled from its .lua source. on_start runs on the first tick of a play
 // session (so it survives Pause, which merely stops ticking) and on_update every tick
 // after; both are bound to the entity's Transform, the Input resource, and frame time.
-// sol2 and Lua live entirely behind the impl, so this header — and the rest of the
-// engine and editor — never include them.
+// A `world` table looks up other entities by Name (the same live-resolving Entity handle
+// as `self`) and queues entity destruction, applied at end-of-tick so the component pool
+// is never mutated while scripts iterate. sol2 and Lua live entirely behind the impl, so
+// this header, and the rest of the engine and editor, never includes them.
 class ScriptSystem final : public System {
 public:
     ScriptSystem();

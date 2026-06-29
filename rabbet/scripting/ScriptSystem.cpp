@@ -1,11 +1,13 @@
 #include "rabbet/scripting/ScriptSystem.h"
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -16,6 +18,7 @@
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/physics/PhysicsControl.h"
 #include "rabbet/platform/Input.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
@@ -26,14 +29,36 @@
 namespace rb {
 namespace {
 
-// A live handle to one entity, handed to its script as `self`. It stores the Scene and
-// Entity (not a Transform*), resolving the component on each call so a sparse-set realloc
-// between frames can never leave the script holding a dangling pointer.
+// A live handle to one entity, handed to its script as `self` and returned by world.find.
+// It stores the Runtime and Entity (not a Transform*), resolving the component on each call
+// so a sparse-set realloc between frames can never leave the script holding a dangling
+// pointer; every method no-ops (or reports invalid) once the entity is destroyed.
 struct ScriptEntity {
-    Scene* scene = nullptr;
+    Runtime* runtime = nullptr;
     Entity entity;
 
-    Transform* transform() { return scene != nullptr ? scene->tryGet<Transform>(entity) : nullptr; }
+    Scene* scene() { return runtime != nullptr ? &runtime->scene() : nullptr; }
+
+    Transform* transform() {
+        Scene* s = scene();
+        return s != nullptr ? s->tryGet<Transform>(entity) : nullptr;
+    }
+
+    bool valid() {
+        Scene* s = scene();
+        return s != nullptr && s->alive(entity);
+    }
+
+    double distanceTo(ScriptEntity& other) {
+        Transform* a = transform();
+        Transform* b = other.transform();
+        if (a == nullptr || b == nullptr) {
+            // Unresolvable (destroyed, or no Transform): infinitely far beats a fake 0,
+            // which would read as "touching" to proximity checks.
+            return std::numeric_limits<double>::infinity();
+        }
+        return static_cast<double>(glm::distance(a->position, b->position));
+    }
 
     void translate(double dx, double dy, double dz) {
         if (Transform* t = transform()) {
@@ -80,12 +105,47 @@ struct ScriptEntity {
     }
 
     std::string name() {
-        if (scene != nullptr) {
-            if (const Name* n = scene->tryGet<Name>(entity)) {
+        if (Scene* s = scene()) {
+            if (const Name* n = s->tryGet<Name>(entity)) {
                 return n->value;
             }
         }
         return std::string{};
+    }
+
+    // Physics goes through the command/state resources, not the components: PhysicsSystem
+    // drains the queue before it steps (same tick), and publishes velocities after (so a
+    // read is one step stale). No-ops when no PhysicsSystem is in the session.
+    void pushPhysicsCommand(PhysicsCommands::Op op, double x, double y, double z) {
+        if (runtime == nullptr) {
+            return;
+        }
+        if (PhysicsCommands* commands = runtime->tryResource<PhysicsCommands>()) {
+            commands->queue.push_back(
+                {entity, op,
+                 glm::vec3(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z))});
+        }
+    }
+
+    void setVelocity(double x, double y, double z) {
+        pushPhysicsCommand(PhysicsCommands::Op::SetVelocity, x, y, z);
+    }
+
+    void impulse(double x, double y, double z) {
+        pushPhysicsCommand(PhysicsCommands::Op::Impulse, x, y, z);
+    }
+
+    std::tuple<double, double, double> velocity() {
+        if (runtime != nullptr) {
+            if (const PhysicsState* state = runtime->tryResource<PhysicsState>()) {
+                const auto it = state->linearVelocity.find(entity);
+                if (it != state->linearVelocity.end()) {
+                    return {static_cast<double>(it->second.x), static_cast<double>(it->second.y),
+                            static_cast<double>(it->second.z)};
+                }
+            }
+        }
+        return {0.0, 0.0, 0.0};
     }
 };
 
@@ -178,6 +238,8 @@ struct ScriptSystem::Impl {
     sol::state lua;
     std::unordered_map<Entity, Instance> instances;
     Input* input = nullptr;
+    Runtime* runtime = nullptr;          // the tick currently running (null outside update)
+    std::vector<Entity> pendingDestroy;  // world.destroy is applied after the script loop
 
     Impl() {
         lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string, sol::lib::table);
@@ -187,7 +249,34 @@ struct ScriptSystem::Impl {
             "translate", &ScriptEntity::translate, "rotate", &ScriptEntity::rotate, "position",
             &ScriptEntity::position, "set_position", &ScriptEntity::setPosition, "scale",
             &ScriptEntity::getScale, "set_scale", &ScriptEntity::setScale, "name",
-            &ScriptEntity::name);
+            &ScriptEntity::name, "valid", &ScriptEntity::valid, "distance_to",
+            &ScriptEntity::distanceTo, "set_velocity", &ScriptEntity::setVelocity, "velocity",
+            &ScriptEntity::velocity, "impulse", &ScriptEntity::impulse);
+
+        sol::table worldTable = lua.create_named_table("world");
+        worldTable.set_function("find", [this](const std::string& name) -> sol::object {
+            if (runtime == nullptr) {
+                return sol::make_object(lua, sol::lua_nil);
+            }
+            Entity found;
+            bool ok = false;
+            runtime->scene().each<Name>([&](Entity e, Name& n) {
+                if (!ok && n.value == name) {
+                    found = e;
+                    ok = true;
+                }
+            });
+            if (!ok) {
+                return sol::make_object(lua, sol::lua_nil);
+            }
+            return sol::make_object(lua, ScriptEntity{runtime, found});
+        });
+        // Queued, not immediate: scripts run inside the each<ScriptComponent> loop, and the
+        // pool must never be mutated mid-iteration. Applied once the loop finishes, so a
+        // destroyed entity still runs (and can be seen by) the rest of this tick's scripts.
+        worldTable.set_function("destroy", [this](ScriptEntity& target) {
+            pendingDestroy.push_back(target.entity);
+        });
 
         sol::table inputTable = lua.create_named_table("input");
         inputTable.set_function("down", [this](const std::string& keyName) {
@@ -226,7 +315,7 @@ struct ScriptSystem::Impl {
         }
     }
 
-    void compile(Instance& instance, Scene& scene, Entity entity, const ScriptAsset& asset,
+    void compile(Instance& instance, Runtime& rt, Entity entity, const ScriptAsset& asset,
                  ScriptComponent& component) {
         instance.ok = false;
         instance.started = false;
@@ -251,7 +340,7 @@ struct ScriptSystem::Impl {
 
         mergeDeclaredFields(component.fields, env["fields"]);
         instance.env = std::move(env);
-        instance.self = sol::make_object(lua, ScriptEntity{&scene, entity});
+        instance.self = sol::make_object(lua, ScriptEntity{&rt, entity});
         instance.onStart = instance.env["on_start"];
         instance.onUpdate = instance.env["on_update"];
         instance.ok = true;
@@ -270,13 +359,14 @@ struct ScriptSystem::Impl {
         }
     }
 
-    void update(Runtime& runtime, float dt) {
-        AssetManager* assets = runtime.tryResource<AssetManager>();
+    void update(Runtime& rt, float dt) {
+        AssetManager* assets = rt.tryResource<AssetManager>();
         if (assets == nullptr) {
             return;
         }
-        input = runtime.tryResource<Input>();
-        Scene& scene = runtime.scene();
+        input = rt.tryResource<Input>();
+        runtime = &rt;
+        Scene& scene = rt.scene();
 
         scene.each<ScriptComponent>([&](Entity entity, ScriptComponent& component) {
             if (!component.handle.valid()) {
@@ -290,7 +380,7 @@ struct ScriptSystem::Impl {
             const bool needCompile = !instance.compiled || instance.script != component.script ||
                                      instance.revision != asset->revision;
             if (needCompile) {
-                compile(instance, scene, entity, *asset, component);
+                compile(instance, rt, entity, *asset, component);
                 instance.script = component.script;
                 instance.revision = asset->revision;
                 instance.compiled = true;
@@ -305,6 +395,15 @@ struct ScriptSystem::Impl {
             }
             invoke(instance, instance.onUpdate, "on_update", dt);
         });
+
+        // Apply the tick's world.destroy queue now that the component iteration is over.
+        for (const Entity e : pendingDestroy) {
+            if (scene.alive(e)) {
+                scene.destroy(e);
+            }
+            instances.erase(e);
+        }
+        pendingDestroy.clear();
     }
 };
 
@@ -314,10 +413,15 @@ ScriptSystem::~ScriptSystem() = default;
 void ScriptSystem::onUpdate(Runtime& runtime, float dt) { m_impl->update(runtime, dt); }
 
 // A fresh play session starts every script from a clean state, so on_start runs again.
-void ScriptSystem::onPlayBegin(Runtime&) { m_impl->instances.clear(); }
+void ScriptSystem::onPlayBegin(Runtime&) {
+    m_impl->instances.clear();
+    m_impl->pendingDestroy.clear();
+}
 void ScriptSystem::onPlayEnd(Runtime&) {
     m_impl->instances.clear();
+    m_impl->pendingDestroy.clear();
     m_impl->input = nullptr;
+    m_impl->runtime = nullptr;
 }
 
 void introspectScriptFields(const std::string& source, std::vector<ScriptField>& fields) {
