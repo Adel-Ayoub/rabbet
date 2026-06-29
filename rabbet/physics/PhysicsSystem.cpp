@@ -22,6 +22,7 @@
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/BoxCollider.h"
+#include "rabbet/physics/PhysicsControl.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
 #include "rabbet/scene/Transform.h"
@@ -223,7 +224,39 @@ struct PhysicsSystem::Impl {
         m_physics.OptimizeBroadPhase();
     }
 
+    // Drains queued gameplay commands into the Jolt bodies. Runs before the step so a
+    // command issued by this tick's scripts takes effect in this tick's simulation.
+    void applyCommands(Runtime& runtime) {
+        PhysicsCommands* commands = runtime.tryResource<PhysicsCommands>();
+        if (commands == nullptr || commands->queue.empty()) {
+            return;
+        }
+        Scene& scene = runtime.scene();
+        JPH::BodyInterface& bodies = m_physics.GetBodyInterface();
+        for (const PhysicsCommands::Command& command : commands->queue) {
+            const auto it = m_bodies.find(command.entity);
+            if (it == m_bodies.end()) {
+                continue;
+            }
+            const RigidBody* body = scene.tryGet<RigidBody>(command.entity);
+            if (body == nullptr || body->type == BodyType::Static) {
+                continue; // static bodies do not move; Jolt would reject the write
+            }
+            switch (command.op) {
+            case PhysicsCommands::Op::SetVelocity:
+                bodies.SetLinearVelocity(it->second.id, toJolt(command.value));
+                break;
+            case PhysicsCommands::Op::Impulse:
+                bodies.AddImpulse(it->second.id, toJolt(command.value));
+                break;
+            }
+            bodies.ActivateBody(it->second.id); // a sleeping body must wake to take the push
+        }
+        commands->queue.clear();
+    }
+
     void step(Runtime& runtime, float dt) {
+        applyCommands(runtime);
         if (m_bodies.empty()) {
             return;
         }
@@ -242,6 +275,12 @@ struct PhysicsSystem::Impl {
         }
 
         Scene& scene = runtime.scene();
+        if (!runtime.hasResource<PhysicsState>()) {
+            runtime.addResource<PhysicsState>();
+        }
+        PhysicsState& state = runtime.resource<PhysicsState>();
+        state.linearVelocity.clear();
+
         JPH::BodyInterface& bodies = m_physics.GetBodyInterface();
         for (const auto& [entity, record] : m_bodies) {
             if (!scene.alive(entity)) {
@@ -258,6 +297,10 @@ struct PhysicsSystem::Impl {
             const glm::vec3 center(position.GetX(), position.GetY(), position.GetZ());
             transform->rotation = q;
             transform->position = center - q * record.offset; // undo the collider offset
+
+            const JPH::Vec3 velocity = bodies.GetLinearVelocity(record.id);
+            state.linearVelocity[entity] =
+                glm::vec3(velocity.GetX(), velocity.GetY(), velocity.GetZ());
         }
     }
 };
@@ -266,7 +309,26 @@ PhysicsSystem::PhysicsSystem() : m_impl(std::make_unique<Impl>()) {}
 PhysicsSystem::~PhysicsSystem() = default;
 
 void PhysicsSystem::onUpdate(Runtime& runtime, float dt) { m_impl->step(runtime, dt); }
-void PhysicsSystem::onPlayBegin(Runtime& runtime) { m_impl->build(runtime); }
-void PhysicsSystem::onPlayEnd(Runtime&) { m_impl->teardown(); }
+
+void PhysicsSystem::onPlayBegin(Runtime& runtime) {
+    // The bridge resources exist from the first script tick of the session.
+    if (!runtime.hasResource<PhysicsCommands>()) {
+        runtime.addResource<PhysicsCommands>();
+    }
+    if (!runtime.hasResource<PhysicsState>()) {
+        runtime.addResource<PhysicsState>();
+    }
+    m_impl->build(runtime);
+}
+
+void PhysicsSystem::onPlayEnd(Runtime& runtime) {
+    m_impl->teardown();
+    if (PhysicsCommands* commands = runtime.tryResource<PhysicsCommands>()) {
+        commands->queue.clear();
+    }
+    if (PhysicsState* state = runtime.tryResource<PhysicsState>()) {
+        state->linearVelocity.clear();
+    }
+}
 
 } // namespace rb

@@ -153,6 +153,7 @@ target_sources(rabbet
             physics/RigidBody.h
             physics/BoxCollider.h
             physics/SphereCollider.h
+            physics/PhysicsControl.h
             physics/PhysicsSystem.h
             audio/AudioAsset.h
             audio/SoundEmitter.h
