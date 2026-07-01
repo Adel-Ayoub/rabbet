@@ -23,6 +23,7 @@ target_sources(rabbet
         render/RenderSystem.cpp
         render/SkyboxSystem.cpp
         scene/CameraSystem.cpp
+        scene/CameraView.cpp
         scene/LightSystem.cpp
         render/ImageLoader.cpp
         render/ModelLoader.cpp
@@ -103,6 +104,7 @@ target_sources(rabbet
             render/SkyboxSystem.h
             scene/Camera.h
             scene/CameraSystem.h
+            scene/CameraView.h
             scene/Light.h
             scene/LightSystem.h
             render/Lighting.h

@@ -3,11 +3,9 @@
 #include "rabbet/core/Runtime.h"
 #include "rabbet/render/RenderView.h"
 #include "rabbet/render/Viewport.h"
-#include "rabbet/scene/Camera.h"
-#include "rabbet/scene/Transform.h"
+#include "rabbet/scene/CameraView.h"
 
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+#include <optional>
 
 namespace rb {
 
@@ -21,14 +19,9 @@ void CameraSystem::onUpdate(Runtime& runtime, float) {
         aspect = runtime.resource<Viewport>().aspect();
     }
 
-    RenderView& renderView = runtime.resource<RenderView>();
-    runtime.scene().each<Camera, Transform>(
-        [&renderView, aspect](Entity, Camera& camera, Transform& transform) {
-            renderView.view = glm::inverse(transform.matrix());
-            renderView.projection =
-                glm::perspective(camera.fovY, aspect, camera.nearPlane, camera.farPlane);
-            renderView.position = transform.position;
-        });
+    if (const std::optional<RenderView> view = activeCameraView(runtime.scene(), aspect)) {
+        runtime.resource<RenderView>() = *view;
+    }
 }
 
 } // namespace rb
