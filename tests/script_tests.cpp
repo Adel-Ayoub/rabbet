@@ -1,3 +1,4 @@
+#include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
@@ -10,11 +11,15 @@
 #include "rabbet/scripting/ScriptSystem.h"
 #include "rabbet/serialize/BuiltinComponents.h"
 #include "rabbet/serialize/ComponentRegistry.h"
+#include "rabbet/serialize/Prefab.h"
+#include "rabbet/serialize/PrefabInstance.h"
 #include "rabbet/serialize/SceneSerializer.h"
 #include "tests/Test.h"
 
 #include <cmath>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <utility>
 
 namespace {
@@ -332,6 +337,69 @@ void physicsBindingsUseBridgeResources() {
     CHECK(approx(posX(runtime, e), 7.0f)); // velocity() read the published state
 }
 
+// world.spawn instantiates a catalogued prefab: deferred within the tick, linked to its
+// source through a PrefabInstance, placed at the requested position, addressable by the
+// friendly stem ("orb" for orb.prefab.json), and a safe no-op for an unknown name.
+void worldSpawnInstantiatesPrefab() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path() / "rabbet_script_spawn_test";
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+
+    rb::ComponentRegistry registry;
+    rb::registerBuiltinComponents(registry);
+    {
+        rb::Scene authoring;
+        const rb::Entity source = authoring.create();
+        authoring.add<rb::Name>(source, rb::Name{"Orb"});
+        authoring.add<rb::Transform>(source, rb::Transform{});
+        CHECK(rb::savePrefabToFile(authoring, registry, source, dir / "orb.prefab.json"));
+    }
+
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AssetDatabase& database = runtime.addResource<rb::AssetDatabase>();
+    CHECK(database.scan(dir, &assets) == 1u);
+
+    const rb::Uuid id = addScript(assets,
+                                  "did = false\n"
+                                  "function on_update(self, dt)\n"
+                                  "  if did then return end\n"
+                                  "  did = true\n"
+                                  "  world.spawn(\"orb\", 1.0, 2.0, 3.0)\n"
+                                  "  world.spawn(\"no_such_prefab\", 0.0, 0.0, 0.0)\n"
+                                  "  if world.find(\"Orb\") ~= nil then\n"
+                                  "    self:set_position(-1.0, 0.0, 0.0)\n"
+                                  "  end\n"
+                                  "end\n");
+    const rb::Entity e = scriptedEntity(runtime, id);
+
+    rb::ScriptSystem scripts(&registry);
+    scripts.onPlayBegin(runtime);
+    const std::size_t before = runtime.scene().aliveCount();
+    scripts.onUpdate(runtime, 0.016f);
+
+    CHECK(runtime.scene().aliveCount() == before + 1u); // one spawned, the bogus one skipped
+    CHECK(approx(posX(runtime, e), 0.0f));              // not visible mid-tick (deferred)
+
+    bool found = false;
+    for (const rb::Entity spawned : runtime.scene().entities()) {
+        const rb::Name* name = runtime.scene().tryGet<rb::Name>(spawned);
+        if (name == nullptr || name->value != "Orb") {
+            continue;
+        }
+        found = true;
+        const rb::Transform& placed = runtime.scene().get<rb::Transform>(spawned);
+        CHECK(approx(placed.position.x, 1.0f));
+        CHECK(approx(placed.position.y, 2.0f));
+        CHECK(approx(placed.position.z, 3.0f));
+        CHECK(runtime.scene().tryGet<rb::PrefabInstance>(spawned) != nullptr);
+    }
+    CHECK(found);
+    fs::remove_all(dir, ec);
+}
+
 } // namespace
 
 int main() {
@@ -346,5 +414,6 @@ int main() {
     worldDestroyDefersAndInvalidatesHandles();
     selfDestroyIsSafe();
     physicsBindingsUseBridgeResources();
+    worldSpawnInstantiatesPrefab();
     return rbtest::summary("script");
 }
