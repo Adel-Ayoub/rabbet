@@ -32,6 +32,7 @@
 #include "rabbet/render/RenderDevice.h"
 #include "rabbet/render/RenderSystem.h"
 #include "rabbet/render/RenderView.h"
+#include "rabbet/scene/CameraView.h"
 #include "rabbet/render/EnvironmentLighting.h"
 #include "rabbet/render/Skybox.h"
 #include "rabbet/render/SkyboxSystem.h"
@@ -168,7 +169,7 @@ void Editor::buildDefaultScene() {
     m_runtime.addSystem<rb::AudioAssetResolveSystem>();
     m_runtime.addSystem<rb::MaterialAssetResolveSystem>();
     m_runtime.addSystem<rb::PrefabAssetResolveSystem>();
-    m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
+    m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&m_context.registry);
     m_runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::AudioSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::TransformSystem>();
@@ -354,7 +355,15 @@ void Editor::renderScene(int width, int height, float dt) {
     rb::Viewport& viewport = m_runtime.resource<rb::Viewport>();
     viewport.width = width;
     viewport.height = height;
-    const rb::RenderView renderView = m_camera.renderView(viewport.aspect());
+    rb::RenderView renderView = m_camera.renderView(viewport.aspect());
+    if (m_runtime.inPlaySession()) {
+        // The scene's own camera drives the Play view (Pause keeps it); Stop resumes the
+        // editor camera. A scene with no camera keeps the editor view even while playing.
+        if (const std::optional<rb::RenderView> gameView =
+                rb::activeCameraView(m_runtime.scene(), viewport.aspect())) {
+            renderView = *gameView;
+        }
+    }
     m_runtime.resource<rb::RenderView>() = renderView;
     m_context.renderView = renderView;
 

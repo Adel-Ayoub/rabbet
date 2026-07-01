@@ -11,6 +11,7 @@
 #include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/render/PostProcess.h"
 #include "rabbet/render/Primitive.h"
+#include "rabbet/scene/Camera.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
@@ -112,6 +113,11 @@ void HierarchyPanel::onImGui() {
         if (ImGui::MenuItem("Spot Light")) {
             const rb::Entity e = createEmpty(scene, "Spot Light");
             scene.add<rb::SpotLight>(e, rb::SpotLight{});
+            toSelect = e;
+        }
+        if (ImGui::MenuItem("Camera")) {
+            const rb::Entity e = createEmpty(scene, "Camera");
+            scene.add<rb::Camera>(e, rb::Camera{});
             toSelect = e;
         }
         ImGui::Separator();
