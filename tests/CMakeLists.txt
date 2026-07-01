@@ -23,6 +23,7 @@ set(RABBET_TEST_SUITES
     particle
     terrain
     tonemap
+    camera_view
     render_geometry
     render_shadow
     render_sky
