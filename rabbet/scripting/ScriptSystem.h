@@ -9,6 +9,8 @@
 
 namespace rb {
 
+class ComponentRegistry;
+
 // Compiles `source` in a throwaway VM and reconciles `fields` with the script's declared
 // `fields` table: matching overrides are kept, newly declared fields added, removed ones
 // dropped. The editor calls this when a script is assigned so its tunables appear in the
@@ -25,7 +27,9 @@ void introspectScriptFields(const std::string& source, std::vector<ScriptField>&
 // this header, and the rest of the engine and editor, never includes them.
 class ScriptSystem final : public System {
 public:
-    ScriptSystem();
+    // The registry powers world.spawn (prefab instantiation through the component load
+    // hooks). With no registry every other binding still works and spawn is a logged no-op.
+    explicit ScriptSystem(const ComponentRegistry* registry = nullptr);
     ~ScriptSystem() override;
 
     ScriptSystem(const ScriptSystem&) = delete;

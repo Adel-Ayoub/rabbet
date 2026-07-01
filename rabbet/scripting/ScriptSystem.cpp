@@ -6,6 +6,7 @@
 #include <string_view>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -15,6 +16,7 @@
 
 #include <sol/sol.hpp>
 
+#include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
@@ -24,6 +26,9 @@
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scripting/ScriptAsset.h"
 #include "rabbet/scripting/ScriptComponent.h"
+#include "rabbet/serialize/Prefab.h"
+#include "rabbet/serialize/PrefabAsset.h"
+#include "rabbet/serialize/PrefabInstance.h"
 #include "rabbet/util/Log.h"
 
 namespace rb {
@@ -235,11 +240,19 @@ struct ScriptSystem::Impl {
         bool errorLogged = false; // a runtime error was already reported (throttle)
     };
 
+    struct PendingSpawn {
+        std::string prefab;
+        glm::vec3 position{0.0f};
+    };
+
     sol::state lua;
     std::unordered_map<Entity, Instance> instances;
     Input* input = nullptr;
     Runtime* runtime = nullptr;          // the tick currently running (null outside update)
+    const ComponentRegistry* registry = nullptr; // enables world.spawn; optional
     std::vector<Entity> pendingDestroy;  // world.destroy is applied after the script loop
+    std::vector<PendingSpawn> pendingSpawn; // world.spawn likewise
+    std::unordered_set<std::string> warnedSpawns; // one warning per failing prefab name
 
     Impl() {
         lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string, sol::lib::table);
@@ -277,6 +290,14 @@ struct ScriptSystem::Impl {
         worldTable.set_function("destroy", [this](ScriptEntity& target) {
             pendingDestroy.push_back(target.entity);
         });
+        // Deferred like destroy; the new entity exists from the next tick (find it by Name).
+        worldTable.set_function("spawn",
+                                [this](const std::string& prefab, double x, double y, double z) {
+                                    pendingSpawn.push_back(
+                                        {prefab, glm::vec3(static_cast<float>(x),
+                                                           static_cast<float>(y),
+                                                           static_cast<float>(z))});
+                                });
 
         sol::table inputTable = lua.create_named_table("input");
         inputTable.set_function("down", [this](const std::string& keyName) {
@@ -396,7 +417,9 @@ struct ScriptSystem::Impl {
             invoke(instance, instance.onUpdate, "on_update", dt);
         });
 
-        // Apply the tick's world.destroy queue now that the component iteration is over.
+        // Apply the tick's world.spawn / world.destroy queues now that the component
+        // iteration is over.
+        applySpawns(rt);
         for (const Entity e : pendingDestroy) {
             if (scene.alive(e)) {
                 scene.destroy(e);
@@ -405,9 +428,69 @@ struct ScriptSystem::Impl {
         }
         pendingDestroy.clear();
     }
+
+    void warnSpawn(const std::string& prefab, const char* why) {
+        if (warnedSpawns.insert(prefab).second) {
+            log::warn("script: world.spawn('{}') skipped: {}", prefab, why);
+        }
+    }
+
+    void applySpawns(Runtime& rt) {
+        if (pendingSpawn.empty()) {
+            return;
+        }
+        AssetManager* assets = rt.tryResource<AssetManager>();
+        AssetDatabase* database = rt.tryResource<AssetDatabase>();
+        Scene& scene = rt.scene();
+        for (const PendingSpawn& spawn : pendingSpawn) {
+            if (registry == nullptr || assets == nullptr || database == nullptr) {
+                warnSpawn(spawn.prefab, "prefabs are not available in this session");
+                continue;
+            }
+            // Match the catalogued record name or the file stem, so both "orb" and
+            // "orb.prefab" (the sidecar keeps the compound stem) address orb.prefab.json.
+            const AssetDatabase::Record* record = nullptr;
+            for (const AssetDatabase::Record& candidate : database->records()) {
+                if (candidate.type != AssetType::Prefab) {
+                    continue;
+                }
+                if (candidate.name == spawn.prefab ||
+                    candidate.path.stem().stem().string() == spawn.prefab) {
+                    record = &candidate;
+                    break;
+                }
+            }
+            if (record == nullptr) {
+                warnSpawn(spawn.prefab, "no catalogued prefab has that name");
+                continue;
+            }
+            AssetHandle<PrefabAsset> handle = assets->find<PrefabAsset>(record->id);
+            if (!handle.valid()) {
+                handle = loadPrefabAsset(*assets, record->path);
+            }
+            const PrefabAsset* prefab = assets->get<PrefabAsset>(handle);
+            if (prefab == nullptr) {
+                warnSpawn(spawn.prefab, "the prefab failed to load");
+                continue;
+            }
+            const Entity e = instantiatePrefab(scene, *registry, *prefab);
+            scene.add<PrefabInstance>(e, PrefabInstance{record->id, {}});
+            if (Transform* transform = scene.tryGet<Transform>(e)) {
+                transform->position = spawn.position;
+            } else {
+                Transform placed;
+                placed.position = spawn.position;
+                scene.add<Transform>(e, placed);
+            }
+        }
+        pendingSpawn.clear();
+    }
 };
 
-ScriptSystem::ScriptSystem() : m_impl(std::make_unique<Impl>()) {}
+ScriptSystem::ScriptSystem(const ComponentRegistry* registry)
+    : m_impl(std::make_unique<Impl>()) {
+    m_impl->registry = registry;
+}
 ScriptSystem::~ScriptSystem() = default;
 
 void ScriptSystem::onUpdate(Runtime& runtime, float dt) { m_impl->update(runtime, dt); }
@@ -416,10 +499,14 @@ void ScriptSystem::onUpdate(Runtime& runtime, float dt) { m_impl->update(runtime
 void ScriptSystem::onPlayBegin(Runtime&) {
     m_impl->instances.clear();
     m_impl->pendingDestroy.clear();
+    m_impl->pendingSpawn.clear();
+    m_impl->warnedSpawns.clear();
 }
 void ScriptSystem::onPlayEnd(Runtime&) {
     m_impl->instances.clear();
     m_impl->pendingDestroy.clear();
+    m_impl->pendingSpawn.clear();
+    m_impl->warnedSpawns.clear();
     m_impl->input = nullptr;
     m_impl->runtime = nullptr;
 }
