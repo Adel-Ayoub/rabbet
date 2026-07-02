@@ -10,6 +10,8 @@
 #include "rabbet/assets/AssetType.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/serialize/SceneSerializer.h"
+#include "rabbet/util/Log.h"
 
 #include <imgui.h>
 
@@ -124,6 +126,21 @@ void AssetsPanel::onImGui() {
         if (ImGui::Button("Instantiate")) {
             instantiatePrefabAsset(m_context, *selected);
         }
+    } else if (selected != nullptr && selected->type == rb::AssetType::Scene) {
+        // Replaces the current scene wholesale; gated out of Play so a load can never
+        // fight the Stop-time snapshot restore.
+        ImGui::BeginDisabled(m_context.runtime.inPlaySession());
+        if (ImGui::Button("Load Scene")) {
+            m_context.runtime.scene().clear();
+            if (rb::SceneSerializer::loadFromFile(m_context.runtime.scene(), m_context.registry,
+                                                  selected->path)) {
+                m_context.selected = {};
+                rb::log::info("assets: loaded scene '{}'", selected->name);
+            } else {
+                rb::log::error("assets: failed to load scene '{}'", selected->path.string());
+            }
+        }
+        ImGui::EndDisabled();
     } else {
         const bool canAssign = selected != nullptr && isAssignable(selected->type) &&
                                m_context.runtime.scene().alive(m_context.selected);
