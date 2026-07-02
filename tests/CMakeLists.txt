@@ -41,7 +41,8 @@ set(RABBET_TEST_SUITES
     thumbnail_cache
     assets_render
     assets_scene_file
-    assets_resolve)
+    assets_resolve
+    orbhunt)
 
 foreach(suite IN LISTS RABBET_TEST_SUITES)
     add_executable(${suite}_tests ${suite}_tests.cpp)
@@ -55,3 +56,7 @@ endforeach()
 # The audio suite decodes a committed Ogg Vorbis fixture to verify the stb_vorbis import path.
 target_compile_definitions(audio_tests PRIVATE
     RB_AUDIO_TEST_OGG="${PROJECT_SOURCE_DIR}/examples/forge/assets/audio/chime.ogg")
+
+# The orbhunt suite drives the committed demo content (scene + prefabs + Lua) end to end.
+target_compile_definitions(orbhunt_tests PRIVATE
+    RB_FORGE_ASSETS="${PROJECT_SOURCE_DIR}/examples/forge/assets")
