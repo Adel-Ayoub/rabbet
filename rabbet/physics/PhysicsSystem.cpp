@@ -14,6 +14,7 @@
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/EActivation.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -26,6 +27,7 @@
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
 #include "rabbet/scene/Transform.h"
+#include "rabbet/terrain/TerrainRenderData.h"
 #include "rabbet/util/Log.h"
 
 namespace rb {
@@ -221,7 +223,60 @@ struct PhysicsSystem::Impl {
             }
         });
 
+        buildTerrainBodies(runtime, bodies);
         m_physics.OptimizeBroadPhase();
+    }
+
+    // Every published terrain becomes a static mesh collider built from the exact geometry
+    // the renderer draws (TerrainSystem owns the MeshData and keeps the pointer stable), so
+    // collision matches the visuals with no second heightfield sampling pass. Terrains need
+    // no RigidBody/collider components; the ground is solid by virtue of existing.
+    void buildTerrainBodies(Runtime& runtime, JPH::BodyInterface& bodies) {
+        const TerrainRenderData* terrain = runtime.tryResource<TerrainRenderData>();
+        if (terrain == nullptr) {
+            return;
+        }
+        Scene& scene = runtime.scene();
+        for (const TerrainDraw& draw : terrain->draws) {
+            if (draw.mesh == nullptr || draw.mesh->indices.size() < 3 ||
+                !scene.alive(draw.entity)) {
+                continue;
+            }
+            const Transform* transform = scene.tryGet<Transform>(draw.entity);
+            if (transform == nullptr) {
+                continue;
+            }
+            JPH::VertexList vertices;
+            vertices.reserve(draw.mesh->vertices.size());
+            for (const Vertex& vertex : draw.mesh->vertices) {
+                vertices.push_back(
+                    JPH::Float3(vertex.position.x, vertex.position.y, vertex.position.z));
+            }
+            JPH::IndexedTriangleList triangles;
+            triangles.reserve(draw.mesh->indices.size() / 3);
+            for (std::size_t i = 0; i + 2 < draw.mesh->indices.size(); i += 3) {
+                triangles.push_back(JPH::IndexedTriangle(draw.mesh->indices[i],
+                                                         draw.mesh->indices[i + 1],
+                                                         draw.mesh->indices[i + 2]));
+            }
+            JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
+            const JPH::ShapeSettings::ShapeResult result = settings.Create();
+            if (result.HasError()) {
+                log::error("physics: terrain shape error: {}", result.GetError().c_str());
+                continue;
+            }
+            JPH::BodyCreationSettings body(result.Get(), toJolt(transform->position),
+                                           toJolt(transform->rotation), JPH::EMotionType::Static,
+                                           Layers::kNonMoving);
+            body.mFriction = 0.8f; // grippy default so rolling bodies do not glide forever
+            const JPH::BodyID id = bodies.CreateAndAddBody(body, JPH::EActivation::DontActivate);
+            if (!id.IsInvalid()) {
+                m_bodies.emplace(draw.entity, Record{id, glm::vec3(0.0f)});
+            } else {
+                log::warn("physics: could not create a terrain body for entity {}",
+                          draw.entity.index());
+            }
+        }
     }
 
     // Drains queued gameplay commands into the Jolt bodies. Runs before the step so a

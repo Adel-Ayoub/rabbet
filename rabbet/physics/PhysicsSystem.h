@@ -8,9 +8,11 @@ namespace rb {
 
 // Steps a Jolt physics world during Play. On the play-session begin edge it builds bodies
 // from entities that have a RigidBody plus a Box/SphereCollider, using their current
-// Transform; each tick it advances the simulation and writes dynamic/kinematic body
-// transforms back to the entities; on play end it tears the world down. Jolt lives behind
-// the impl, so this header — and the rest of the engine and editor — never include it.
+// Transform, and a static mesh collider for every published terrain (the exact geometry
+// the renderer draws); each tick it drains queued gameplay commands, advances the
+// simulation, writes dynamic/kinematic body transforms back to the entities, and publishes
+// their velocities; on play end it tears the world down. Jolt lives behind the impl, so
+// this header, and the rest of the engine and editor, never includes it.
 class PhysicsSystem final : public System {
 public:
     PhysicsSystem();
