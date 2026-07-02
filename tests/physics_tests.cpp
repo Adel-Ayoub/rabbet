@@ -5,10 +5,13 @@
 #include "rabbet/physics/PhysicsControl.h"
 #include "rabbet/physics/PhysicsSystem.h"
 #include "rabbet/physics/RigidBody.h"
+#include "rabbet/physics/SphereCollider.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scripting/ScriptAsset.h"
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptSystem.h"
+#include "rabbet/terrain/TerrainComponent.h"
+#include "rabbet/terrain/TerrainSystem.h"
 #include "tests/Test.h"
 
 #include <glm/glm.hpp>
@@ -210,6 +213,44 @@ void scriptDrivesPhysicsBody() {
     runtime.endPlay();
 }
 
+// A published terrain is solid ground: a ball dropped over it lands on the surface (a
+// flat field rests the ball at its radius) instead of falling through. The terrain entity
+// needs no RigidBody or collider component.
+void terrainCollidesAsStaticGround() {
+    rb::Runtime runtime;
+    const rb::Entity island = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(island, rb::Transform{});
+    rb::TerrainComponent terrain;
+    terrain.size = 20.0f;
+    terrain.resolution = 32;
+    terrain.heightScale = 2.0f;
+    terrain.source = rb::TerrainHeightSource::Flat;
+    runtime.scene().add<rb::TerrainComponent>(island, terrain);
+
+    runtime.addSystem<rb::TerrainSystem>();
+    runtime.start();
+    runtime.tick(0.1f); // open the rebuild debounce window
+    runtime.tick(0.1f); // settle -> mesh built + TerrainRenderData published
+
+    const rb::Entity ball = runtime.scene().create();
+    rb::Transform start;
+    start.position = {0.0f, 6.0f, 0.0f};
+    runtime.scene().add<rb::Transform>(ball, start);
+    runtime.scene().add<rb::RigidBody>(
+        ball, rb::RigidBody{rb::BodyType::Dynamic, 1.0f, 0.5f, 0.1f, true});
+    runtime.scene().add<rb::SphereCollider>(ball, rb::SphereCollider{0.5f, glm::vec3(0.0f)});
+
+    rb::PhysicsSystem physics;
+    physics.onPlayBegin(runtime);
+    for (int i = 0; i < 240; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    const float y = posY(runtime, ball);
+    CHECK(y < 6.0f);  // fell
+    CHECK(y > 0.3f);  // did not tunnel through the terrain mesh
+    CHECK(y < 0.7f);  // rests on the flat surface at roughly its radius
+}
+
 } // namespace
 
 int main() {
@@ -221,5 +262,6 @@ int main() {
     velocityCommandDrivesBodyAndPublishes();
     impulseAcceleratesBody();
     scriptDrivesPhysicsBody();
+    terrainCollidesAsStaticGround();
     return rbtest::summary("physics");
 }
