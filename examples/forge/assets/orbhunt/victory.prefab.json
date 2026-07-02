@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "components": {
+    "Name": { "value": "Victory" },
+    "Transform": {
+      "position": [0.0, 0.0, 0.0],
+      "rotation": [1.0, 0.0, 0.0, 0.0],
+      "scale": [0.6, 0.6, 0.6]
+    },
+    "Primitive": {
+      "shape": "Sphere",
+      "color": [1.0, 0.85, 0.35],
+      "emissive": [2.2, 1.6, 0.5],
+      "metallic": 0.2,
+      "roughness": 0.3
+    },
+    "ParticleEmitter": {
+      "emissionRate": 60.0,
+      "maxParticles": 256,
+      "lifetime": 1.6,
+      "lifetimeJitter": 0.4,
+      "startSize": 0.2,
+      "endSize": 0.03,
+      "startColor": [1.0, 0.85, 0.3, 1.0],
+      "endColor": [1.0, 0.4, 0.05, 0.0],
+      "velocity": [0.0, 3.2, 0.0],
+      "coneAngle": 30.0,
+      "speedJitter": 0.45,
+      "gravity": [0.0, -1.2, 0.0],
+      "blendMode": "Additive",
+      "looping": true,
+      "duration": 5.0,
+      "seed": 11,
+      "sprite": ""
+    },
+    "SoundEmitter": {
+      "sound": "0eb0000000000000000000000000c007",
+      "volume": 1.0,
+      "pitch": 1.0,
+      "loop": false,
+      "spatial": false,
+      "playOnStart": true,
+      "stream": false
+    }
+  }
+}

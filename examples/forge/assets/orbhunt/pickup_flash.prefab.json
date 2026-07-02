@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "components": {
+    "Name": { "value": "PickupFlash" },
+    "Transform": {
+      "position": [0.0, 0.0, 0.0],
+      "rotation": [1.0, 0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+    },
+    "ParticleEmitter": {
+      "emissionRate": 130.0,
+      "maxParticles": 96,
+      "lifetime": 0.7,
+      "lifetimeJitter": 0.25,
+      "startSize": 0.22,
+      "endSize": 0.03,
+      "startColor": [0.45, 0.9, 1.0, 1.0],
+      "endColor": [0.1, 0.35, 1.0, 0.0],
+      "velocity": [0.0, 2.6, 0.0],
+      "coneAngle": 75.0,
+      "speedJitter": 0.5,
+      "gravity": [0.0, -2.5, 0.0],
+      "blendMode": "Additive",
+      "looping": false,
+      "duration": 0.4,
+      "seed": 7,
+      "sprite": ""
+    },
+    "SoundEmitter": {
+      "sound": "0eb0000000000000000000000000c006",
+      "volume": 0.9,
+      "pitch": 1.0,
+      "loop": false,
+      "spatial": true,
+      "playOnStart": true,
+      "stream": false
+    },
+    "ScriptComponent": {
+      "script": "0eb0000000000000000000000000c004",
+      "fields": {}
+    }
+  }
+}

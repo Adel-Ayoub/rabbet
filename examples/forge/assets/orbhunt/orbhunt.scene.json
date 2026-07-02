@@ -1,0 +1,967 @@
+{
+  "version": 1,
+  "entities": [
+    {
+      "id": 0,
+      "components": {
+        "Name": {
+          "value": "Sun"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            30.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "DirectionalLight": {
+          "direction": [
+            -0.45,
+            -1.0,
+            -0.3
+          ],
+          "color": [
+            1.0,
+            0.96,
+            0.88
+          ],
+          "intensity": 3.0
+        }
+      }
+    },
+    {
+      "id": 1,
+      "components": {
+        "Name": {
+          "value": "Island"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            -2.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "TerrainComponent": {
+          "size": 80.0,
+          "resolution": 192,
+          "heightScale": 14.0,
+          "source": "Heightmap",
+          "heightmap": "7e44a1d0000000000000000000000a01",
+          "seed": 1337,
+          "octaves": 5,
+          "frequency": 2.5,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "layers": [
+            {
+              "albedo": "7e44a1d0000000000000000000000a02",
+              "tiling": 24.0,
+              "heightRange": [
+                0.0,
+                0.55
+              ],
+              "slopeRange": [
+                0.0,
+                0.4
+              ],
+              "sharpness": 0.12
+            },
+            {
+              "albedo": "7e44a1d0000000000000000000000a03",
+              "tiling": 16.0,
+              "heightRange": [
+                0.0,
+                1.0
+              ],
+              "slopeRange": [
+                0.3,
+                1.0
+              ],
+              "sharpness": 0.12
+            },
+            {
+              "albedo": "7e44a1d0000000000000000000000a04",
+              "tiling": 20.0,
+              "heightRange": [
+                0.7,
+                1.0
+              ],
+              "slopeRange": [
+                0.0,
+                0.5
+              ],
+              "sharpness": 0.1
+            }
+          ],
+          "blend": "HeightSlope",
+          "splat": ""
+        }
+      }
+    },
+    {
+      "id": 2,
+      "components": {
+        "Name": {
+          "value": "Player"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            16.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.85,
+            0.28,
+            0.18
+          ],
+          "emissive": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "metallic": 0.05,
+          "roughness": 0.45
+        },
+        "RigidBody": {
+          "type": "Dynamic",
+          "mass": 1.0,
+          "friction": 0.7,
+          "restitution": 0.2,
+          "gravity": true
+        },
+        "SphereCollider": {
+          "radius": 0.5,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c001",
+          "fields": {
+            "speed": 7.0
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "components": {
+        "Name": {
+          "value": "GameCamera"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            22.0,
+            9.0
+          ],
+          "rotation": [
+            0.9571,
+            -0.2898,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Camera": {
+          "fovY": 1.0472,
+          "nearPlane": 0.1,
+          "farPlane": 300.0
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c003",
+          "fields": {
+            "height": 6.0,
+            "back": 9.0
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "components": {
+        "Name": {
+          "value": "GameController"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            8.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c005",
+          "fields": {}
+        }
+      }
+    },
+    {
+      "id": 5,
+      "components": {
+        "Name": {
+          "value": "Orb"
+        },
+        "Transform": {
+          "position": [
+            10.0,
+            7.98,
+            8.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.4,
+            0.9,
+            1.0
+          ],
+          "emissive": [
+            1.2,
+            2.4,
+            3.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "ParticleEmitter": {
+          "emissionRate": 10.0,
+          "maxParticles": 32,
+          "lifetime": 1.1,
+          "lifetimeJitter": 0.3,
+          "startSize": 0.1,
+          "endSize": 0.02,
+          "startColor": [
+            0.5,
+            0.9,
+            1.0,
+            0.9
+          ],
+          "endColor": [
+            0.2,
+            0.5,
+            1.0,
+            0.0
+          ],
+          "velocity": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "coneAngle": 80.0,
+          "speedJitter": 0.3,
+          "gravity": [
+            0.0,
+            0.2,
+            0.0
+          ],
+          "blendMode": "Additive",
+          "looping": true,
+          "duration": 5.0,
+          "seed": 21,
+          "sprite": ""
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c002",
+          "fields": {
+            "radius": 1.8
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "components": {
+        "Name": {
+          "value": "Orb"
+        },
+        "Transform": {
+          "position": [
+            -14.0,
+            3.91,
+            12.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.4,
+            0.9,
+            1.0
+          ],
+          "emissive": [
+            1.2,
+            2.4,
+            3.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "ParticleEmitter": {
+          "emissionRate": 10.0,
+          "maxParticles": 32,
+          "lifetime": 1.1,
+          "lifetimeJitter": 0.3,
+          "startSize": 0.1,
+          "endSize": 0.02,
+          "startColor": [
+            0.5,
+            0.9,
+            1.0,
+            0.9
+          ],
+          "endColor": [
+            0.2,
+            0.5,
+            1.0,
+            0.0
+          ],
+          "velocity": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "coneAngle": 80.0,
+          "speedJitter": 0.3,
+          "gravity": [
+            0.0,
+            0.2,
+            0.0
+          ],
+          "blendMode": "Additive",
+          "looping": true,
+          "duration": 5.0,
+          "seed": 22,
+          "sprite": ""
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c002",
+          "fields": {
+            "radius": 1.8
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "components": {
+        "Name": {
+          "value": "Orb"
+        },
+        "Transform": {
+          "position": [
+            22.0,
+            8.61,
+            -6.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.4,
+            0.9,
+            1.0
+          ],
+          "emissive": [
+            1.2,
+            2.4,
+            3.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "ParticleEmitter": {
+          "emissionRate": 10.0,
+          "maxParticles": 32,
+          "lifetime": 1.1,
+          "lifetimeJitter": 0.3,
+          "startSize": 0.1,
+          "endSize": 0.02,
+          "startColor": [
+            0.5,
+            0.9,
+            1.0,
+            0.9
+          ],
+          "endColor": [
+            0.2,
+            0.5,
+            1.0,
+            0.0
+          ],
+          "velocity": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "coneAngle": 80.0,
+          "speedJitter": 0.3,
+          "gravity": [
+            0.0,
+            0.2,
+            0.0
+          ],
+          "blendMode": "Additive",
+          "looping": true,
+          "duration": 5.0,
+          "seed": 23,
+          "sprite": ""
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c002",
+          "fields": {
+            "radius": 1.8
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "components": {
+        "Name": {
+          "value": "Orb"
+        },
+        "Transform": {
+          "position": [
+            -8.0,
+            4.36,
+            -18.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.4,
+            0.9,
+            1.0
+          ],
+          "emissive": [
+            1.2,
+            2.4,
+            3.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "ParticleEmitter": {
+          "emissionRate": 10.0,
+          "maxParticles": 32,
+          "lifetime": 1.1,
+          "lifetimeJitter": 0.3,
+          "startSize": 0.1,
+          "endSize": 0.02,
+          "startColor": [
+            0.5,
+            0.9,
+            1.0,
+            0.9
+          ],
+          "endColor": [
+            0.2,
+            0.5,
+            1.0,
+            0.0
+          ],
+          "velocity": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "coneAngle": 80.0,
+          "speedJitter": 0.3,
+          "gravity": [
+            0.0,
+            0.2,
+            0.0
+          ],
+          "blendMode": "Additive",
+          "looping": true,
+          "duration": 5.0,
+          "seed": 24,
+          "sprite": ""
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c002",
+          "fields": {
+            "radius": 1.8
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "components": {
+        "Name": {
+          "value": "Orb"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            4.13,
+            -28.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.4,
+            0.9,
+            1.0
+          ],
+          "emissive": [
+            1.2,
+            2.4,
+            3.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "ParticleEmitter": {
+          "emissionRate": 10.0,
+          "maxParticles": 32,
+          "lifetime": 1.1,
+          "lifetimeJitter": 0.3,
+          "startSize": 0.1,
+          "endSize": 0.02,
+          "startColor": [
+            0.5,
+            0.9,
+            1.0,
+            0.9
+          ],
+          "endColor": [
+            0.2,
+            0.5,
+            1.0,
+            0.0
+          ],
+          "velocity": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "coneAngle": 80.0,
+          "speedJitter": 0.3,
+          "gravity": [
+            0.0,
+            0.2,
+            0.0
+          ],
+          "blendMode": "Additive",
+          "looping": true,
+          "duration": 5.0,
+          "seed": 25,
+          "sprite": ""
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c002",
+          "fields": {
+            "radius": 1.8
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "components": {
+        "Name": {
+          "value": "Orb"
+        },
+        "Transform": {
+          "position": [
+            24.0,
+            4.73,
+            18.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.4,
+            0.9,
+            1.0
+          ],
+          "emissive": [
+            1.2,
+            2.4,
+            3.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "ParticleEmitter": {
+          "emissionRate": 10.0,
+          "maxParticles": 32,
+          "lifetime": 1.1,
+          "lifetimeJitter": 0.3,
+          "startSize": 0.1,
+          "endSize": 0.02,
+          "startColor": [
+            0.5,
+            0.9,
+            1.0,
+            0.9
+          ],
+          "endColor": [
+            0.2,
+            0.5,
+            1.0,
+            0.0
+          ],
+          "velocity": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "coneAngle": 80.0,
+          "speedJitter": 0.3,
+          "gravity": [
+            0.0,
+            0.2,
+            0.0
+          ],
+          "blendMode": "Additive",
+          "looping": true,
+          "duration": 5.0,
+          "seed": 26,
+          "sprite": ""
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c002",
+          "fields": {
+            "radius": 1.8
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "components": {
+        "Name": {
+          "value": "Orb"
+        },
+        "Transform": {
+          "position": [
+            -26.0,
+            7.95,
+            -4.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.4,
+            0.9,
+            1.0
+          ],
+          "emissive": [
+            1.2,
+            2.4,
+            3.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "ParticleEmitter": {
+          "emissionRate": 10.0,
+          "maxParticles": 32,
+          "lifetime": 1.1,
+          "lifetimeJitter": 0.3,
+          "startSize": 0.1,
+          "endSize": 0.02,
+          "startColor": [
+            0.5,
+            0.9,
+            1.0,
+            0.9
+          ],
+          "endColor": [
+            0.2,
+            0.5,
+            1.0,
+            0.0
+          ],
+          "velocity": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "coneAngle": 80.0,
+          "speedJitter": 0.3,
+          "gravity": [
+            0.0,
+            0.2,
+            0.0
+          ],
+          "blendMode": "Additive",
+          "looping": true,
+          "duration": 5.0,
+          "seed": 27,
+          "sprite": ""
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c002",
+          "fields": {
+            "radius": 1.8
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "components": {
+        "Name": {
+          "value": "Orb"
+        },
+        "Transform": {
+          "position": [
+            14.0,
+            2.69,
+            26.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.4,
+            0.9,
+            1.0
+          ],
+          "emissive": [
+            1.2,
+            2.4,
+            3.0
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "ParticleEmitter": {
+          "emissionRate": 10.0,
+          "maxParticles": 32,
+          "lifetime": 1.1,
+          "lifetimeJitter": 0.3,
+          "startSize": 0.1,
+          "endSize": 0.02,
+          "startColor": [
+            0.5,
+            0.9,
+            1.0,
+            0.9
+          ],
+          "endColor": [
+            0.2,
+            0.5,
+            1.0,
+            0.0
+          ],
+          "velocity": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "coneAngle": 80.0,
+          "speedJitter": 0.3,
+          "gravity": [
+            0.0,
+            0.2,
+            0.0
+          ],
+          "blendMode": "Additive",
+          "looping": true,
+          "duration": 5.0,
+          "seed": 28,
+          "sprite": ""
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c002",
+          "fields": {
+            "radius": 1.8
+          }
+        }
+      }
+    },
+    {
+      "id": 13,
+      "components": {
+        "Name": {
+          "value": "Post"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "PostProcess": {
+          "enabled": true,
+          "tonemap": "ACES",
+          "exposure": 0.0,
+          "gamma": 2.2,
+          "bloom": true,
+          "bloomThreshold": 1.0,
+          "bloomKnee": 0.5,
+          "bloomIntensity": 0.55,
+          "contrast": 1.02,
+          "saturation": 1.05,
+          "vignette": 0.22,
+          "fxaa": true
+        }
+      }
+    }
+  ]
+}
