@@ -16,6 +16,10 @@ PickBuffer PickBuffer::create(int width, int height) {
     glGenFramebuffers(1, &fbo);
     glGenTextures(1, &color);
     glGenRenderbuffers(1, &depth);
+    // Bind once so the renderbuffer object actually exists before it is attached (a
+    // never-bound name is rejected and the pick pass would depth-test against nothing,
+    // resolving clicks to the last-drawn entity instead of the nearest).
+    glBindRenderbuffer(GL_RENDERBUFFER, depth);
 
     glBindTexture(GL_TEXTURE_2D, color);
     // Integer textures cannot be linearly filtered; nearest is mandatory.

@@ -16,6 +16,10 @@ Framebuffer Framebuffer::create(int width, int height, bool hdr) {
     glGenFramebuffers(1, &fbo);
     glGenTextures(1, &color);
     glGenRenderbuffers(1, &depth);
+    // glGen* only reserves the name; the renderbuffer object exists after its first bind.
+    // Attaching a never-bound name is rejected (the FBO then reports "complete" with NO
+    // depth attachment, silently disabling every depth test into it), so bind it first.
+    glBindRenderbuffer(GL_RENDERBUFFER, depth);
 
     glBindTexture(GL_TEXTURE_2D, color);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
