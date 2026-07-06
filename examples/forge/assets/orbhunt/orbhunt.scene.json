@@ -291,17 +291,17 @@
           "roughness": 0.25
         },
         "ParticleEmitter": {
-          "emissionRate": 10.0,
-          "maxParticles": 32,
-          "lifetime": 1.1,
-          "lifetimeJitter": 0.3,
-          "startSize": 0.1,
-          "endSize": 0.02,
+          "emissionRate": 14.0,
+          "maxParticles": 48,
+          "lifetime": 2.4,
+          "lifetimeJitter": 0.4,
+          "startSize": 0.14,
+          "endSize": 0.03,
           "startColor": [
-            0.5,
-            0.9,
+            0.6,
+            0.95,
             1.0,
-            0.9
+            1.0
           ],
           "endColor": [
             0.2,
@@ -311,21 +311,21 @@
           ],
           "velocity": [
             0.0,
-            0.6,
+            2.4,
             0.0
           ],
-          "coneAngle": 80.0,
-          "speedJitter": 0.3,
+          "coneAngle": 10.0,
+          "speedJitter": 0.25,
           "gravity": [
             0.0,
-            0.2,
+            0.1,
             0.0
           ],
           "blendMode": "Additive",
           "looping": true,
           "duration": 5.0,
-          "seed": 21,
-          "sprite": ""
+          "sprite": "",
+          "seed": 21
         },
         "ScriptComponent": {
           "script": "0eb0000000000000000000000000c002",
@@ -375,17 +375,17 @@
           "roughness": 0.25
         },
         "ParticleEmitter": {
-          "emissionRate": 10.0,
-          "maxParticles": 32,
-          "lifetime": 1.1,
-          "lifetimeJitter": 0.3,
-          "startSize": 0.1,
-          "endSize": 0.02,
+          "emissionRate": 14.0,
+          "maxParticles": 48,
+          "lifetime": 2.4,
+          "lifetimeJitter": 0.4,
+          "startSize": 0.14,
+          "endSize": 0.03,
           "startColor": [
-            0.5,
-            0.9,
+            0.6,
+            0.95,
             1.0,
-            0.9
+            1.0
           ],
           "endColor": [
             0.2,
@@ -395,21 +395,21 @@
           ],
           "velocity": [
             0.0,
-            0.6,
+            2.4,
             0.0
           ],
-          "coneAngle": 80.0,
-          "speedJitter": 0.3,
+          "coneAngle": 10.0,
+          "speedJitter": 0.25,
           "gravity": [
             0.0,
-            0.2,
+            0.1,
             0.0
           ],
           "blendMode": "Additive",
           "looping": true,
           "duration": 5.0,
-          "seed": 22,
-          "sprite": ""
+          "sprite": "",
+          "seed": 22
         },
         "ScriptComponent": {
           "script": "0eb0000000000000000000000000c002",
@@ -459,17 +459,17 @@
           "roughness": 0.25
         },
         "ParticleEmitter": {
-          "emissionRate": 10.0,
-          "maxParticles": 32,
-          "lifetime": 1.1,
-          "lifetimeJitter": 0.3,
-          "startSize": 0.1,
-          "endSize": 0.02,
+          "emissionRate": 14.0,
+          "maxParticles": 48,
+          "lifetime": 2.4,
+          "lifetimeJitter": 0.4,
+          "startSize": 0.14,
+          "endSize": 0.03,
           "startColor": [
-            0.5,
-            0.9,
+            0.6,
+            0.95,
             1.0,
-            0.9
+            1.0
           ],
           "endColor": [
             0.2,
@@ -479,21 +479,21 @@
           ],
           "velocity": [
             0.0,
-            0.6,
+            2.4,
             0.0
           ],
-          "coneAngle": 80.0,
-          "speedJitter": 0.3,
+          "coneAngle": 10.0,
+          "speedJitter": 0.25,
           "gravity": [
             0.0,
-            0.2,
+            0.1,
             0.0
           ],
           "blendMode": "Additive",
           "looping": true,
           "duration": 5.0,
-          "seed": 23,
-          "sprite": ""
+          "sprite": "",
+          "seed": 23
         },
         "ScriptComponent": {
           "script": "0eb0000000000000000000000000c002",
@@ -543,17 +543,17 @@
           "roughness": 0.25
         },
         "ParticleEmitter": {
-          "emissionRate": 10.0,
-          "maxParticles": 32,
-          "lifetime": 1.1,
-          "lifetimeJitter": 0.3,
-          "startSize": 0.1,
-          "endSize": 0.02,
+          "emissionRate": 14.0,
+          "maxParticles": 48,
+          "lifetime": 2.4,
+          "lifetimeJitter": 0.4,
+          "startSize": 0.14,
+          "endSize": 0.03,
           "startColor": [
-            0.5,
-            0.9,
+            0.6,
+            0.95,
             1.0,
-            0.9
+            1.0
           ],
           "endColor": [
             0.2,
@@ -563,21 +563,21 @@
           ],
           "velocity": [
             0.0,
-            0.6,
+            2.4,
             0.0
           ],
-          "coneAngle": 80.0,
-          "speedJitter": 0.3,
+          "coneAngle": 10.0,
+          "speedJitter": 0.25,
           "gravity": [
             0.0,
-            0.2,
+            0.1,
             0.0
           ],
           "blendMode": "Additive",
           "looping": true,
           "duration": 5.0,
-          "seed": 24,
-          "sprite": ""
+          "sprite": "",
+          "seed": 24
         },
         "ScriptComponent": {
           "script": "0eb0000000000000000000000000c002",
@@ -627,17 +627,17 @@
           "roughness": 0.25
         },
         "ParticleEmitter": {
-          "emissionRate": 10.0,
-          "maxParticles": 32,
-          "lifetime": 1.1,
-          "lifetimeJitter": 0.3,
-          "startSize": 0.1,
-          "endSize": 0.02,
+          "emissionRate": 14.0,
+          "maxParticles": 48,
+          "lifetime": 2.4,
+          "lifetimeJitter": 0.4,
+          "startSize": 0.14,
+          "endSize": 0.03,
           "startColor": [
-            0.5,
-            0.9,
+            0.6,
+            0.95,
             1.0,
-            0.9
+            1.0
           ],
           "endColor": [
             0.2,
@@ -647,21 +647,21 @@
           ],
           "velocity": [
             0.0,
-            0.6,
+            2.4,
             0.0
           ],
-          "coneAngle": 80.0,
-          "speedJitter": 0.3,
+          "coneAngle": 10.0,
+          "speedJitter": 0.25,
           "gravity": [
             0.0,
-            0.2,
+            0.1,
             0.0
           ],
           "blendMode": "Additive",
           "looping": true,
           "duration": 5.0,
-          "seed": 25,
-          "sprite": ""
+          "sprite": "",
+          "seed": 25
         },
         "ScriptComponent": {
           "script": "0eb0000000000000000000000000c002",
@@ -711,17 +711,17 @@
           "roughness": 0.25
         },
         "ParticleEmitter": {
-          "emissionRate": 10.0,
-          "maxParticles": 32,
-          "lifetime": 1.1,
-          "lifetimeJitter": 0.3,
-          "startSize": 0.1,
-          "endSize": 0.02,
+          "emissionRate": 14.0,
+          "maxParticles": 48,
+          "lifetime": 2.4,
+          "lifetimeJitter": 0.4,
+          "startSize": 0.14,
+          "endSize": 0.03,
           "startColor": [
-            0.5,
-            0.9,
+            0.6,
+            0.95,
             1.0,
-            0.9
+            1.0
           ],
           "endColor": [
             0.2,
@@ -731,21 +731,21 @@
           ],
           "velocity": [
             0.0,
-            0.6,
+            2.4,
             0.0
           ],
-          "coneAngle": 80.0,
-          "speedJitter": 0.3,
+          "coneAngle": 10.0,
+          "speedJitter": 0.25,
           "gravity": [
             0.0,
-            0.2,
+            0.1,
             0.0
           ],
           "blendMode": "Additive",
           "looping": true,
           "duration": 5.0,
-          "seed": 26,
-          "sprite": ""
+          "sprite": "",
+          "seed": 26
         },
         "ScriptComponent": {
           "script": "0eb0000000000000000000000000c002",
@@ -795,17 +795,17 @@
           "roughness": 0.25
         },
         "ParticleEmitter": {
-          "emissionRate": 10.0,
-          "maxParticles": 32,
-          "lifetime": 1.1,
-          "lifetimeJitter": 0.3,
-          "startSize": 0.1,
-          "endSize": 0.02,
+          "emissionRate": 14.0,
+          "maxParticles": 48,
+          "lifetime": 2.4,
+          "lifetimeJitter": 0.4,
+          "startSize": 0.14,
+          "endSize": 0.03,
           "startColor": [
-            0.5,
-            0.9,
+            0.6,
+            0.95,
             1.0,
-            0.9
+            1.0
           ],
           "endColor": [
             0.2,
@@ -815,21 +815,21 @@
           ],
           "velocity": [
             0.0,
-            0.6,
+            2.4,
             0.0
           ],
-          "coneAngle": 80.0,
-          "speedJitter": 0.3,
+          "coneAngle": 10.0,
+          "speedJitter": 0.25,
           "gravity": [
             0.0,
-            0.2,
+            0.1,
             0.0
           ],
           "blendMode": "Additive",
           "looping": true,
           "duration": 5.0,
-          "seed": 27,
-          "sprite": ""
+          "sprite": "",
+          "seed": 27
         },
         "ScriptComponent": {
           "script": "0eb0000000000000000000000000c002",
@@ -879,17 +879,17 @@
           "roughness": 0.25
         },
         "ParticleEmitter": {
-          "emissionRate": 10.0,
-          "maxParticles": 32,
-          "lifetime": 1.1,
-          "lifetimeJitter": 0.3,
-          "startSize": 0.1,
-          "endSize": 0.02,
+          "emissionRate": 14.0,
+          "maxParticles": 48,
+          "lifetime": 2.4,
+          "lifetimeJitter": 0.4,
+          "startSize": 0.14,
+          "endSize": 0.03,
           "startColor": [
-            0.5,
-            0.9,
+            0.6,
+            0.95,
             1.0,
-            0.9
+            1.0
           ],
           "endColor": [
             0.2,
@@ -899,21 +899,21 @@
           ],
           "velocity": [
             0.0,
-            0.6,
+            2.4,
             0.0
           ],
-          "coneAngle": 80.0,
-          "speedJitter": 0.3,
+          "coneAngle": 10.0,
+          "speedJitter": 0.25,
           "gravity": [
             0.0,
-            0.2,
+            0.1,
             0.0
           ],
           "blendMode": "Additive",
           "looping": true,
           "duration": 5.0,
-          "seed": 28,
-          "sprite": ""
+          "sprite": "",
+          "seed": 28
         },
         "ScriptComponent": {
           "script": "0eb0000000000000000000000000c002",
