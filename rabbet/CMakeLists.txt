@@ -62,6 +62,7 @@ target_sources(rabbet
         render/PostProcess.cpp
         render/PostProcessor.cpp
         render/gl/ColorTarget.cpp
+        scene/Hierarchy.cpp
     PUBLIC
         FILE_SET rb_headers TYPE HEADERS
         BASE_DIRS "${PROJECT_SOURCE_DIR}"
@@ -178,7 +179,9 @@ target_sources(rabbet
             render/PostProcess.h
             render/PostProcessor.h
             render/gl/ColorTarget.h
-            render/DebugDraw.h)
+            render/DebugDraw.h
+            scene/Parent.h
+            scene/Hierarchy.h)
 
 target_include_directories(rabbet PUBLIC
     "${PROJECT_SOURCE_DIR}")
