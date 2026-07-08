@@ -1,6 +1,7 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/scene/Camera.h"
 #include "rabbet/scene/CameraView.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Transform.h"
 #include "tests/Test.h"
 
@@ -111,6 +112,59 @@ static void firstCameraWinsAndScaleIsIgnored() {
     }
 }
 
+// A camera mounted on a rig entity composes its pose through the parent: yawed a quarter
+// turn at (10,0,0), a boom offset of five units lands the camera at (15,0,0) looking -X.
+static void parentedCameraTracksItsRig() {
+    rb::Scene scene;
+    const rb::Entity rig = scene.create();
+    rb::Transform rigPose;
+    rigPose.position = {10.0f, 0.0f, 0.0f};
+    rigPose.rotation = glm::quat(glm::vec3(0.0f, glm::radians(90.0f), 0.0f));
+    scene.add<rb::Transform>(rig, rigPose);
+
+    const rb::Entity cam = scene.create();
+    rb::Transform boom;
+    boom.position = {0.0f, 0.0f, 5.0f};
+    scene.add<rb::Transform>(cam, boom);
+    scene.add<rb::Camera>(cam, rb::Camera{});
+    CHECK(rb::setParent(scene, cam, rig));
+
+    const std::optional<rb::RenderView> view = rb::activeCameraView(scene, 1.0f);
+    CHECK(view.has_value());
+    if (view.has_value()) {
+        CHECK(approx(view->position.x, 15.0f));
+        CHECK(approx(view->position.z, 0.0f));
+        const glm::vec4 ahead = view->view * glm::vec4(14.0f, 0.0f, 0.0f, 1.0f);
+        CHECK(approx(ahead.x, 0.0f));
+        CHECK(approx(ahead.z, -1.0f)); // the rig's yaw aims the camera down -X
+    }
+}
+
+// A scaled rig stretches the mounting offset but must not zoom the world: one unit ahead
+// of the camera still maps to one unit of view depth.
+static void scaledRigStretchesTheOffsetNotTheView() {
+    rb::Scene scene;
+    const rb::Entity rig = scene.create();
+    rb::Transform rigPose;
+    rigPose.scale = glm::vec3(3.0f);
+    scene.add<rb::Transform>(rig, rigPose);
+
+    const rb::Entity cam = scene.create();
+    rb::Transform boom;
+    boom.position = {0.0f, 0.0f, 5.0f};
+    scene.add<rb::Transform>(cam, boom);
+    scene.add<rb::Camera>(cam, rb::Camera{});
+    CHECK(rb::setParent(scene, cam, rig));
+
+    const std::optional<rb::RenderView> view = rb::activeCameraView(scene, 1.0f);
+    CHECK(view.has_value());
+    if (view.has_value()) {
+        CHECK(approx(view->position.z, 15.0f)); // 5-unit boom under a 3x rig
+        const glm::vec4 ahead = view->view * glm::vec4(0.0f, 0.0f, 14.0f, 1.0f);
+        CHECK(approx(ahead.z, -1.0f)); // one unit stays one unit, not one third
+    }
+}
+
 } // namespace
 
 int main() {
@@ -119,5 +173,7 @@ int main() {
     rotationAimsTheView();
     projectionUsesCameraParams();
     firstCameraWinsAndScaleIsIgnored();
+    parentedCameraTracksItsRig();
+    scaledRigStretchesTheOffsetNotTheView();
     return rbtest::summary("camera_view");
 }

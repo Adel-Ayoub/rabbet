@@ -3,12 +3,15 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/Primitive.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/serialize/BuiltinComponents.h"
 #include "rabbet/serialize/ComponentRegistry.h"
 #include "rabbet/serialize/SceneSerializer.h"
 #include "tests/Test.h"
+
+#include <vector>
 
 namespace {
 
@@ -86,9 +89,64 @@ static void duplicateResetsModelHandle() {
     CHECK(!cr.handle.valid());         // runtime handle reset for re-resolution
 }
 
+static void duplicateSubtreeMirrorsTheTree() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    rb::Scene scene;
+
+    const rb::Entity root = scene.create();
+    scene.add<rb::Name>(root, rb::Name{"root"});
+    const rb::Entity child = scene.create();
+    scene.add<rb::Name>(child, rb::Name{"child"});
+    const rb::Entity grand = scene.create();
+    scene.add<rb::Name>(grand, rb::Name{"grand"});
+    CHECK(rb::setParent(scene, child, root));
+    CHECK(rb::setParent(scene, grand, child));
+
+    const rb::Entity copy = rb::SceneSerializer::duplicateSubtree(scene, registry, root);
+
+    CHECK(scene.aliveCount() == 6u);
+    CHECK(copy != root);
+    CHECK(rb::parentOf(scene, copy) == rb::kNullEntity);
+
+    const std::vector<rb::Entity> copiedChildren = rb::childrenOf(scene, copy);
+    CHECK(copiedChildren.size() == 1u);
+    if (!copiedChildren.empty()) {
+        const rb::Entity copiedChild = copiedChildren.front();
+        CHECK(copiedChild != child); // linked to the copy, not shared with the original
+        CHECK(scene.get<rb::Name>(copiedChild).value == "child");
+        const std::vector<rb::Entity> copiedGrand = rb::childrenOf(scene, copiedChild);
+        CHECK(copiedGrand.size() == 1u);
+        CHECK(!copiedGrand.empty() && scene.get<rb::Name>(copiedGrand.front()).value == "grand");
+    }
+
+    // The original tree is untouched.
+    CHECK(rb::childrenOf(scene, root).size() == 1u);
+    CHECK(rb::parentOf(scene, child) == root);
+    CHECK(rb::parentOf(scene, grand) == child);
+}
+
+static void duplicateSubtreeKeepsTheRootParent() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    rb::Scene scene;
+
+    const rb::Entity base = scene.create();
+    const rb::Entity source = scene.create();
+    const rb::Entity leaf = scene.create();
+    CHECK(rb::setParent(scene, source, base));
+    CHECK(rb::setParent(scene, leaf, source));
+
+    const rb::Entity copy = rb::SceneSerializer::duplicateSubtree(scene, registry, source);
+
+    CHECK(rb::parentOf(scene, copy) == base); // the copy stays a sibling of the source
+    CHECK(rb::childrenOf(scene, base).size() == 2u);
+    CHECK(rb::childrenOf(scene, copy).size() == 1u);
+}
+
 int main() {
     duplicateCopiesComponents();
     duplicateIsIndependent();
     duplicateResetsModelHandle();
+    duplicateSubtreeMirrorsTheTree();
+    duplicateSubtreeKeepsTheRootParent();
     return rbtest::summary("serialize_duplicate");
 }

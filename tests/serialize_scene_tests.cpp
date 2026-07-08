@@ -1,5 +1,6 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/scene/Camera.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
@@ -28,6 +29,22 @@ rb::Entity spawnHero(rb::Scene& scene) {
     t.scale = {2.0f, 2.0f, 2.0f};
     scene.add<rb::Transform>(e, t);
     return e;
+}
+
+rb::Entity spawnNamed(rb::Scene& scene, const std::string& name) {
+    const rb::Entity e = scene.create();
+    scene.add<rb::Name>(e, rb::Name{name});
+    return e;
+}
+
+rb::Entity firstNamed(rb::Scene& scene, const std::string& name) {
+    rb::Entity found;
+    scene.each<rb::Name>([&](rb::Entity e, rb::Name& n) {
+        if (!found.valid() && n.value == name) {
+            found = e;
+        }
+    });
+    return found;
 }
 
 } // namespace
@@ -151,6 +168,105 @@ static void loadFromFileReplaces() {
     std::filesystem::remove(path, ec);
 }
 
+static void parentLinksRoundTrip() {
+    const rb::ComponentRegistry registry = makeRegistry();
+
+    rb::Scene source;
+    const rb::Entity root = spawnNamed(source, "root");
+    const rb::Entity child = spawnNamed(source, "child");
+    const rb::Entity grand = spawnNamed(source, "grand");
+    spawnNamed(source, "loner");
+    CHECK(rb::setParent(source, child, root));
+    CHECK(rb::setParent(source, grand, child));
+
+    const nlohmann::json doc = rb::SceneSerializer::toJson(source, registry);
+
+    rb::Scene loaded;
+    rb::SceneSerializer::fromJson(doc, loaded, registry);
+    CHECK(loaded.aliveCount() == 4u);
+
+    const rb::Entity lroot = firstNamed(loaded, "root");
+    const rb::Entity lchild = firstNamed(loaded, "child");
+    const rb::Entity lgrand = firstNamed(loaded, "grand");
+    const rb::Entity lloner = firstNamed(loaded, "loner");
+    CHECK(rb::parentOf(loaded, lchild) == lroot);
+    CHECK(rb::parentOf(loaded, lgrand) == lchild);
+    CHECK(rb::parentOf(loaded, lroot) == rb::kNullEntity);
+    CHECK(rb::parentOf(loaded, lloner) == rb::kNullEntity);
+}
+
+static void parentedSaveLoadSaveIsIdempotent() {
+    const rb::ComponentRegistry registry = makeRegistry();
+
+    rb::Scene source;
+    const rb::Entity root = spawnHero(source);
+    const rb::Entity child = spawnNamed(source, "shield");
+    CHECK(rb::setParent(source, child, root));
+
+    const std::string first = rb::SceneSerializer::toJson(source, registry).dump(2);
+    rb::Scene loaded;
+    rb::SceneSerializer::fromJson(nlohmann::json::parse(first), loaded, registry);
+    const std::string second = rb::SceneSerializer::toJson(loaded, registry).dump(2);
+    CHECK(first == second);
+}
+
+static void childRecordBeforeParentRecordResolves() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const nlohmann::json doc = nlohmann::json::parse(R"({
+      "version": 1,
+      "entities": [
+        { "id": 0, "parent": 1, "components": { "Name": { "value": "child" } } },
+        { "id": 1, "components": { "Name": { "value": "root" } } }
+      ]
+    })");
+
+    rb::Scene scene;
+    rb::SceneSerializer::fromJson(doc, scene, registry);
+    const rb::Entity child = firstNamed(scene, "child");
+    const rb::Entity root = firstNamed(scene, "root");
+    CHECK(rb::parentOf(scene, child) == root);
+}
+
+static void malformedParentIsSkipped() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const nlohmann::json doc = nlohmann::json::parse(R"({
+      "version": 1,
+      "entities": [
+        { "id": 0, "parent": "bogus", "components": { "Name": { "value": "a" } } },
+        { "id": 1, "parent": 99, "components": { "Name": { "value": "b" } } },
+        { "id": 2, "parent": 2, "components": { "Name": { "value": "c" } } },
+        { "id": 3, "parent": 4, "components": { "Name": { "value": "d" } } },
+        { "id": 4, "parent": 3, "components": { "Name": { "value": "e" } } }
+      ]
+    })");
+
+    rb::Scene scene;
+    rb::SceneSerializer::fromJson(doc, scene, registry); // must not throw
+    CHECK(scene.aliveCount() == 5u);
+    CHECK(rb::parentOf(scene, firstNamed(scene, "a")) == rb::kNullEntity);
+    CHECK(rb::parentOf(scene, firstNamed(scene, "b")) == rb::kNullEntity);
+    CHECK(rb::parentOf(scene, firstNamed(scene, "c")) == rb::kNullEntity);
+
+    // The authored cycle degrades to a single accepted link, never a loop.
+    const bool dUnderE = rb::parentOf(scene, firstNamed(scene, "d")) == firstNamed(scene, "e");
+    const bool eUnderD = rb::parentOf(scene, firstNamed(scene, "e")) == firstNamed(scene, "d");
+    CHECK(dUnderE != eUnderD);
+}
+
+static void staleParentIsNotSaved() {
+    const rb::ComponentRegistry registry = makeRegistry();
+
+    rb::Scene scene;
+    const rb::Entity parent = spawnNamed(scene, "gone");
+    const rb::Entity child = spawnNamed(scene, "kept");
+    CHECK(rb::setParent(scene, child, parent));
+    scene.destroy(parent);
+
+    const nlohmann::json doc = rb::SceneSerializer::toJson(scene, registry);
+    CHECK(doc["entities"].size() == 1u);
+    CHECK(!doc["entities"][0].contains("parent"));
+}
+
 int main() {
     registryExposesBuiltins();
     roundTripPreservesComponents();
@@ -158,5 +274,10 @@ int main() {
     saveAndLoadFile();
     malformedDataLoadsGracefully();
     loadFromFileReplaces();
+    parentLinksRoundTrip();
+    parentedSaveLoadSaveIsIdempotent();
+    childRecordBeforeParentRecordResolves();
+    malformedParentIsSkipped();
+    staleParentIsNotSaved();
     return rbtest::summary("serialize_scene");
 }

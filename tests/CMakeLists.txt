@@ -24,6 +24,7 @@ set(RABBET_TEST_SUITES
     terrain
     tonemap
     camera_view
+    hierarchy
     render_geometry
     render_shadow
     render_sky
