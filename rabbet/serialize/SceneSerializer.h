@@ -21,6 +21,13 @@ namespace SceneSerializer {
 // independent and itself serializable. Returns the new entity.
 [[nodiscard]] Entity duplicateEntity(Scene& scene, const ComponentRegistry& registry, Entity source);
 
+// Duplicates `source` and its whole descendant tree through the registry hooks, then
+// relinks the copies to mirror the originals' parent links. The copied root keeps the
+// original root's parent, so duplicating a child stays a sibling of the original.
+// Returns the copied root.
+[[nodiscard]] Entity duplicateSubtree(Scene& scene, const ComponentRegistry& registry,
+                                      Entity source);
+
 // Appends the document's entities into `scene` without clearing it. loadFromFile
 // clears first; call this directly only to intentionally merge into a live scene.
 void fromJson(const nlohmann::json& doc, Scene& scene, const ComponentRegistry& registry);

@@ -4,9 +4,11 @@
 #include <cstdint>
 #include <exception>
 #include <fstream>
+#include <unordered_map>
 #include <vector>
 
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/serialize/ComponentRegistry.h"
 #include "rabbet/util/Log.h"
 
@@ -23,8 +25,14 @@ nlohmann::json SceneSerializer::toJson(Scene& scene, const ComponentRegistry& re
 
     // Sequential ids in iteration order: human-readable, and a save -> load -> save
     // cycle stays stable. Loading is positional, so ids need not round-trip verbatim.
-    std::uint32_t fileId = 0;
-    for (const Entity e : scene.entities()) {
+    const std::vector<Entity> order = scene.entities();
+    std::unordered_map<Entity, std::uint32_t> fileIds;
+    fileIds.reserve(order.size());
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        fileIds.emplace(order[i], static_cast<std::uint32_t>(i));
+    }
+
+    for (const Entity e : order) {
         nlohmann::json components = nlohmann::json::object();
         for (const ComponentRegistry::Entry& entry : registry.entries()) {
             if (entry.has(scene, e)) {
@@ -32,7 +40,17 @@ nlohmann::json SceneSerializer::toJson(Scene& scene, const ComponentRegistry& re
             }
         }
         nlohmann::json object;
-        object["id"] = fileId++;
+        object["id"] = fileIds.at(e);
+        // The hierarchy link is structural, not a component payload: records refer to
+        // each other by file id, remapped to the created entities on load. parentOf
+        // already drops a stale link to a destroyed parent.
+        const Entity parent = parentOf(scene, e);
+        if (parent.valid()) {
+            const auto parentId = fileIds.find(parent);
+            if (parentId != fileIds.end()) {
+                object["parent"] = parentId->second;
+            }
+        }
         object["components"] = std::move(components);
         entities.push_back(std::move(object));
     }
@@ -60,6 +78,34 @@ Entity SceneSerializer::duplicateEntity(Scene& scene, const ComponentRegistry& r
         }
     }
     return copy;
+}
+
+Entity SceneSerializer::duplicateSubtree(Scene& scene, const ComponentRegistry& registry,
+                                         Entity source) {
+    // Collect before creating any copy, so the copies never show up as children mid-walk.
+    std::vector<Entity> originals{source};
+    if (scene.alive(source)) {
+        for (std::size_t next = 0; next < originals.size(); ++next) {
+            for (const Entity child : childrenOf(scene, originals[next])) {
+                originals.push_back(child);
+            }
+        }
+    }
+    std::unordered_map<Entity, Entity> copies;
+    copies.reserve(originals.size());
+    for (const Entity original : originals) {
+        copies.emplace(original, duplicateEntity(scene, registry, original));
+    }
+    for (const Entity original : originals) {
+        const Entity parent = parentOf(scene, original);
+        if (!parent.valid()) {
+            continue;
+        }
+        const auto inside = copies.find(parent);
+        setParent(scene, copies.at(original),
+                  inside != copies.end() ? inside->second : parent);
+    }
+    return copies.at(source);
 }
 
 void SceneSerializer::fromJson(const nlohmann::json& doc, Scene& scene,
@@ -97,6 +143,25 @@ void SceneSerializer::fromJson(const nlohmann::json& doc, Scene& scene,
             } catch (const std::exception& ex) {
                 log::warn("scene load: component '{}' failed to load: {}", it.key(), ex.what());
             }
+        }
+    }
+
+    // Parent links resolve only after every record has an entity, so a child record may
+    // precede its parent in the file. setParent's gate turns a hand-authored cycle into
+    // a refused link instead of corrupt runtime state.
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto parentIt = (*entitiesIt)[i].find("parent");
+        if (parentIt == (*entitiesIt)[i].end()) {
+            continue;
+        }
+        if (!parentIt->is_number_unsigned() || parentIt->get<std::size_t>() >= count ||
+            parentIt->get<std::size_t>() == i) {
+            log::warn("scene load: entity {} has an invalid parent id, skipped", i);
+            continue;
+        }
+        if (!setParent(scene, created[i], created[parentIt->get<std::size_t>()])) {
+            log::warn("scene load: entity {} parent id {} refused (cycle?)", i,
+                      parentIt->get<std::size_t>());
         }
     }
 }
