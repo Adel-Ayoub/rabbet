@@ -6,6 +6,7 @@
 #include "rabbet/physics/PhysicsSystem.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scripting/ScriptAsset.h"
 #include "rabbet/scripting/ScriptComponent.h"
@@ -251,6 +252,41 @@ void terrainCollidesAsStaticGround() {
     CHECK(y < 0.7f);  // rests on the flat surface at roughly its radius
 }
 
+// A body on a parented entity spawns from its composed world pose, simulates in world
+// space, and writes back a Transform local to the rig (world rest ~1.0 under a rig at
+// y=5 reads back as local y ~ -4).
+void parentedBodySimulatesInWorldWritesLocal() {
+    rb::Runtime runtime;
+    rb::PhysicsSystem physics;
+
+    const rb::Entity floor = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(floor, rb::Transform{});
+    runtime.scene().add<rb::RigidBody>(floor,
+                                       rb::RigidBody{rb::BodyType::Static, 0.0f, 0.4f, 0.0f, true});
+    runtime.scene().add<rb::BoxCollider>(
+        floor, rb::BoxCollider{glm::vec3(5.0f, 0.5f, 5.0f), glm::vec3(0.0f)});
+
+    const rb::Entity rig = runtime.scene().create();
+    rb::Transform rigPose;
+    rigPose.position = glm::vec3(0.0f, 5.0f, 0.0f);
+    runtime.scene().add<rb::Transform>(rig, rigPose);
+
+    const rb::Entity ball = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(ball, rb::Transform{});
+    runtime.scene().add<rb::RigidBody>(
+        ball, rb::RigidBody{rb::BodyType::Dynamic, 1.0f, 0.4f, 0.0f, true});
+    runtime.scene().add<rb::SphereCollider>(ball, rb::SphereCollider{0.5f, glm::vec3(0.0f)});
+    CHECK(rb::setParent(runtime.scene(), ball, rig));
+
+    physics.onPlayBegin(runtime);
+    for (int i = 0; i < 240; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+
+    CHECK(std::fabs(posY(runtime, ball) + 4.0f) < 0.05f);
+    CHECK(std::fabs(rb::worldPoseOf(runtime.scene(), ball).position.y - 1.0f) < 0.05f);
+}
+
 } // namespace
 
 int main() {
@@ -263,5 +299,6 @@ int main() {
     impulseAcceleratesBody();
     scriptDrivesPhysicsBody();
     terrainCollidesAsStaticGround();
+    parentedBodySimulatesInWorldWritesLocal();
     return rbtest::summary("physics");
 }

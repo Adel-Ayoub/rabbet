@@ -2,7 +2,12 @@
 #include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/particle/ParticleRng.h"
 #include "rabbet/particle/ParticleSimulation.h"
+#include "rabbet/particle/ParticleRenderData.h"
+#include "rabbet/particle/ParticleSystem.h"
+#include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/scene/Hierarchy.h"
+#include "rabbet/scene/Transform.h"
 #include "rabbet/serialize/BuiltinComponents.h"
 #include "rabbet/serialize/ComponentRegistry.h"
 #include "rabbet/serialize/SceneSerializer.h"
@@ -376,6 +381,46 @@ void partialEmitterTakesDefaults() {
 
 } // namespace
 
+// The system spawns a parented emitter's particles at its composed world position, not
+// its local offset (zero velocity and gravity keep newborns exactly where they were born).
+static void parentedEmitterSpawnsAtItsWorldPosition() {
+    rb::Runtime rt;
+    rt.addSystem<rb::ParticleSystem>();
+    rb::Scene& scene = rt.scene();
+
+    const rb::Entity rig = scene.create();
+    rb::Transform rigPose;
+    rigPose.position = glm::vec3(10.0f, 0.0f, 0.0f);
+    scene.add<rb::Transform>(rig, rigPose);
+
+    const rb::Entity sparks = scene.create();
+    rb::Transform local;
+    local.position = glm::vec3(1.0f, 0.0f, 0.0f);
+    scene.add<rb::Transform>(sparks, local);
+    rb::ParticleEmitter emitter;
+    emitter.emissionRate = 200.0f;
+    emitter.velocity = glm::vec3(0.0f);
+    emitter.speedJitter = 0.0f;
+    emitter.gravity = glm::vec3(0.0f);
+    scene.add<rb::ParticleEmitter>(sparks, emitter);
+    CHECK(rb::setParent(scene, sparks, rig));
+
+    rt.start();
+    rt.tick(0.05f);
+    rt.stop();
+
+    const rb::ParticleRenderData* data = rt.tryResource<rb::ParticleRenderData>();
+    CHECK(data != nullptr);
+    const bool spawned =
+        data != nullptr && !data->batches.empty() && !data->batches.front().particles.empty();
+    CHECK(spawned);
+    if (spawned) {
+        const glm::vec3 p = data->batches.front().particles.front().position;
+        CHECK(std::fabs(p.x - 11.0f) < 1.0e-3f);
+        CHECK(std::fabs(p.y) < 1.0e-3f);
+    }
+}
+
 int main() {
     rngIsDeterministicPerSeed();
     coneDirectionsStayWithinHalfAngle();
@@ -391,5 +436,6 @@ int main() {
     identicalRunsMatch();
     emitterRoundTrips();
     partialEmitterTakesDefaults();
+    parentedEmitterSpawnsAtItsWorldPosition();
     return rbtest::summary("particle");
 }

@@ -312,6 +312,42 @@ static void reparentRecomposesNextTick() {
     rt.stop();
 }
 
+static void reparentKeepingWorldPoseHoldsThePose() {
+    rb::Scene scene;
+
+    const rb::Entity rig = scene.create();
+    rb::Transform rigPose;
+    rigPose.position = {10.0f, 0.0f, 0.0f};
+    rigPose.rotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    rigPose.scale = glm::vec3(2.0f);
+    scene.add<rb::Transform>(rig, rigPose);
+
+    const rb::Entity other = scene.create();
+    rb::Transform otherPose;
+    otherPose.position = {-5.0f, 3.0f, 0.0f};
+    scene.add<rb::Transform>(other, otherPose);
+
+    const rb::Entity child = spawnAt(scene, {1.0f, 0.0f, 0.0f});
+    CHECK(rb::setParent(scene, child, rig));
+
+    const auto origin = [&](rb::Entity e) {
+        return glm::vec3(rb::worldMatrixOf(scene, e) * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    };
+    const glm::vec3 before = origin(child);
+    CHECK(approxVec(before, glm::vec3(10.0f, 2.0f, 0.0f)));
+
+    // Moving between parents rewrites the local TRS so the world position holds.
+    CHECK(rb::setParentKeepingWorldPose(scene, child, other));
+    CHECK(rb::parentOf(scene, child) == other);
+    CHECK(approxVec(origin(child), before));
+
+    // Un-parenting bakes the world pose straight into the local Transform.
+    CHECK(rb::setParentKeepingWorldPose(scene, child, rb::kNullEntity));
+    CHECK(rb::parentOf(scene, child) == rb::kNullEntity);
+    CHECK(approxVec(origin(child), before));
+    CHECK(approxVec(scene.get<rb::Transform>(child).position, before));
+}
+
 static void corruptCycleTickTerminates() {
     rb::Runtime rt;
     rt.addSystem<rb::TransformSystem>();
@@ -346,6 +382,7 @@ int main() {
     transformlessMiddleNodeComposesThrough();
     orphanComposesAsRootNextTick();
     reparentRecomposesNextTick();
+    reparentKeepingWorldPoseHoldsThePose();
     corruptCycleTickTerminates();
     return rbtest::summary("hierarchy");
 }

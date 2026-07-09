@@ -8,6 +8,7 @@
 #include "rabbet/core/Uuid.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/render/RenderView.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/serialize/BuiltinComponents.h"
 #include "rabbet/serialize/ComponentRegistry.h"
@@ -162,6 +163,32 @@ void spatialFlagAndPosition(const fs::path& wav) {
     CHECK(pos.has_value());
     if (pos.has_value()) {
         CHECK(glm::distance(*pos, spatialPos) < 1e-4f);
+    }
+}
+
+// A spatial voice on a parented emitter sits at the entity's composed world position, not
+// its local offset.
+void parentedEmitterPositionsVoiceInWorld(const fs::path& wav) {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AudioSystem audio;
+
+    const rb::Entity rig = runtime.scene().create();
+    rb::Transform rigPose;
+    rigPose.position = glm::vec3(10.0f, 0.0f, 4.0f);
+    runtime.scene().add<rb::Transform>(rig, rigPose);
+
+    const rb::Entity chime =
+        addEmitter(runtime, assets, wav, glm::vec3(1.0f, 2.0f, 0.0f), true, true);
+    CHECK(rb::setParent(runtime.scene(), chime, rig));
+
+    audio.onPlayBegin(runtime);
+    audio.onUpdate(runtime, 1.0f / 60.0f);
+
+    const std::optional<glm::vec3> pos = audio.voicePosition(chime);
+    CHECK(pos.has_value());
+    if (pos.has_value()) {
+        CHECK(glm::distance(*pos, glm::vec3(11.0f, 2.0f, 4.0f)) < 1e-4f);
     }
 }
 
@@ -343,6 +370,7 @@ int main() {
     notStartedWhenPlayOnStartFalse(wav);
     gatedBeforePlayBegin(wav);
     spatialFlagAndPosition(wav);
+    parentedEmitterPositionsVoiceInWorld(wav);
     replayWithPlayAndStop(wav);
     reapsDestroyedEmitter(wav);
     streamedClipPlays(wav);

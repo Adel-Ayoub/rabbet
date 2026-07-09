@@ -2,6 +2,7 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/render/Lighting.h"
 #include "rabbet/render/Primitive.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/LightSystem.h"
 #include "rabbet/scene/Transform.h"
@@ -170,6 +171,35 @@ static void primitiveWithoutEmissiveDefaultsToZero() {
     CHECK(approx(primitive.emissive.b, 0.0f));
 }
 
+// A parented light illuminates from its composed world position; the rig's pose carries
+// the bulb, while a root light keeps reading its own Transform exactly as before.
+static void parentedLightGathersAtWorldPosition() {
+    rb::Runtime rt;
+    rt.addSystem<rb::LightSystem>();
+    rb::Scene& scene = rt.scene();
+
+    const rb::Entity rig = scene.create();
+    rb::Transform rigPose;
+    rigPose.position = glm::vec3(10.0f, 2.0f, 0.0f);
+    scene.add<rb::Transform>(rig, rigPose);
+
+    const rb::Entity bulb = scene.create();
+    rb::Transform local;
+    local.position = glm::vec3(1.0f, 0.0f, 0.0f);
+    scene.add<rb::Transform>(bulb, local);
+    scene.add<rb::PointLight>(bulb, rb::PointLight{});
+    CHECK(rb::setParent(scene, bulb, rig));
+
+    rt.start();
+    rt.tick(0.0f);
+    rt.stop();
+
+    const rb::Lighting& lighting = rt.resource<rb::Lighting>();
+    CHECK(lighting.pointPositions.size() == 1u);
+    CHECK(!lighting.pointPositions.empty() && approx(lighting.pointPositions[0].x, 11.0f));
+    CHECK(!lighting.pointPositions.empty() && approx(lighting.pointPositions[0].y, 2.0f));
+}
+
 int main() {
     coneCosinesMapAnglesToCosines();
     coneCosinesClampInvertedCone();
@@ -178,5 +208,6 @@ int main() {
     spotLightRoundTrips();
     primitiveEmissiveRoundTrips();
     primitiveWithoutEmissiveDefaultsToZero();
+    parentedLightGathersAtWorldPosition();
     return rbtest::summary("lighting_extended");
 }
