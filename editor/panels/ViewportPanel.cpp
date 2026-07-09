@@ -7,6 +7,7 @@
 #include "rabbet/render/DebugDraw.h"
 #include "rabbet/render/EnvironmentLighting.h"
 #include "rabbet/render/PostProcess.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Transform.h"
 
 #include <ImGuizmo.h>
@@ -128,16 +129,22 @@ void ViewportPanel::drawGizmo(const ImVec2& imageMin, const ImVec2& imageSize) {
     }
     const float snapVec[3] = {snapValue, snapValue, snapValue};
 
-    glm::mat4 model = transform->matrix();
+    // The gizmo manipulates the world matrix; a parented selection converts the result
+    // back into its local frame before the decompose (a root passes straight through).
+    const rb::Entity parent = rb::parentOf(scene, m_context.selected);
+    const glm::mat4 parentWorld =
+        parent.valid() ? rb::worldMatrixOf(scene, parent) : glm::mat4(1.0f);
+    glm::mat4 model = parentWorld * transform->matrix();
     if (ImGuizmo::Manipulate(glm::value_ptr(m_context.renderView.view),
                              glm::value_ptr(m_context.renderView.projection), m_gizmoOp, m_gizmoMode,
                              glm::value_ptr(model), nullptr, m_snap ? snapVec : nullptr)) {
+        const glm::mat4 local = parent.valid() ? glm::inverse(parentWorld) * model : model;
         glm::vec3 translation;
         glm::vec3 scale;
         glm::vec3 skew;
         glm::vec4 perspective;
         glm::quat rotation;
-        if (glm::decompose(model, scale, rotation, translation, skew, perspective)) {
+        if (glm::decompose(local, scale, rotation, translation, skew, perspective)) {
             transform->position = translation;
             transform->rotation = rotation;
             transform->scale = scale;

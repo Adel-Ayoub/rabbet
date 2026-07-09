@@ -4,8 +4,9 @@
 
 namespace rb::editor {
 
-// Lists the scene's entities and supports create (empty / primitives / lights),
-// duplicate, and delete. Selection is written back into the EditorContext.
+// Shows the scene as a parent/child tree and supports create (empty / primitives /
+// lights), subtree duplicate and delete, and drag-to-reparent (a drop below the tree
+// un-parents). Selection is written back into the EditorContext.
 class HierarchyPanel final : public Panel {
 public:
     explicit HierarchyPanel(EditorContext& context) : Panel(context) {}

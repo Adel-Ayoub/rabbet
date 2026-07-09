@@ -12,6 +12,7 @@
 #include "rabbet/render/PostProcess.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/scene/Camera.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
@@ -23,6 +24,7 @@
 #include <glm/glm.hpp>
 #include <imgui.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -71,6 +73,83 @@ void createPrefab(EditorContext& context, rb::Entity e) {
         rb::log::info("prefab: saved '{}'", path.string());
     } else {
         rb::log::error("prefab: failed to save prefab '{}'", path.string());
+    }
+}
+
+constexpr const char* kEntityDragType = "RB_ENTITY";
+
+// What one frame's tree interaction asked for; applied after the draw pass so the scene
+// is never mutated while the tree is iterating it.
+struct TreeActions {
+    rb::Entity select{};
+    rb::Entity duplicate{};
+    rb::Entity destroy{};
+    rb::Entity reparentChild{};
+    rb::Entity reparentParent{}; // null = drop to root (un-parent)
+    bool reparent = false;
+};
+
+void drawEntityNode(EditorContext& context, rb::Scene& scene, rb::AssetDatabase* database,
+                    rb::Entity e, TreeActions& actions) {
+    const std::vector<rb::Entity> children = rb::childrenOf(scene, e);
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+                               ImGuiTreeNodeFlags_OpenOnDoubleClick |
+                               ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
+    if (e == context.selected) {
+        flags |= ImGuiTreeNodeFlags_Selected;
+    }
+    if (children.empty()) {
+        flags |= ImGuiTreeNodeFlags_Leaf;
+    }
+    const std::string label = displayName(scene, e) + "##" + std::to_string(e.index());
+    const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
+        actions.select = e;
+    }
+    if (ImGui::BeginPopupContextItem()) {
+        if (ImGui::MenuItem("Duplicate")) {
+            actions.duplicate = e;
+        }
+        if (ImGui::MenuItem("Delete")) {
+            actions.destroy = e;
+        }
+        ImGui::EndPopup();
+    }
+    if (ImGui::BeginDragDropSource()) {
+        ImGui::SetDragDropPayload(kEntityDragType, &e, sizeof(rb::Entity));
+        ImGui::TextUnformatted(displayName(scene, e).c_str());
+        ImGui::EndDragDropSource();
+    }
+    // Drop another row here to re-parent it under this entity.
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityDragType)) {
+            if (payload->Data != nullptr &&
+                payload->DataSize == static_cast<int>(sizeof(rb::Entity))) {
+                actions.reparent = true;
+                actions.reparentChild = *static_cast<const rb::Entity*>(payload->Data);
+                actions.reparentParent = e;
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    // Drop an asset from the Assets browser onto a row: a prefab instantiates, anything
+    // else is assigned to this entity by its type.
+    if (const AssetDragPayload dropped = acceptAssetDropTarget();
+        dropped.valid() && database != nullptr) {
+        if (const rb::AssetDatabase::Record* record = database->find(dropped.id)) {
+            if (record->type == rb::AssetType::Prefab) {
+                instantiatePrefabAsset(context, *record);
+            } else {
+                assignAssetToEntity(context, *record, e);
+                actions.select = e;
+            }
+        }
+    }
+    if (open) {
+        for (const rb::Entity child : children) {
+            drawEntityNode(context, scene, database, child, actions);
+        }
+        ImGui::TreePop();
     }
 }
 
@@ -169,47 +248,50 @@ void HierarchyPanel::onImGui() {
     ImGui::EndDisabled();
     ImGui::Separator();
 
-    const std::vector<rb::Entity> entities = scene.entities();
+    TreeActions actions;
+    actions.select = toSelect;
+    actions.duplicate = toDuplicate;
+    actions.destroy = toDelete;
+
     rb::AssetDatabase* database = m_context.runtime.tryResource<rb::AssetDatabase>();
+    const std::vector<rb::Entity> entities = scene.entities();
     for (const rb::Entity e : entities) {
-        const std::string label = displayName(scene, e) + "##" + std::to_string(e.index());
-        if (ImGui::Selectable(label.c_str(), e == m_context.selected)) {
-            toSelect = e;
-        }
-        // Drop an asset from the Assets browser onto a row: a prefab instantiates, anything else is
-        // assigned to this entity by its type.
-        if (const AssetDragPayload dropped = acceptAssetDropTarget();
-            dropped.valid() && database != nullptr) {
-            if (const rb::AssetDatabase::Record* record = database->find(dropped.id)) {
-                if (record->type == rb::AssetType::Prefab) {
-                    instantiatePrefabAsset(m_context, *record);
-                } else {
-                    assignAssetToEntity(m_context, *record, e);
-                    toSelect = e;
-                }
-            }
-        }
-        if (ImGui::BeginPopupContextItem(label.c_str())) {
-            if (ImGui::MenuItem("Duplicate")) {
-                toDuplicate = e;
-            }
-            if (ImGui::MenuItem("Delete")) {
-                toDelete = e;
-            }
-            ImGui::EndPopup();
+        if (rb::parentOf(scene, e) == rb::kNullEntity) {
+            drawEntityNode(m_context, scene, database, e, actions);
         }
     }
 
-    // Apply structural changes after iterating the entity snapshot.
-    if (toDuplicate.valid() && scene.alive(toDuplicate)) {
-        m_context.selected = rb::SceneSerializer::duplicateEntity(scene, m_context.registry, toDuplicate);
-    } else if (toDelete.valid() && scene.alive(toDelete)) {
-        if (m_context.selected == toDelete) {
-            m_context.selected = rb::Entity{};
+    // The space under the tree un-parents: drop a row there to make it a root again.
+    ImVec2 rootZone = ImGui::GetContentRegionAvail();
+    rootZone.x = std::max(rootZone.x, 1.0f);
+    rootZone.y = std::max(rootZone.y, 24.0f);
+    ImGui::Dummy(rootZone);
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityDragType)) {
+            if (payload->Data != nullptr &&
+                payload->DataSize == static_cast<int>(sizeof(rb::Entity))) {
+                actions.reparent = true;
+                actions.reparentChild = *static_cast<const rb::Entity*>(payload->Data);
+                actions.reparentParent = rb::Entity{};
+            }
         }
-        scene.destroy(toDelete);
-    } else if (toSelect.valid()) {
-        m_context.selected = toSelect;
+        ImGui::EndDragDropTarget();
+    }
+
+    // Apply structural changes after iterating the entity snapshot.
+    if (actions.reparent && scene.alive(actions.reparentChild)) {
+        rb::setParentKeepingWorldPose(scene, actions.reparentChild, actions.reparentParent);
+    } else if (actions.duplicate.valid() && scene.alive(actions.duplicate)) {
+        m_context.selected =
+            rb::SceneSerializer::duplicateSubtree(scene, m_context.registry, actions.duplicate);
+    } else if (actions.destroy.valid() && scene.alive(actions.destroy)) {
+        if (m_context.selected == actions.destroy ||
+            rb::isAncestor(scene, actions.destroy, m_context.selected)) {
+            m_context.selected = rb::Entity{}; // the selection dies with the subtree
+        }
+        rb::destroySubtree(scene, actions.destroy);
+    } else if (actions.select.valid()) {
+        m_context.selected = actions.select;
     }
 }
 
