@@ -2,6 +2,7 @@
 
 #include "rabbet/core/Runtime.h"
 #include "rabbet/render/Lighting.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Transform.h"
 
@@ -40,15 +41,18 @@ void LightSystem::onUpdate(Runtime& runtime, float) {
         lighting.directionalDirections.push_back(glm::normalize(light.direction));
         lighting.directionalColors.push_back(light.color * light.intensity);
     });
+    // Positions compose through the parent chain (a root's pose is exactly its own
+    // Transform). Directions stay authored world-space, the same rule as a flat scene,
+    // where rotating the light entity never steers the cone either.
     scene.each<PointLight, Transform>(
-        [&lighting](Entity, PointLight& light, Transform& transform) {
-            lighting.pointPositions.push_back(transform.position);
+        [&lighting, &scene](Entity entity, PointLight& light, Transform&) {
+            lighting.pointPositions.push_back(worldPoseOf(scene, entity).position);
             lighting.pointColors.push_back(light.color * light.intensity);
             lighting.pointAttenuations.emplace_back(light.constant, light.linear, light.quadratic);
         });
     scene.each<SpotLight, Transform>(
-        [&lighting](Entity, SpotLight& light, Transform& transform) {
-            lighting.spotPositions.push_back(transform.position);
+        [&lighting, &scene](Entity entity, SpotLight& light, Transform&) {
+            lighting.spotPositions.push_back(worldPoseOf(scene, entity).position);
             lighting.spotDirections.push_back(glm::normalize(light.direction));
             lighting.spotColors.push_back(light.color * light.intensity);
             lighting.spotAttenuations.emplace_back(light.constant, light.linear, light.quadratic);

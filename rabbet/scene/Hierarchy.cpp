@@ -2,8 +2,12 @@
 
 #include <cstddef>
 
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/matrix_decompose.hpp>
+
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/scene/Parent.h"
+#include "rabbet/scene/Transform.h"
 
 namespace rb {
 
@@ -56,6 +60,63 @@ bool setParent(Scene& scene, Entity child, Entity parent) {
     }
     scene.add<Parent>(child, Parent{parent});
     return true;
+}
+
+bool setParentKeepingWorldPose(Scene& scene, Entity child, Entity parent) {
+    const glm::mat4 world = worldMatrixOf(scene, child);
+    if (!setParent(scene, child, parent)) {
+        return false;
+    }
+    Transform* transform = scene.tryGet<Transform>(child);
+    if (transform == nullptr) {
+        return true; // linked; there is no local TRS to rewrite
+    }
+    const Entity actual = parentOf(scene, child);
+    const glm::mat4 local =
+        actual.valid() ? glm::inverse(worldMatrixOf(scene, actual)) * world : world;
+    glm::vec3 translation;
+    glm::vec3 scale;
+    glm::vec3 skew;
+    glm::vec4 perspective;
+    glm::quat rotation;
+    if (glm::decompose(local, scale, rotation, translation, skew, perspective)) {
+        transform->position = translation;
+        transform->rotation = rotation;
+        transform->scale = scale;
+    }
+    return true;
+}
+
+WorldPose worldPoseOf(Scene& scene, Entity entity) {
+    WorldPose pose;
+    if (const Transform* transform = scene.tryGet<Transform>(entity)) {
+        pose.position = transform->position;
+        pose.rotation = transform->rotation;
+        pose.scale = transform->scale;
+    }
+    Entity walk = parentOf(scene, entity);
+    for (int depth = 0; walk.valid() && depth < kMaxHierarchyDepth; ++depth) {
+        if (const Transform* up = scene.tryGet<Transform>(walk)) {
+            pose.position = up->position + up->rotation * (up->scale * pose.position);
+            pose.rotation = glm::normalize(up->rotation * pose.rotation);
+            pose.scale = up->scale * pose.scale;
+        }
+        walk = parentOf(scene, walk);
+    }
+    return pose;
+}
+
+glm::mat4 worldMatrixOf(Scene& scene, Entity entity) {
+    const Transform* transform = scene.tryGet<Transform>(entity);
+    glm::mat4 world = transform != nullptr ? transform->matrix() : glm::mat4(1.0f);
+    Entity walk = parentOf(scene, entity);
+    for (int depth = 0; walk.valid() && depth < kMaxHierarchyDepth; ++depth) {
+        if (const Transform* up = scene.tryGet<Transform>(walk)) {
+            world = up->matrix() * world;
+        }
+        walk = parentOf(scene, walk);
+    }
+    return world;
 }
 
 void destroySubtree(Scene& scene, Entity root) {

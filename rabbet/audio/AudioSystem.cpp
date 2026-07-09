@@ -15,6 +15,7 @@
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/render/RenderView.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/util/Log.h"
 
@@ -103,7 +104,7 @@ struct AudioSystem::Impl {
         voices.clear();
     }
 
-    void applyProperties(Voice& voice, const SoundEmitter& emitter, const Transform* transform) {
+    void applyProperties(Voice& voice, const SoundEmitter& emitter, const glm::vec3* position) {
         // Clamp to sane bounds so a stray serialized/scripted value can't feed miniaudio a
         // negative or absurd gain/pitch. Only push a setter when the value actually changed.
         const float volume = std::clamp(emitter.volume, 0.0f, 16.0f);
@@ -125,9 +126,8 @@ struct AudioSystem::Impl {
             voice.spatial = emitter.spatial;
         }
         // Position can change every frame for a moving source, so it is set unconditionally.
-        if (emitter.spatial && transform != nullptr) {
-            ma_sound_set_position(&voice.sound, transform->position.x, transform->position.y,
-                                  transform->position.z);
+        if (emitter.spatial && position != nullptr) {
+            ma_sound_set_position(&voice.sound, position->x, position->y, position->z);
         }
         voice.hasParams = true;
     }
@@ -187,7 +187,9 @@ struct AudioSystem::Impl {
                 return;
             }
             voice->inited = true;
-            applyProperties(*voice, emitter, scene.tryGet<Transform>(entity));
+            const glm::vec3 world = worldPoseOf(scene, entity).position;
+            applyProperties(*voice, emitter,
+                            scene.tryGet<Transform>(entity) != nullptr ? &world : nullptr);
             if (emitter.playOnStart && ma_sound_start(&voice->sound) != MA_SUCCESS) {
                 log::warn("audio: could not start clip '{}' for entity {}", asset->path.string(),
                           entity.index());
@@ -239,7 +241,9 @@ struct AudioSystem::Impl {
             if (it == voices.end()) {
                 return;
             }
-            applyProperties(*it->second, emitter, scene.tryGet<Transform>(entity));
+            const glm::vec3 world = worldPoseOf(scene, entity).position;
+            applyProperties(*it->second, emitter,
+                            scene.tryGet<Transform>(entity) != nullptr ? &world : nullptr);
         });
     }
 };

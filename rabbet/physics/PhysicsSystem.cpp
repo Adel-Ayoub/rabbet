@@ -1,6 +1,7 @@
 #include "rabbet/physics/PhysicsSystem.h"
 
 #include <algorithm>
+#include <cmath>
 #include <thread>
 #include <unordered_map>
 
@@ -26,6 +27,7 @@
 #include "rabbet/physics/PhysicsControl.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/terrain/TerrainRenderData.h"
 #include "rabbet/util/Log.h"
@@ -169,7 +171,7 @@ struct PhysicsSystem::Impl {
         Scene& scene = runtime.scene();
         JPH::BodyInterface& bodies = m_physics.GetBodyInterface();
 
-        scene.each<Transform, RigidBody>([&](Entity entity, Transform& transform, RigidBody& body) {
+        scene.each<Transform, RigidBody>([&](Entity entity, Transform&, RigidBody& body) {
             JPH::RefConst<JPH::Shape> shape;
             glm::vec3 offset{0.0f};
 
@@ -198,10 +200,13 @@ struct PhysicsSystem::Impl {
                 return; // a RigidBody with no collider is not simulated
             }
 
-            const glm::vec3 worldPos = transform.position + transform.rotation * offset;
+            // Bodies live in world space; a parented entity's Transform is local, so
+            // compose the chain for the spawn pose (a root's pose is its own Transform).
+            const WorldPose pose = worldPoseOf(scene, entity);
+            const glm::vec3 worldPos = pose.position + pose.rotation * offset;
             const JPH::ObjectLayer layer =
                 body.type == BodyType::Static ? Layers::kNonMoving : Layers::kMoving;
-            JPH::BodyCreationSettings settings(shape, toJolt(worldPos), toJolt(transform.rotation),
+            JPH::BodyCreationSettings settings(shape, toJolt(worldPos), toJolt(pose.rotation),
                                                motionType(body.type), layer);
             settings.mFriction = body.friction;
             settings.mRestitution = body.restitution;
@@ -350,8 +355,25 @@ struct PhysicsSystem::Impl {
             const JPH::Quat rotation = bodies.GetRotation(record.id);
             const glm::quat q(rotation.GetW(), rotation.GetX(), rotation.GetY(), rotation.GetZ());
             const glm::vec3 center(position.GetX(), position.GetY(), position.GetZ());
-            transform->rotation = q;
-            transform->position = center - q * record.offset; // undo the collider offset
+            const glm::vec3 worldPos = center - q * record.offset; // undo the collider offset
+
+            const Entity parent = parentOf(scene, entity);
+            if (!parent.valid()) {
+                transform->rotation = q;
+                transform->position = worldPos;
+            } else {
+                // The body simulated in world space; the Transform is local to the
+                // parent. This system runs before TransformSystem, so live Transforms
+                // are this tick's truth and the conversion is exact.
+                const WorldPose up = worldPoseOf(scene, parent);
+                const glm::quat inverse = glm::inverse(up.rotation);
+                const auto safe = [](float s) { return std::fabs(s) > 1.0e-6f ? s : 1.0f; };
+                const glm::vec3 offsetLocal = inverse * (worldPos - up.position);
+                transform->rotation = glm::normalize(inverse * q);
+                transform->position = glm::vec3(offsetLocal.x / safe(up.scale.x),
+                                                offsetLocal.y / safe(up.scale.y),
+                                                offsetLocal.z / safe(up.scale.z));
+            }
 
             const JPH::Vec3 velocity = bodies.GetLinearVelocity(record.id);
             state.linearVelocity[entity] =

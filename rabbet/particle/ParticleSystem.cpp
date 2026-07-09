@@ -6,6 +6,7 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/particle/ParticleRenderData.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Transform.h"
 
 namespace rb {
@@ -54,9 +55,12 @@ void ParticleSystem::onUpdate(Runtime& runtime, float dt) {
     const float step = std::min(std::max(dt, 0.0f), kMaxStep);
 
     scene.each<ParticleEmitter, Transform>(
-        [&](Entity entity, ParticleEmitter& emitter, Transform& transform) {
+        [&](Entity entity, ParticleEmitter& emitter, Transform&) {
+            // World pose, not the raw Transform: a parented emitter spawns and aims its
+            // cone from where it actually sits in the world.
+            const WorldPose pose = worldPoseOf(scene, entity);
             ParticleSimulation& sim = m_sims[entity];
-            sim.step(emitter, transform.position, transform.rotation, step);
+            sim.step(emitter, pose.position, pose.rotation, step);
 
             ParticleDrawBatch batch;
             batch.blendMode = emitter.blendMode;
