@@ -8,13 +8,15 @@
 
 namespace rb {
 
-// A reusable single-entity template owned by the AssetManager and referenced by uuid. `components`
-// is the serialized component map (component name -> data), the same shape SceneSerializer writes
-// per entity, so instantiating reuses the ComponentRegistry load hooks. `path` is the source file
-// it was read from. Rabbet entities are flat (no hierarchy), so a prefab captures one entity;
-// nested/multi-entity prefabs wait on an entity hierarchy.
+// A reusable entity-subtree template owned by the AssetManager and referenced by uuid.
+// `entities` is an array of records {id, parent?, components}, each record holding the same
+// component map SceneSerializer writes, so instantiating reuses the ComponentRegistry load
+// hooks. `parent` refers to another record's position in the array; the root record carries
+// none. Loading normalizes the older single-entity shape ({version, components}) into a
+// one-record array, so old prefab files keep working unchanged. `path` is the source file it
+// was read from.
 struct PrefabAsset {
-    nlohmann::json components = nlohmann::json::object();
+    nlohmann::json entities = nlohmann::json::array();
     std::filesystem::path path;
 };
 

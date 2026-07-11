@@ -61,3 +61,7 @@ target_compile_definitions(audio_tests PRIVATE
 # The orbhunt suite drives the committed demo content (scene + prefabs + Lua) end to end.
 target_compile_definitions(orbhunt_tests PRIVATE
     RB_FORGE_ASSETS="${PROJECT_SOURCE_DIR}/examples/forge/assets")
+
+# The prefab suite instantiates the committed sample nested prefab (the lamp post).
+target_compile_definitions(prefab_tests PRIVATE
+    RB_FORGE_ASSETS="${PROJECT_SOURCE_DIR}/examples/forge/assets")
