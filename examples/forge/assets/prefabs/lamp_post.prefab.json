@@ -1,0 +1,73 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "id": 0,
+      "components": {
+        "Name": { "value": "Lamp Post" },
+        "Transform": {
+          "position": [0.0, 0.0, 0.0],
+          "rotation": [1.0, 0.0, 0.0, 0.0],
+          "scale": [1.0, 1.0, 1.0]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "parent": 0,
+      "components": {
+        "Name": { "value": "Pole" },
+        "Transform": {
+          "position": [0.0, 0.9, 0.0],
+          "rotation": [1.0, 0.0, 0.0, 0.0],
+          "scale": [0.12, 1.8, 0.12]
+        },
+        "Primitive": {
+          "shape": "Cube",
+          "color": [0.28, 0.29, 0.33],
+          "emissive": [0.0, 0.0, 0.0],
+          "metallic": 0.9,
+          "roughness": 0.35
+        }
+      }
+    },
+    {
+      "id": 2,
+      "parent": 0,
+      "components": {
+        "Name": { "value": "Head" },
+        "Transform": {
+          "position": [0.0, 1.95, 0.0],
+          "rotation": [1.0, 0.0, 0.0, 0.0],
+          "scale": [0.35, 0.35, 0.35]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [1.0, 0.85, 0.4],
+          "emissive": [1.6, 1.2, 0.5],
+          "metallic": 0.0,
+          "roughness": 0.3
+        }
+      }
+    },
+    {
+      "id": 3,
+      "parent": 2,
+      "components": {
+        "Name": { "value": "Glow" },
+        "Transform": {
+          "position": [0.0, 0.0, 0.0],
+          "rotation": [1.0, 0.0, 0.0, 0.0],
+          "scale": [1.0, 1.0, 1.0]
+        },
+        "PointLight": {
+          "color": [1.0, 0.85, 0.5],
+          "intensity": 6.0,
+          "constant": 1.0,
+          "linear": 0.09,
+          "quadratic": 0.032
+        }
+      }
+    }
+  ]
+}
