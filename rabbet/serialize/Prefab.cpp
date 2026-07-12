@@ -93,14 +93,10 @@ nlohmann::json entityToPrefabJson(Scene& scene, const ComponentRegistry& registr
     doc["version"] = kPrefabFormatVersion;
     nlohmann::json entities = nlohmann::json::array();
     if (scene.alive(source)) {
-        // Collect the subtree breadth-first, then map members to their record positions so a
-        // child record can point at its parent by local id (the source is always record 0).
-        std::vector<Entity> members{source};
-        for (std::size_t next = 0; next < members.size(); ++next) {
-            for (const Entity child : childrenOf(scene, members[next])) {
-                members.push_back(child);
-            }
-        }
+        // Collect the subtree breadth-first (cycle-tolerant), then map members to their
+        // record positions so a child record can point at its parent by local id (the
+        // source is always record 0).
+        const std::vector<Entity> members = collectSubtree(scene, source);
         std::unordered_map<Entity, std::uint32_t> localIds;
         localIds.reserve(members.size());
         for (std::size_t i = 0; i < members.size(); ++i) {
@@ -201,6 +197,11 @@ void applyPrefab(Scene& scene, const ComponentRegistry& registry, Entity target,
     if (!scene.alive(target)) {
         return;
     }
+    // An empty or unreadable asset (a truncated file parses to no records) must not eat
+    // the instance: bail before anything destructive, since revert is a repair gesture.
+    if (!prefab.entities.is_array() || prefab.entities.empty()) {
+        return;
+    }
     // The instance is its whole subtree: entities parented beneath the root since
     // instantiation go with the stale children before the asset's tree is rebuilt.
     for (const Entity child : childrenOf(scene, target)) {
@@ -216,9 +217,6 @@ void applyPrefab(Scene& scene, const ComponentRegistry& registry, Entity target,
         if (entry.has(scene, target)) {
             entry.remove(scene, target);
         }
-    }
-    if (!prefab.entities.is_array() || prefab.entities.empty()) {
-        return;
     }
     const std::size_t rootIndex = rootRecordIndex(prefab.entities);
     std::vector<Entity> created(prefab.entities.size());

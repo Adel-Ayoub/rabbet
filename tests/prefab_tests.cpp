@@ -266,6 +266,26 @@ static void revertRebuildsSubtree() {
     CHECK(extras == 0); // the foreign addition went with the replaced subtree
 }
 
+// Reverting against an empty asset (a truncated or unreadable file parses to no records)
+// must be a no-op, not a wipe: the instance keeps its components, children, and link.
+static void revertAgainstEmptyAssetIsANoOp() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    rb::Scene authoring;
+    const rb::PrefabAsset prefab = prefabFromEntity(authoring, registry, spawnLampPost(authoring));
+
+    rb::Scene scene;
+    const rb::Entity root = rb::instantiatePrefab(scene, registry, prefab);
+    scene.add<rb::PrefabInstance>(root, rb::PrefabInstance{rb::Uuid::generate(), {}});
+
+    rb::applyPrefab(scene, registry, root, rb::PrefabAsset{});
+
+    CHECK(scene.alive(root));
+    CHECK(scene.has<rb::Name>(root));
+    CHECK(scene.has<rb::Transform>(root));
+    CHECK(scene.has<rb::PrefabInstance>(root));
+    CHECK(rb::childrenOf(scene, root).size() == 2u); // subtree untouched
+}
+
 // Reverting never disturbs where the instance sits in the scene: a root parented under another
 // entity stays there, the Parent link being structural rather than a registered component.
 static void revertKeepsScenePlacement() {
@@ -470,6 +490,7 @@ int main() {
     instantiateRebuildsTree();
     applyPrefabRevertsOverrides();
     revertRebuildsSubtree();
+    revertAgainstEmptyAssetIsANoOp();
     revertKeepsScenePlacement();
     oldSingleEntityShapeLoads();
     savedFileRoundTrips();

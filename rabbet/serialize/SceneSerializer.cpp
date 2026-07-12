@@ -61,10 +61,10 @@ nlohmann::json SceneSerializer::toJson(Scene& scene, const ComponentRegistry& re
 
 Entity SceneSerializer::duplicateEntity(Scene& scene, const ComponentRegistry& registry,
                                         Entity source) {
-    const Entity copy = scene.create();
     if (!scene.alive(source)) {
-        return copy;
+        return kNullEntity; // a dead source must not mint an empty copy
     }
+    const Entity copy = scene.create();
     nlohmann::json data;
     for (const ComponentRegistry::Entry& entry : registry.entries()) {
         if (!entry.has(scene, source)) {
@@ -82,14 +82,11 @@ Entity SceneSerializer::duplicateEntity(Scene& scene, const ComponentRegistry& r
 
 Entity SceneSerializer::duplicateSubtree(Scene& scene, const ComponentRegistry& registry,
                                          Entity source) {
-    // Collect before creating any copy, so the copies never show up as children mid-walk.
-    std::vector<Entity> originals{source};
-    if (scene.alive(source)) {
-        for (std::size_t next = 0; next < originals.size(); ++next) {
-            for (const Entity child : childrenOf(scene, originals[next])) {
-                originals.push_back(child);
-            }
-        }
+    // Collect before creating any copy, so the copies never show up as children mid-walk;
+    // the collector is cycle-tolerant, so corrupt links duplicate each member once.
+    const std::vector<Entity> originals = collectSubtree(scene, source);
+    if (originals.empty()) {
+        return kNullEntity;
     }
     std::unordered_map<Entity, Entity> copies;
     copies.reserve(originals.size());

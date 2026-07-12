@@ -18,13 +18,14 @@ namespace SceneSerializer {
 // Creates a new entity carrying copies of every registered component on `source`,
 // by routing each through the registry's save/load hooks. Only serializable
 // components are copied (live GL components are not registered), so the clone is
-// independent and itself serializable. Returns the new entity.
+// independent and itself serializable. Returns the new entity, or kNullEntity for a
+// dead source (nothing is created).
 [[nodiscard]] Entity duplicateEntity(Scene& scene, const ComponentRegistry& registry, Entity source);
 
 // Duplicates `source` and its whole descendant tree through the registry hooks, then
 // relinks the copies to mirror the originals' parent links. The copied root keeps the
 // original root's parent, so duplicating a child stays a sibling of the original.
-// Returns the copied root.
+// Returns the copied root, or kNullEntity for a dead source (nothing is created).
 [[nodiscard]] Entity duplicateSubtree(Scene& scene, const ComponentRegistry& registry,
                                       Entity source);
 

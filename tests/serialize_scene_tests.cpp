@@ -107,6 +107,32 @@ static void saveLoadSaveIsIdempotent() {
     CHECK(first == second);
 }
 
+// Loading into a previously used scene must keep the file's record order (clear() frees
+// indices so creation ascends again); before this held, every open-save cycle in a
+// long-lived session reversed the whole file even with zero edits.
+static void reloadIntoUsedSceneKeepsOrder() {
+    const rb::ComponentRegistry registry = makeRegistry();
+
+    rb::Scene source;
+    for (const char* name : {"alpha", "beta", "gamma"}) {
+        const rb::Entity e = source.create();
+        source.add<rb::Name>(e, rb::Name{name});
+    }
+    const nlohmann::json doc = rb::SceneSerializer::toJson(source, registry);
+
+    rb::Scene used;
+    for (int i = 0; i < 3; ++i) {
+        used.destroy(used.create()); // churn versions and the free list first
+    }
+    used.clear(); // the loadFromFile shape: clear, then append
+    rb::SceneSerializer::fromJson(doc, used, registry);
+
+    const nlohmann::json again = rb::SceneSerializer::toJson(used, registry);
+    CHECK(again == doc);
+    CHECK(again.at("entities").at(0).at("components").at("Name").at("value") == "alpha");
+    CHECK(again.at("entities").at(2).at("components").at("Name").at("value") == "gamma");
+}
+
 static void saveAndLoadFile() {
     const rb::ComponentRegistry registry = makeRegistry();
 
@@ -271,6 +297,7 @@ int main() {
     registryExposesBuiltins();
     roundTripPreservesComponents();
     saveLoadSaveIsIdempotent();
+    reloadIntoUsedSceneKeepsOrder();
     saveAndLoadFile();
     malformedDataLoadsGracefully();
     loadFromFileReplaces();

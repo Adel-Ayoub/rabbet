@@ -5,6 +5,7 @@
 #include "rabbet/render/Primitive.h"
 #include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Name.h"
+#include "rabbet/scene/Parent.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/serialize/BuiltinComponents.h"
 #include "rabbet/serialize/ComponentRegistry.h"
@@ -142,11 +143,48 @@ static void duplicateSubtreeKeepsTheRootParent() {
     CHECK(rb::childrenOf(scene, copy).size() == 1u);
 }
 
+// A dead source duplicates to nothing: no zombie copy is minted for either entry point.
+static void duplicateDeadSourceCreatesNothing() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    rb::Scene scene;
+
+    const rb::Entity doomed = scene.create();
+    scene.add<rb::Name>(doomed, rb::Name{"gone"});
+    scene.destroy(doomed);
+    const std::size_t before = scene.aliveCount();
+
+    CHECK(!scene.alive(rb::SceneSerializer::duplicateEntity(scene, registry, doomed)));
+    CHECK(scene.aliveCount() == before);
+    CHECK(!scene.alive(rb::SceneSerializer::duplicateSubtree(scene, registry, doomed)));
+    CHECK(scene.aliveCount() == before);
+}
+
+// Corrupt cyclic links (authored around the gate) duplicate each member once instead of
+// spinning the collector forever.
+static void duplicateSubtreeOfCorruptCycleTerminates() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    rb::Scene scene;
+
+    const rb::Entity a = scene.create();
+    scene.add<rb::Name>(a, rb::Name{"a"});
+    const rb::Entity b = scene.create();
+    scene.add<rb::Name>(b, rb::Name{"b"});
+    scene.add<rb::Parent>(a, rb::Parent{b});
+    scene.add<rb::Parent>(b, rb::Parent{a});
+
+    const rb::Entity copy = rb::SceneSerializer::duplicateSubtree(scene, registry, a);
+
+    CHECK(scene.alive(copy));
+    CHECK(scene.aliveCount() == 4u); // two originals + exactly two copies
+}
+
 int main() {
     duplicateCopiesComponents();
     duplicateIsIndependent();
     duplicateResetsModelHandle();
     duplicateSubtreeMirrorsTheTree();
     duplicateSubtreeKeepsTheRootParent();
+    duplicateDeadSourceCreatesNothing();
+    duplicateSubtreeOfCorruptCycleTerminates();
     return rbtest::summary("serialize_duplicate");
 }
