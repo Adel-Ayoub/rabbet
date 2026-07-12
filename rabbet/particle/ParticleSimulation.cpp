@@ -10,8 +10,16 @@ namespace {
 
 constexpr float kTwoPi = 6.28318530717958647692f;
 
+// Serialized data reaches this without validation; an absurd maxParticles must not
+// synchronously allocate gigabytes (terrain clamps resolution the same way).
+constexpr std::size_t kMaxPoolCapacity = 65536;
+
 std::size_t poolCapacity(const ParticleEmitter& emitter) noexcept {
-    return emitter.maxParticles > 0 ? static_cast<std::size_t>(emitter.maxParticles) : 0;
+    if (emitter.maxParticles <= 0) {
+        return 0;
+    }
+    return std::min<std::size_t>(static_cast<std::size_t>(emitter.maxParticles),
+                                 kMaxPoolCapacity);
 }
 
 } // namespace

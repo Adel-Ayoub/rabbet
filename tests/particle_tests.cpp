@@ -421,6 +421,17 @@ static void parentedEmitterSpawnsAtItsWorldPosition() {
     }
 }
 
+// Serialized data reaches the sim unvalidated: an absurd maxParticles clamps to the pool
+// cap instead of synchronously allocating gigabytes on first sight of the emitter.
+void hugeCapacityClamps() {
+    rb::ParticleEmitter emitter;
+    emitter.maxParticles = 1000000000;
+    rb::ParticleSimulation sim;
+    sim.configure(emitter);
+    CHECK(sim.pool().size() == 65536u);
+    CHECK(sim.freeCount() == 65536u);
+}
+
 int main() {
     rngIsDeterministicPerSeed();
     coneDirectionsStayWithinHalfAngle();
@@ -437,5 +448,6 @@ int main() {
     emitterRoundTrips();
     partialEmitterTakesDefaults();
     parentedEmitterSpawnsAtItsWorldPosition();
+    hugeCapacityClamps();
     return rbtest::summary("particle");
 }
