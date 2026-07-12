@@ -22,7 +22,14 @@ inline constexpr int kMaxHierarchyDepth = 256;
 
 [[nodiscard]] std::vector<Entity> childrenOf(Scene& scene, Entity entity);
 
+// Uncapped on purpose: this is the cycle gate setParent trusts, so it must see arbitrarily
+// deep chains (a depth cap here would let a deep-enough setParent close a cycle). The
+// two-speed walk terminates on already-corrupt cycles instead of hanging.
 [[nodiscard]] bool isAncestor(Scene& scene, Entity ancestor, Entity entity);
+
+// The entity plus every descendant, breadth-first. Cycle-tolerant: corrupt parent links
+// yield each member once instead of looping the collector forever. Empty for a dead root.
+[[nodiscard]] std::vector<Entity> collectSubtree(Scene& scene, Entity root);
 
 // Links child under parent; kNullEntity un-parents. Refuses a dead child or parent,
 // self, and any parent inside child's own subtree (the cycle gate). Returns whether the

@@ -1,6 +1,8 @@
 #include "rabbet/scene/Hierarchy.h"
 
+#include <cmath>
 #include <cstddef>
+#include <unordered_set>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/matrix_decompose.hpp>
@@ -36,14 +38,48 @@ bool isAncestor(Scene& scene, Entity ancestor, Entity entity) {
     if (!scene.alive(ancestor) || !scene.alive(entity)) {
         return false;
     }
-    Entity walk = parentOf(scene, entity);
-    for (int depth = 0; walk.valid() && depth < kMaxHierarchyDepth; ++depth) {
-        if (walk == ancestor) {
+    // Full walk, no depth cap: capping here once let a >cap chain close a cycle through
+    // setParent's gate. The slow pointer advances half as fast; meeting it means the walk
+    // entered a cycle that never reached `ancestor`.
+    Entity slow = parentOf(scene, entity);
+    Entity fast = slow;
+    while (fast.valid()) {
+        if (fast == ancestor) {
             return true;
         }
-        walk = parentOf(scene, walk);
+        fast = parentOf(scene, fast);
+        if (!fast.valid()) {
+            return false;
+        }
+        if (fast == ancestor) {
+            return true;
+        }
+        fast = parentOf(scene, fast);
+        slow = parentOf(scene, slow);
+        if (fast.valid() && fast == slow) {
+            return false;
+        }
     }
     return false;
+}
+
+std::vector<Entity> collectSubtree(Scene& scene, Entity root) {
+    std::vector<Entity> members;
+    if (!scene.alive(root)) {
+        return members;
+    }
+    // The seen set makes the walk terminate even over corrupt cyclic links; without it a
+    // cycle re-enqueues its members forever.
+    std::unordered_set<Entity> seen{root};
+    members.push_back(root);
+    for (std::size_t next = 0; next < members.size(); ++next) {
+        for (const Entity child : childrenOf(scene, members[next])) {
+            if (seen.insert(child).second) {
+                members.push_back(child);
+            }
+        }
+    }
+    return members;
 }
 
 bool setParent(Scene& scene, Entity child, Entity parent) {
@@ -62,7 +98,32 @@ bool setParent(Scene& scene, Entity child, Entity parent) {
     return true;
 }
 
+namespace {
+
+bool isFinite(const glm::mat4& m) {
+    for (int c = 0; c < 4; ++c) {
+        for (int r = 0; r < 4; ++r) {
+            if (!std::isfinite(m[c][r])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool isFinite(const glm::vec3& v) {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+
+bool isFinite(const glm::quat& q) {
+    return std::isfinite(q.w) && std::isfinite(q.x) && std::isfinite(q.y) &&
+           std::isfinite(q.z);
+}
+
+} // namespace
+
 bool setParentKeepingWorldPose(Scene& scene, Entity child, Entity parent) {
+    const Entity previous = parentOf(scene, child);
     const glm::mat4 world = worldMatrixOf(scene, child);
     if (!setParent(scene, child, parent)) {
         return false;
@@ -79,11 +140,20 @@ bool setParentKeepingWorldPose(Scene& scene, Entity child, Entity parent) {
     glm::vec3 skew;
     glm::vec4 perspective;
     glm::quat rotation;
-    if (glm::decompose(local, scale, rotation, translation, skew, perspective)) {
-        transform->position = translation;
-        transform->rotation = rotation;
-        transform->scale = scale;
+    // A degenerate ancestor scale makes the inverse blow up (glm::decompose passes NaN
+    // through its guards and would "succeed"), and a zero-scale pose can decompose into
+    // non-finite parts. Writing that local TRS corrupts the Transform and, since NaN
+    // serializes as JSON null, loses the component on the next load. Refuse the gesture
+    // and restore the old link instead.
+    if (!isFinite(local) ||
+        !glm::decompose(local, scale, rotation, translation, skew, perspective) ||
+        !isFinite(translation) || !isFinite(rotation) || !isFinite(scale)) {
+        setParent(scene, child, previous);
+        return false;
     }
+    transform->position = translation;
+    transform->rotation = rotation;
+    transform->scale = scale;
     return true;
 }
 
@@ -120,18 +190,9 @@ glm::mat4 worldMatrixOf(Scene& scene, Entity entity) {
 }
 
 void destroySubtree(Scene& scene, Entity root) {
-    if (!scene.alive(root)) {
-        return;
-    }
     // Collect first: destroying while childrenOf scans the Parent pool would mutate the
     // pool mid-iteration.
-    std::vector<Entity> doomed{root};
-    for (std::size_t next = 0; next < doomed.size(); ++next) {
-        for (const Entity child : childrenOf(scene, doomed[next])) {
-            doomed.push_back(child);
-        }
-    }
-    for (const Entity entity : doomed) {
+    for (const Entity entity : collectSubtree(scene, root)) {
         scene.destroy(entity);
     }
 }

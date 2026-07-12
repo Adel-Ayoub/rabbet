@@ -182,7 +182,7 @@ static void corruptCycleWalkTerminates() {
     scene.add<rb::Parent>(b, rb::Parent{a});
 
     CHECK(rb::isAncestor(scene, b, a));         // one hop, before the loop matters
-    CHECK(!rb::isAncestor(scene, outsider, a)); // capped walk ends instead of hanging
+    CHECK(!rb::isAncestor(scene, outsider, a)); // the walk detects the cycle instead of hanging
     CHECK(rb::setParent(scene, outsider, a));   // no new cycle through the outsider
     CHECK(rb::parentOf(scene, outsider) == a);
 }
@@ -365,6 +365,68 @@ static void corruptCycleTickTerminates() {
     rt.stop();
 }
 
+// The gate must see the whole chain: with a capped ancestor walk, linking the root under
+// the leaf of a deeper-than-cap chain used to be accepted and closed a live cycle.
+static void deepChainCannotCloseACycle() {
+    rb::Scene scene;
+    const int depth = rb::kMaxHierarchyDepth + 50;
+    std::vector<rb::Entity> chain;
+    chain.reserve(static_cast<std::size_t>(depth));
+    chain.push_back(scene.create());
+    for (int i = 1; i < depth; ++i) {
+        chain.push_back(scene.create());
+        CHECK(rb::setParent(scene, chain.back(), chain[chain.size() - 2]));
+    }
+
+    CHECK(!rb::setParent(scene, chain.front(), chain.back())); // would close the cycle
+    CHECK(!rb::parentOf(scene, chain.front()).valid());
+
+    rb::destroySubtree(scene, chain.front()); // the collector survives the full depth
+    for (const rb::Entity e : chain) {
+        CHECK(!scene.alive(e));
+    }
+}
+
+// Collectors over corrupt cyclic links must visit each member once, not loop forever.
+static void corruptCycleCollectorsTerminate() {
+    rb::Scene scene;
+    const rb::Entity a = scene.create();
+    const rb::Entity b = scene.create();
+    scene.add<rb::Parent>(a, rb::Parent{b}); // bypass the gate, as a bad file could
+    scene.add<rb::Parent>(b, rb::Parent{a});
+
+    const std::vector<rb::Entity> members = rb::collectSubtree(scene, a);
+    CHECK(members.size() == 2u);
+
+    rb::destroySubtree(scene, a);
+    CHECK(!scene.alive(a));
+    CHECK(!scene.alive(b));
+}
+
+// A degenerate (zero-scale) ancestor cannot express the child's world pose as a finite
+// local TRS; the gesture must refuse and leave both the link and the Transform untouched
+// rather than writing NaN (which would serialize as null and lose the component on load).
+static void degenerateParentScaleRefusesPoseKeepingReparent() {
+    rb::Scene scene;
+
+    const rb::Entity oldParent = scene.create();
+    scene.add<rb::Transform>(oldParent, rb::Transform{});
+
+    const rb::Entity flat = scene.create();
+    rb::Transform flatPose;
+    flatPose.scale = {0.0f, 1.0f, 1.0f};
+    scene.add<rb::Transform>(flat, flatPose);
+
+    const rb::Entity child = spawnAt(scene, {1.0f, 2.0f, 3.0f});
+    CHECK(rb::setParent(scene, child, oldParent));
+
+    CHECK(!rb::setParentKeepingWorldPose(scene, child, flat));
+    CHECK(rb::parentOf(scene, child) == oldParent); // link restored
+    const rb::Transform& t = scene.get<rb::Transform>(child);
+    CHECK(approxVec(t.position, glm::vec3(1.0f, 2.0f, 3.0f))); // local TRS untouched
+    CHECK(approxVec(t.scale, glm::vec3(1.0f)));
+}
+
 int main() {
     unparentedEntityReadsAsRoot();
     setParentLinksBothDirections();
@@ -384,5 +446,8 @@ int main() {
     reparentRecomposesNextTick();
     reparentKeepingWorldPoseHoldsThePose();
     corruptCycleTickTerminates();
+    deepChainCannotCloseACycle();
+    corruptCycleCollectorsTerminate();
+    degenerateParentScaleRefusesPoseKeepingReparent();
     return rbtest::summary("hierarchy");
 }
