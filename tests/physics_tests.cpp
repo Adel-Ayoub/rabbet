@@ -287,6 +287,121 @@ void parentedBodySimulatesInWorldWritesLocal() {
     CHECK(std::fabs(rb::worldPoseOf(runtime.scene(), ball).position.y - 1.0f) < 0.05f);
 }
 
+// An entity destroyed mid-play takes its Jolt body with it: nothing keeps colliding as an
+// invisible ghost where the entity used to stand.
+void midPlayDestroyRemovesTheBody() {
+    rb::Runtime runtime;
+    rb::PhysicsSystem physics;
+
+    const rb::Entity platform = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(platform, rb::Transform{});
+    runtime.scene().add<rb::RigidBody>(
+        platform, rb::RigidBody{rb::BodyType::Static, 0.0f, 0.4f, 0.0f, true});
+    runtime.scene().add<rb::BoxCollider>(
+        platform, rb::BoxCollider{glm::vec3(5.0f, 0.5f, 5.0f), glm::vec3(0.0f)});
+    const rb::Entity ball = makeBox(runtime, glm::vec3(0.0f, 5.0f, 0.0f), rb::BodyType::Dynamic);
+
+    physics.onPlayBegin(runtime);
+    for (int i = 0; i < 30; ++i) {
+        physics.onUpdate(runtime, kStep); // still airborne above the platform
+    }
+    runtime.scene().destroy(platform);
+    for (int i = 0; i < 300; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    CHECK(posY(runtime, ball) < -5.0f); // fell straight through where the platform stood
+}
+
+// A body gaining RigidBody+collider after the play edge (the world.spawn shape) simulates
+// from the next tick, and the command/state bridge sees it.
+void midPlaySpawnedBodySimulates() {
+    rb::Runtime runtime;
+    rb::PhysicsSystem physics;
+
+    physics.onPlayBegin(runtime); // the session starts with no bodies at all
+    const rb::Entity box = makeBox(runtime, glm::vec3(0.0f, 5.0f, 0.0f), rb::BodyType::Dynamic);
+    for (int i = 0; i < 120; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    CHECK(posY(runtime, box) < 4.0f); // it fell: the body exists
+
+    runtime.resource<rb::PhysicsCommands>().queue.push_back(
+        {box, rb::PhysicsCommands::Op::SetVelocity, glm::vec3(0.0f, 7.0f, 0.0f)});
+    physics.onUpdate(runtime, kStep);
+    const auto& velocities = runtime.resource<rb::PhysicsState>().linearVelocity;
+    const auto it = velocities.find(box);
+    CHECK(it != velocities.end());
+    if (it != velocities.end()) {
+        CHECK(it->second.y > 5.0f); // the command took, the state publishes
+    }
+}
+
+// Kinematic bodies are driven by their Transforms: authored motion sticks instead of being
+// overwritten by the write-back each stepped frame.
+void kinematicFollowsAuthoredTransform() {
+    rb::Runtime runtime;
+    rb::PhysicsSystem physics;
+    const rb::Entity kin = makeBox(runtime, glm::vec3(0.0f, 2.0f, 0.0f), rb::BodyType::Kinematic);
+
+    physics.onPlayBegin(runtime);
+    for (int i = 0; i < 60; ++i) {
+        runtime.scene().get<rb::Transform>(kin).position.x += 0.1f;
+        physics.onUpdate(runtime, kStep);
+    }
+    CHECK(std::fabs(runtime.scene().get<rb::Transform>(kin).position.x - 6.0f) < 1.0e-4f);
+    CHECK(posY(runtime, kin) == 2.0f); // and nothing else was written back
+}
+
+// A terrain rebuilt mid-play (a geometry edit bumps the draw revision) swaps its mesh
+// body, so collision follows the new shape instead of freezing at the play edge.
+void terrainRebuildSwapsTheBody() {
+    rb::Runtime runtime;
+    const rb::Entity island = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(island, rb::Transform{});
+    rb::TerrainComponent terrain;
+    terrain.size = 20.0f;
+    terrain.resolution = 16;
+    terrain.heightScale = 2.0f;
+    terrain.source = rb::TerrainHeightSource::Flat;
+    runtime.scene().add<rb::TerrainComponent>(island, terrain);
+
+    runtime.addSystem<rb::TerrainSystem>();
+    runtime.start();
+    runtime.tick(0.1f);
+    runtime.tick(0.1f); // settle -> mesh built + published
+
+    rb::PhysicsSystem physics;
+    physics.onPlayBegin(runtime);
+
+    runtime.scene().get<rb::TerrainComponent>(island).size = 4.0f; // shrink the island
+    runtime.tick(0.1f); // the edit is noticed: the settle window opens
+    runtime.tick(0.1f);
+    runtime.tick(0.1f); // window elapsed -> rebuild under a bumped revision
+
+    const rb::Entity outer = runtime.scene().create();
+    rb::Transform outerStart;
+    outerStart.position = {8.0f, 6.0f, 0.0f}; // over the old rim, past the new one
+    runtime.scene().add<rb::Transform>(outer, outerStart);
+    runtime.scene().add<rb::RigidBody>(
+        outer, rb::RigidBody{rb::BodyType::Dynamic, 1.0f, 0.5f, 0.1f, true});
+    runtime.scene().add<rb::SphereCollider>(outer, rb::SphereCollider{0.5f, glm::vec3(0.0f)});
+    const rb::Entity inner = runtime.scene().create();
+    rb::Transform innerStart;
+    innerStart.position = {0.0f, 6.0f, 0.0f};
+    runtime.scene().add<rb::Transform>(inner, innerStart);
+    runtime.scene().add<rb::RigidBody>(
+        inner, rb::RigidBody{rb::BodyType::Dynamic, 1.0f, 0.5f, 0.1f, true});
+    runtime.scene().add<rb::SphereCollider>(inner, rb::SphereCollider{0.5f, glm::vec3(0.0f)});
+
+    for (int i = 0; i < 300; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    CHECK(posY(runtime, outer) < -3.0f); // the old 20x20 body is gone
+    const float innerY = posY(runtime, inner);
+    CHECK(innerY > 0.3f); // the new 4x4 body collides at the centre
+    CHECK(innerY < 0.7f);
+}
+
 } // namespace
 
 int main() {
@@ -300,5 +415,9 @@ int main() {
     scriptDrivesPhysicsBody();
     terrainCollidesAsStaticGround();
     parentedBodySimulatesInWorldWritesLocal();
+    midPlayDestroyRemovesTheBody();
+    midPlaySpawnedBodySimulates();
+    kinematicFollowsAuthoredTransform();
+    terrainRebuildSwapsTheBody();
     return rbtest::summary("physics");
 }
