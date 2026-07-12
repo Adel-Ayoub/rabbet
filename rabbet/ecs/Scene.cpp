@@ -58,9 +58,13 @@ void Scene::clear() {
     m_pools.clear();
     m_freeIndices.clear();
     m_aliveCount = 0;
-    for (Entity::Index index = 0; index < m_versions.size(); ++index) {
-        ++m_versions[index];
-        m_freeIndices.push_back(index);
+    // Freed high-to-low so create() (which pops the back) hands out index 0 first: a
+    // scene loaded after a clear keeps its file order, and saving it back does not
+    // reverse the records (entities() and toJson iterate by ascending index).
+    for (Entity::Index index = static_cast<Entity::Index>(m_versions.size()); index > 0;
+         --index) {
+        ++m_versions[index - 1];
+        m_freeIndices.push_back(index - 1);
     }
 }
 
