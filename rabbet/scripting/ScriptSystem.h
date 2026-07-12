@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -40,6 +41,10 @@ public:
     void onUpdate(Runtime& runtime, float dt) override;
     void onPlayBegin(Runtime& runtime) override;
     void onPlayEnd(Runtime& runtime) override;
+
+    // Live compiled-instance count. An observation seam: instances are reaped when their
+    // entity dies, and leaks here are invisible from gameplay-facing state.
+    [[nodiscard]] std::size_t instanceCount() const;
 
 private:
     struct Impl;

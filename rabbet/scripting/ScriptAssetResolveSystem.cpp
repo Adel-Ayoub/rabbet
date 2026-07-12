@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <unordered_set>
 
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
@@ -16,7 +17,10 @@ void ScriptAssetResolveSystem::onUpdate(Runtime& runtime, float) {
     if (assets == nullptr) {
         return;
     }
-    runtime.scene().each<ScriptComponent>([assets](Entity, ScriptComponent& script) {
+    // The mtime poll is a filesystem stat; a hundred spawned entities sharing one .lua
+    // must not stat the same file a hundred times a frame, so poll each script once.
+    std::unordered_set<Uuid> polled;
+    runtime.scene().each<ScriptComponent>([assets, &polled](Entity, ScriptComponent& script) {
         if (!script.script.valid()) {
             script.handle = {};
             return;
@@ -30,7 +34,9 @@ void ScriptAssetResolveSystem::onUpdate(Runtime& runtime, float) {
                 script.handle = loadScriptAsset(*assets, *path);
             }
         }
-        reloadScriptIfChanged(*assets, script.handle);
+        if (polled.insert(script.script).second) {
+            reloadScriptIfChanged(*assets, script.handle);
+        }
     });
 }
 

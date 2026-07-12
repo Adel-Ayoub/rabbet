@@ -3,6 +3,7 @@
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/PhysicsControl.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scripting/ScriptAsset.h"
@@ -67,8 +68,9 @@ void playGatesAndUpdatesMove() {
 
     runtime.beginPlay();
     runtime.setPlaying(true);
-    runtime.tick(0.5f); // 2.0 * 0.5
-    runtime.tick(0.5f); // + 2.0 * 0.5
+    for (int i = 0; i < 10; ++i) {
+        runtime.tick(0.1f); // 10 x 2.0 * 0.1 (larger ticks would hit the script dt clamp)
+    }
     CHECK(approx(posX(runtime, e), 2.0f));
 
     runtime.setPlaying(false);
@@ -116,8 +118,8 @@ void fieldOverrideDrivesScript() {
 
     rb::ScriptSystem scripts;
     scripts.onPlayBegin(runtime);
-    scripts.onUpdate(runtime, 1.0f);
-    CHECK(approx(posX(runtime, e), 5.0f)); // 5.0 override, not the 1.0 default
+    scripts.onUpdate(runtime, 0.1f);
+    CHECK(approx(posX(runtime, e), 0.5f)); // 5.0 override x 0.1, not the 1.0 default
 }
 
 // Bumping the asset revision (what the hot-reload poll does after a file edit) recompiles
@@ -131,16 +133,16 @@ void revisionBumpHotReloads() {
 
     rb::ScriptSystem scripts;
     scripts.onPlayBegin(runtime);
-    scripts.onUpdate(runtime, 1.0f);
-    CHECK(approx(posX(runtime, e), 1.0f));
+    scripts.onUpdate(runtime, 0.1f);
+    CHECK(approx(posX(runtime, e), 0.1f));
 
     rb::ScriptAsset& asset = *assets.get<rb::ScriptAsset>(
         runtime.scene().get<rb::ScriptComponent>(e).handle);
     asset.source = "function on_update(self, dt) self:translate(10.0 * dt, 0.0, 0.0) end\n";
     ++asset.revision;
 
-    scripts.onUpdate(runtime, 1.0f); // recompiles, then runs the new on_update
-    CHECK(approx(posX(runtime, e), 11.0f));
+    scripts.onUpdate(runtime, 0.1f); // recompiles, then runs the new on_update
+    CHECK(approx(posX(runtime, e), 1.1f));
 }
 
 // Reading Input is safe when no Input resource is present (e.g. headless): the query just
@@ -400,6 +402,81 @@ void worldSpawnInstantiatesPrefab() {
     fs::remove_all(dir, ec);
 }
 
+// A real-world stall (window drag, shader compile) reaches on_update clamped, mirroring
+// the particle and terrain steps, so script motion cannot teleport past physics.
+void dtSpikeIsClamped() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id =
+        addScript(assets, "function on_update(self, dt) self:translate(dt, 0.0, 0.0) end\n");
+    runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
+    const rb::Entity e = scriptedEntity(runtime, id);
+    runtime.start();
+    runtime.beginPlay();
+    runtime.setPlaying(true);
+
+    runtime.tick(5.0f); // a 5s stall arrives as one clamped step
+
+    CHECK(approx(posX(runtime, e), 0.1f));
+    runtime.endPlay();
+}
+
+// world.destroy takes the whole subtree with it, like the editor's delete: destroying a
+// multi-entity (prefab-shaped) root must not orphan its children at reinterpreted poses.
+void worldDestroyCascadesTheSubtree() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = addScript(assets,
+                                  "function on_update(self, dt)\n"
+                                  "  local doomed = world.find(\"Doomed\")\n"
+                                  "  if doomed ~= nil then world.destroy(doomed) end\n"
+                                  "end\n");
+    runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
+    (void)scriptedEntity(runtime, id);
+
+    rb::Scene& scene = runtime.scene();
+    const rb::Entity root = scene.create();
+    scene.add<rb::Name>(root, rb::Name{"Doomed"});
+    scene.add<rb::Transform>(root, rb::Transform{});
+    const rb::Entity child = scene.create();
+    scene.add<rb::Transform>(child, rb::Transform{});
+    const rb::Entity grand = scene.create();
+    CHECK(rb::setParent(scene, child, root));
+    CHECK(rb::setParent(scene, grand, child));
+
+    runtime.start();
+    runtime.beginPlay();
+    runtime.setPlaying(true);
+    runtime.tick(0.016f);
+
+    CHECK(!scene.alive(root));
+    CHECK(!scene.alive(child));
+    CHECK(!scene.alive(grand));
+    runtime.endPlay();
+}
+
+// Instances of entities destroyed outside world.destroy (an editor delete, a parent's
+// cascade) are reaped on the next tick instead of living until Stop.
+void externallyDestroyedEntityDropsItsInstance() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = addScript(assets, "function on_update(self, dt) end\n");
+    rb::ScriptSystem& system = runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
+    const rb::Entity first = scriptedEntity(runtime, id);
+    (void)scriptedEntity(runtime, id);
+
+    runtime.start();
+    runtime.beginPlay();
+    runtime.setPlaying(true);
+    runtime.tick(0.016f);
+    CHECK(system.instanceCount() == 2u);
+
+    runtime.scene().destroy(first); // external: bypasses the world.destroy queue
+    runtime.tick(0.016f);
+    CHECK(system.instanceCount() == 1u);
+    runtime.endPlay();
+}
+
 } // namespace
 
 int main() {
@@ -415,5 +492,8 @@ int main() {
     selfDestroyIsSafe();
     physicsBindingsUseBridgeResources();
     worldSpawnInstantiatesPrefab();
+    dtSpikeIsClamped();
+    worldDestroyCascadesTheSubtree();
+    externallyDestroyedEntityDropsItsInstance();
     return rbtest::summary("script");
 }

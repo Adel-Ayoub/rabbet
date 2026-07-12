@@ -1,5 +1,6 @@
 #include "rabbet/scripting/ScriptSystem.h"
 
+#include <algorithm>
 #include <limits>
 #include <optional>
 #include <string>
@@ -22,6 +23,7 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/PhysicsControl.h"
 #include "rabbet/platform/Input.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scripting/ScriptAsset.h"
@@ -385,6 +387,11 @@ struct ScriptSystem::Impl {
         if (assets == nullptr) {
             return;
         }
+        // Clamp real-world stalls like the particle and terrain steps do: a window drag
+        // must not hand on_update a seconds-long dt that teleports script-driven motion
+        // while physics (capped substeps) barely advances.
+        constexpr float kMaxStep = 0.1f;
+        dt = std::min(dt, kMaxStep);
         input = rt.tryResource<Input>();
         runtime = &rt;
         Scene& scene = rt.scene();
@@ -421,12 +428,27 @@ struct ScriptSystem::Impl {
         // iteration is over.
         applySpawns(rt);
         for (const Entity e : pendingDestroy) {
-            if (scene.alive(e)) {
-                scene.destroy(e);
+            // The whole subtree goes, mirroring the editor's delete: destroying a spawned
+            // multi-entity prefab must not leak its children as orphans whose local pose
+            // gets reinterpreted as a world pose.
+            for (const Entity member : collectSubtree(scene, e)) {
+                instances.erase(member);
+                scene.destroy(member);
             }
-            instances.erase(e);
+            instances.erase(e); // a handle already dead when the queue drains still drops its instance
         }
         pendingDestroy.clear();
+
+        // Reap instances whose entity died outside the queue (editor delete during play,
+        // a parent's cascade), mirroring the audio/particle reaps; the environments would
+        // otherwise outlive their entities until Stop.
+        for (auto it = instances.begin(); it != instances.end();) {
+            if (scene.alive(it->first)) {
+                ++it;
+            } else {
+                it = instances.erase(it);
+            }
+        }
     }
 
     void warnSpawn(const std::string& prefab, const char* why) {
@@ -494,6 +516,8 @@ ScriptSystem::ScriptSystem(const ComponentRegistry* registry)
 ScriptSystem::~ScriptSystem() = default;
 
 void ScriptSystem::onUpdate(Runtime& runtime, float dt) { m_impl->update(runtime, dt); }
+
+std::size_t ScriptSystem::instanceCount() const { return m_impl->instances.size(); }
 
 // A fresh play session starts every script from a clean state, so on_start runs again.
 void ScriptSystem::onPlayBegin(Runtime&) {
