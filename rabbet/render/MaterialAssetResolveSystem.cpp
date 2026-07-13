@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <optional>
+#include <unordered_set>
 
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
@@ -50,7 +51,11 @@ void MaterialAssetResolveSystem::onUpdate(Runtime& runtime, float) {
     if (assets == nullptr) {
         return;
     }
-    runtime.scene().each<MaterialComponent>([assets](Entity, MaterialComponent& component) {
+    // The hot-reload polls stat the material and shader files; N entities sharing one
+    // material must not stat the same two files N times a frame, so poll per asset.
+    std::unordered_set<Uuid> polled;
+    runtime.scene().each<MaterialComponent>([assets, &polled](Entity,
+                                                              MaterialComponent& component) {
         if (!component.material.valid()) {
             component.handle = {};
             return;
@@ -62,7 +67,9 @@ void MaterialAssetResolveSystem::onUpdate(Runtime& runtime, float) {
                 component.handle = loadMaterialAsset(*assets, *path);
             }
         }
-        // Re-fetch after any lazy load above so the pointer is into the current store backing.
+        if (!polled.insert(component.material).second) {
+            return; // another component already polled and resolved this material
+        }
         if (MaterialAsset* material = assets->get<MaterialAsset>(component.handle)) {
             reloadMaterialIfChanged(*assets, component.handle);
             resolveDependencies(*assets, *material);

@@ -80,7 +80,12 @@ Metadata loadOrCreate(const std::filesystem::path& assetPath, AssetType type) {
     }
 
     Metadata meta = freshMetadata(assetPath, type);
-    write(assetPath, meta);
+    // Only a source that actually exists earns a sidecar: a load retried against a
+    // deleted asset (a stale source registration) must not resurrect ghost .import
+    // files with freshly minted uuids on every attempt.
+    if (std::filesystem::exists(assetPath, ec)) {
+        write(assetPath, meta);
+    }
     return meta;
 }
 

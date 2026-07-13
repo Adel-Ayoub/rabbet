@@ -19,7 +19,13 @@ void appendHex64(std::string& out, std::uint64_t value) {
 } // namespace
 
 Uuid Uuid::generate() {
-    static thread_local std::mt19937_64 rng{std::random_device{}()};
+    // Seeded from several device draws: a single 32-bit seed gives two sessions a real
+    // chance of replaying the same uuid stream, and uuids are the only content identity.
+    static thread_local std::mt19937_64 rng = [] {
+        std::random_device device;
+        std::seed_seq seed{device(), device(), device(), device(), device(), device()};
+        return std::mt19937_64(seed);
+    }();
     Uuid id;
     id.high = rng();
     id.low = rng();

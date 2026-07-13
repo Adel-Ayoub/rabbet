@@ -103,10 +103,35 @@ static void missingDirectoryIsEmpty() {
     CHECK(db.size() == 0u);
 }
 
+// A copy-pasted asset+sidecar pair repeats a uuid; the scan keeps the first record and
+// skips the copy instead of letting the two silently alias by iteration order.
+static void duplicateUuidKeepsTheFirstRecord() {
+    const fs::path root = fs::temp_directory_path() / "rabbet_assetdb_dup_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    writeFile(root / "a_first.png");
+    writeFile(root / "b_copy.png");
+    const char* sidecar = "{\n"
+                          "  \"uuid\": \"0123456789abcdef0123456789abcdef\",\n"
+                          "  \"type\": \"Texture\",\n"
+                          "  \"name\": \"first\",\n"
+                          "  \"version\": 1\n"
+                          "}\n";
+    writeFile(root / "a_first.png.import", sidecar);
+    writeFile(root / "b_copy.png.import", sidecar);
+
+    rb::AssetDatabase db;
+    CHECK(db.scan(root) == 1u); // whichever is seen first wins; the other is skipped
+    CHECK(db.find(rb::Uuid::fromString("0123456789abcdef0123456789abcdef")) != nullptr);
+
+    fs::remove_all(root, ec);
+}
+
 int main() {
     extensionClassification();
     scanCataloguesAssets();
     uuidsAreStableAcrossScans();
     missingDirectoryIsEmpty();
+    duplicateUuidKeepsTheFirstRecord();
     return rbtest::summary("assets_database");
 }

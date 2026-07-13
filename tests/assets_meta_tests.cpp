@@ -15,6 +15,7 @@ static void metadataPersistsAcrossRuns() {
     const std::filesystem::path sidecar = rb::assetmeta::sidecarPath(asset);
     std::error_code ec;
     std::filesystem::remove(sidecar, ec);
+    { std::ofstream(asset) << "stub"; } // sidecars are only written for a real source
 
     const rb::assetmeta::Metadata first = rb::assetmeta::loadOrCreate(asset, rb::AssetType::Model);
     CHECK(first.id.valid());
@@ -29,6 +30,7 @@ static void metadataPersistsAcrossRuns() {
     CHECK(second.name == first.name);
 
     std::filesystem::remove(sidecar, ec);
+    std::filesystem::remove(asset, ec);
 }
 
 static void uuidHelperStillWorks() {
@@ -37,6 +39,7 @@ static void uuidHelperStillWorks() {
     const std::filesystem::path sidecar = rb::assetmeta::sidecarPath(asset);
     std::error_code ec;
     std::filesystem::remove(sidecar, ec);
+    { std::ofstream(asset) << "stub"; }
 
     const rb::Uuid a = rb::assetmeta::loadOrCreateUuid(asset);
     const rb::Uuid b = rb::assetmeta::loadOrCreateUuid(asset);
@@ -44,6 +47,7 @@ static void uuidHelperStillWorks() {
     CHECK(a == b);
 
     std::filesystem::remove(sidecar, ec);
+    std::filesystem::remove(asset, ec);
 }
 
 static void absentSourceNeedsNoReimport() {
@@ -55,6 +59,9 @@ static void absentSourceNeedsNoReimport() {
 
     (void)rb::assetmeta::loadOrCreate(asset, rb::AssetType::Model);
     CHECK(!rb::assetmeta::needsReimport(asset)); // no source file on disk
+    // And no ghost sidecar: a load retried against a deleted asset must not litter the
+    // directory with fresh .import files carrying ever-changing uuids.
+    CHECK(!std::filesystem::exists(sidecar));
 
     std::filesystem::remove(sidecar, ec);
 }
@@ -65,6 +72,7 @@ static void corruptSidecarIsNotOverwritten() {
     const std::filesystem::path sidecar = rb::assetmeta::sidecarPath(asset);
     std::error_code ec;
     std::filesystem::remove(sidecar, ec);
+    { std::ofstream(asset) << "stub"; }
 
     (void)rb::assetmeta::loadOrCreate(asset, rb::AssetType::Model); // writes a valid sidecar
     {
@@ -81,6 +89,7 @@ static void corruptSidecarIsNotOverwritten() {
     CHECK(contents.find("not valid json") != std::string::npos);
 
     std::filesystem::remove(sidecar, ec);
+    std::filesystem::remove(asset, ec);
 }
 
 int main() {

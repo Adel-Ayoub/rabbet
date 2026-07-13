@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cassert>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -107,14 +109,19 @@ private:
         return &slot;
     }
 
-    std::vector<Slot> m_slots;
+    // A deque, not a vector: get() hands out pointers into the slots, and systems hold
+    // them across further loads (a resolve can lazily import mid-frame). Deque growth
+    // never moves existing slots, so those pointers stay valid until their asset is
+    // erased.
+    std::deque<Slot> m_slots;
     std::vector<std::uint32_t> m_free;
 };
 
 } // namespace detail
 
 // Owns assets keyed by generational handles, with a stable UUID per asset and a
-// path-keyed load cache. Loading the same path twice returns the same handle.
+// path-keyed load cache. Loading the same path twice returns the same handle. A pointer
+// from get() stays valid until that asset is erased; further add/load calls never move it.
 // Not thread-safe: use from a single thread; async loading would need external
 // synchronisation and is a deliberate future addition.
 class AssetManager {
@@ -219,6 +226,15 @@ public:
                 return cached;
             }
         }
+        // The resolve systems retry an unresolved reference every frame; throttle repeat
+        // attempts on a path that just failed so one broken asset is not a per-frame
+        // sidecar read + import. The next attempt after the window keeps self-healing.
+        if (const auto it = m_failedLoads.find(key); it != m_failedLoads.end()) {
+            if (std::chrono::steady_clock::now() - it->second < kFailedLoadRetryDelay) {
+                return AssetHandle<T>{};
+            }
+            m_failedLoads.erase(it);
+        }
         const assetmeta::Metadata meta = assetmeta::loadOrCreate(path, assetTypeFor<T>());
         if (const AssetHandle<T> existing = find<T>(meta.id); existing.valid()) {
             m_pathToUuid[key] = meta.id;
@@ -226,6 +242,7 @@ public:
         }
         std::optional<T> imported = std::forward<Importer>(importer)(path);
         if (!imported.has_value()) {
+            m_failedLoads[key] = std::chrono::steady_clock::now();
             return AssetHandle<T>{};
         }
         const AssetHandle<T> handle = add<T>(std::move(*imported), meta.id);
@@ -267,10 +284,13 @@ private:
         return static_cast<detail::AssetStore<T>*>(m_stores[id].get());
     }
 
+    static constexpr std::chrono::seconds kFailedLoadRetryDelay{2};
+
     std::vector<std::unique_ptr<detail::IAssetStore>> m_stores;
     std::unordered_map<Uuid, Located> m_located;
     std::unordered_map<std::string, Uuid> m_pathToUuid;
     std::unordered_map<Uuid, Source> m_sourceByUuid;
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_failedLoads;
 };
 
 } // namespace rb

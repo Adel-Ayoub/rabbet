@@ -108,11 +108,55 @@ static void loadDedupsEvenWithCorruptSidecar() {
     std::filesystem::remove(sidecar, ec);
 }
 
+// Systems hold get() pointers across further loads (a resolve can lazily import
+// mid-frame), so store growth must never move existing assets.
+static void pointersSurviveStoreGrowth() {
+    rb::AssetManager assets;
+    const rb::AssetHandle<Thing> first = assets.add<Thing>(Thing{11});
+    const Thing* pinned = assets.get<Thing>(first);
+    CHECK(pinned != nullptr);
+
+    for (int i = 0; i < 1000; ++i) {
+        (void)assets.add<Thing>(Thing{i});
+    }
+
+    CHECK(assets.get<Thing>(first) == pinned); // same slot, same address
+    CHECK(pinned->x == 11);
+}
+
+// A load that failed is not retried on the very next call: the resolve systems ask every
+// frame, and one broken path must not become per-frame disk work. (The retry window later
+// reopens, so a repaired file still self-heals.)
+static void failedLoadIsThrottled() {
+    rb::AssetManager assets;
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "rabbet_asset_throttle.bin";
+    const std::filesystem::path sidecar = rb::assetmeta::sidecarPath(path);
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(sidecar, ec);
+
+    int attempts = 0;
+    const auto importer = [&attempts](const std::filesystem::path&) -> std::optional<Thing> {
+        ++attempts;
+        return std::nullopt; // the file is unreadable
+    };
+
+    CHECK(!assets.load<Thing>(path, importer).valid());
+    CHECK(!assets.load<Thing>(path, importer).valid());
+    CHECK(!assets.load<Thing>(path, importer).valid());
+    CHECK(attempts == 1); // the follow-up calls were absorbed by the throttle
+
+    std::filesystem::remove(sidecar, ec);
+}
+
 int main() {
     addGetErase();
     reusedSlotInvalidatesOldHandle();
     lookupByUuidIsTypeSafe();
     loadCachesByPath();
     loadDedupsEvenWithCorruptSidecar();
+    pointersSurviveStoreGrowth();
+    failedLoadIsThrottled();
     return rbtest::summary("assets_manager");
 }

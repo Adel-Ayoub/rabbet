@@ -100,6 +100,15 @@ std::size_t AssetDatabase::scan(const std::filesystem::path& root, AssetManager*
             log::warn("asset database: '{}' has no usable uuid; skipped", path.string());
             continue;
         }
+        // Uuids are the only identity content references carry. A duplicated sidecar (a
+        // copy-pasted asset pair) silently aliasing the original would make name and uuid
+        // lookups disagree by iteration luck, so first-wins and the copy is called out.
+        if (const auto existing = m_byId.find(meta.id); existing != m_byId.end()) {
+            log::warn("asset database: '{}' repeats the uuid of '{}'; skipped (re-import to "
+                      "mint a fresh id)",
+                      path.string(), m_records[existing->second].path.string());
+            continue;
+        }
 
         const std::size_t index = m_records.size();
         m_records.push_back(Record{meta.id, path, type, meta.name});

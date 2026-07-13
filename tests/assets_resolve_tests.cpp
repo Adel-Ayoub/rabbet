@@ -5,6 +5,8 @@
 #include "rabbet/render/ModelRenderer.h"
 #include "tests/Test.h"
 
+#include <filesystem>
+
 static void resolvesKnownAndFlagsMissing() {
     rb::Runtime runtime;
     rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
@@ -47,8 +49,32 @@ static void reresolvesAfterReload() {
     CHECK(runtime.scene().get<rb::ModelRenderer>(e).handle == second);
 }
 
+// Models lazy-import from their registered source like every other resolve. Headless the
+// import can only be exercised up to the file read (a real model upload needs GL), so a
+// registered-but-missing source must leave the handle invalid without crashing or
+// littering ghost sidecars, and keep getting retried safely.
+static void modelResolveLazyLoadsFromSource() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = rb::Uuid::generate();
+    const std::filesystem::path missing =
+        std::filesystem::temp_directory_path() / "rabbet_resolve_missing.gltf";
+    assets.registerSource(id, missing, rb::AssetType::Model);
+
+    const rb::Entity e = runtime.scene().create();
+    runtime.scene().add<rb::ModelRenderer>(e, rb::ModelRenderer{id, {}});
+
+    rb::AssetResolveSystem system;
+    system.onUpdate(runtime, 0.016f);
+    system.onUpdate(runtime, 0.016f);
+
+    CHECK(!runtime.scene().get<rb::ModelRenderer>(e).handle.valid());
+    CHECK(!std::filesystem::exists(std::filesystem::path(missing.string() + ".import")));
+}
+
 int main() {
     resolvesKnownAndFlagsMissing();
     reresolvesAfterReload();
+    modelResolveLazyLoadsFromSource();
     return rbtest::summary("assets_resolve");
 }
