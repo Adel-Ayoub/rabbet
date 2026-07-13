@@ -19,11 +19,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Compile with the include-path environment variables (CPATH and friends) unset: the
 # compiler searches them ahead of every -isystem dir, so a package manager's installed
 # headers would silently shadow the pinned FetchContent ones (sol2 probes <lua/lua.h>,
-# letting a system lua displace the vendored copy).
-if(UNIX AND NOT CMAKE_C_COMPILER_LAUNCHER AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+# letting a system lua displace the vendored copy). A user launcher (ccache) chains
+# behind the scrub rather than replacing it; skipping the scrub in that case silently
+# reintroduced the shadowing.
+if(UNIX)
     set(_rabbet_scrub_env env -u CPATH -u C_INCLUDE_PATH -u CPLUS_INCLUDE_PATH -u OBJC_INCLUDE_PATH)
-    set(CMAKE_C_COMPILER_LAUNCHER ${_rabbet_scrub_env})
-    set(CMAKE_CXX_COMPILER_LAUNCHER ${_rabbet_scrub_env})
+    if(NOT "${CMAKE_C_COMPILER_LAUNCHER}" MATCHES "CPATH")
+        set(CMAKE_C_COMPILER_LAUNCHER ${_rabbet_scrub_env} ${CMAKE_C_COMPILER_LAUNCHER})
+    endif()
+    if(NOT "${CMAKE_CXX_COMPILER_LAUNCHER}" MATCHES "CPATH")
+        set(CMAKE_CXX_COMPILER_LAUNCHER ${_rabbet_scrub_env} ${CMAKE_CXX_COMPILER_LAUNCHER})
+    endif()
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
