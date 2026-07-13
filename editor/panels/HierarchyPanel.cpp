@@ -15,6 +15,7 @@
 #include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Light.h"
 #include "rabbet/scene/Name.h"
+#include "rabbet/scene/Parent.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/serialize/Prefab.h"
 #include "rabbet/terrain/TerrainComponent.h"
@@ -27,6 +28,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <system_error>
 #include <vector>
 
@@ -89,9 +91,14 @@ struct TreeActions {
     bool reparent = false;
 };
 
+using ChildIndex = std::unordered_map<rb::Entity, std::vector<rb::Entity>>;
+
 void drawEntityNode(EditorContext& context, rb::Scene& scene, rb::AssetDatabase* database,
-                    rb::Entity e, TreeActions& actions) {
-    const std::vector<rb::Entity> children = rb::childrenOf(scene, e);
+                    const ChildIndex& childIndex, rb::Entity e, TreeActions& actions) {
+    static const std::vector<rb::Entity> kNoChildren;
+    const auto childIt = childIndex.find(e);
+    const std::vector<rb::Entity>& children =
+        childIt != childIndex.end() ? childIt->second : kNoChildren;
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
                                ImGuiTreeNodeFlags_OpenOnDoubleClick |
                                ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
@@ -147,7 +154,7 @@ void drawEntityNode(EditorContext& context, rb::Scene& scene, rb::AssetDatabase*
     }
     if (open) {
         for (const rb::Entity child : children) {
-            drawEntityNode(context, scene, database, child, actions);
+            drawEntityNode(context, scene, database, childIndex, child, actions);
         }
         ImGui::TreePop();
     }
@@ -254,10 +261,18 @@ void HierarchyPanel::onImGui() {
     actions.destroy = toDelete;
 
     rb::AssetDatabase* database = m_context.runtime.tryResource<rb::AssetDatabase>();
+    // One Parent-pool pass builds the whole child index; a per-node childrenOf scan made
+    // the tree O(entities x links) per frame, which is real money at spawn-heavy counts.
+    ChildIndex childIndex;
+    scene.each<rb::Parent>([&scene, &childIndex](rb::Entity child, rb::Parent& link) {
+        if (scene.alive(link.entity)) {
+            childIndex[link.entity].push_back(child);
+        }
+    });
     const std::vector<rb::Entity> entities = scene.entities();
     for (const rb::Entity e : entities) {
         if (rb::parentOf(scene, e) == rb::kNullEntity) {
-            drawEntityNode(m_context, scene, database, e, actions);
+            drawEntityNode(m_context, scene, database, childIndex, e, actions);
         }
     }
 

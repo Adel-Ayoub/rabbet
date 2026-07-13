@@ -6,6 +6,7 @@
 #include <imgui.h>
 
 #include <array>
+#include <cstddef>
 #include <vector>
 
 namespace rb::editor {
@@ -57,13 +58,24 @@ void ConsolePanel::onImGui() {
         ImGui::PushFont(mono);
     }
     const std::vector<LogBuffer::Entry> entries = m_log.snapshot();
-    for (const LogBuffer::Entry& entry : entries) {
-        if (static_cast<int>(entry.level) < m_minLevel) {
-            continue;
+    std::vector<std::size_t> visible;
+    visible.reserve(entries.size());
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (static_cast<int>(entries[i].level) >= m_minLevel) {
+            visible.push_back(i);
         }
-        ImGui::PushStyleColor(ImGuiCol_Text, levelColor(entry.level));
-        ImGui::Text("%s  %s", levelTag(entry.level), entry.message.c_str());
-        ImGui::PopStyleColor();
+    }
+    // Clipped: only the rows in view are submitted. A per-tick warning pins the buffer at
+    // its cap, and unclipped text made this the most expensive panel in a busy session.
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(visible.size()));
+    while (clipper.Step()) {
+        for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+            const LogBuffer::Entry& entry = entries[visible[static_cast<std::size_t>(row)]];
+            ImGui::PushStyleColor(ImGuiCol_Text, levelColor(entry.level));
+            ImGui::Text("%s  %s", levelTag(entry.level), entry.message.c_str());
+            ImGui::PopStyleColor();
+        }
     }
     if (mono != nullptr) {
         ImGui::PopFont();

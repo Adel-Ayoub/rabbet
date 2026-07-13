@@ -379,8 +379,13 @@ void Editor::renderScene(int width, int height, float dt) {
     m_runtime.tick(dt);
     rb::gl::Framebuffer::unbind();
 
+    // Scripts inside that tick can spawn or destroy entities, which reallocates or
+    // swap-removes the PostProcess pool; the pre-tick pointer may dangle, so re-query.
+    // A post component destroyed mid-tick degrades to the raw frame for one frame.
+    post = rb::activePostProcess(m_runtime.scene());
     m_context.viewportTexture =
-        hdr ? m_postProcessor.process(m_framebuffer->colorTexture(), width, height, *post)
+        hdr && post != nullptr
+            ? m_postProcessor.process(m_framebuffer->colorTexture(), width, height, *post)
             : m_framebuffer->colorTexture();
 }
 

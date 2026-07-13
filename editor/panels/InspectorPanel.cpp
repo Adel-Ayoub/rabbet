@@ -31,6 +31,11 @@ void InspectorPanel::onImGui() {
             if (entry.has(scene, e)) {
                 continue;
             }
+            // The prefab link is instantiation metadata, not an authorable component; a
+            // hand-added empty link only offers a Revert that eats the entity's contents.
+            if (entry.name == "PrefabInstance") {
+                continue;
+            }
             any = true;
             if (ImGui::MenuItem(entry.name.c_str())) {
                 entry.addDefault(scene, e);
