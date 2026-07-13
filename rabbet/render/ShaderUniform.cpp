@@ -32,17 +32,24 @@ UniformType uniformTypeFromGlType(unsigned int glType) noexcept {
 }
 
 bool isEngineUniform(std::string_view name) noexcept {
-    // Light and primitive arrays reflect as "uPointPosition[0]" etc.; the prefix match below
-    // covers the indexed forms without listing each element. (uEmissive is deliberately absent:
-    // like uBaseColor it is a per-surface value a material may override, not engine-driven.)
-    if (name.starts_with("uDirectional") || name.starts_with("uPoint") ||
-        name.starts_with("uSpot")) {
-        return true;
+    // Arrays reflect as "uPointPosition[0]": compare the base name so every indexed form
+    // matches without a prefix test, which would also swallow a custom shader's own
+    // "uPointSize"-style uniforms and hide them from the material inspector. (uEmissive is
+    // deliberately absent: like uBaseColor it is a per-surface value a material may
+    // override, not engine-driven.)
+    if (const std::size_t bracket = name.find('['); bracket != std::string_view::npos) {
+        name = name.substr(0, bracket);
     }
-    static constexpr std::array<std::string_view, 12> kReserved = {
-        "uModel",      "uNormalMatrix",   "uViewProjection",      "uViewPosition",
-        "uLightSpace", "uShadowMap",      "uHasShadowMap",        "uAmbient",
-        "uIrradiance", "uHasEnvironment", "uEnvironmentIntensity", "uHdrOutput"};
+    static constexpr std::array<std::string_view, 25> kReserved = {
+        "uModel",          "uNormalMatrix",   "uViewProjection",
+        "uViewPosition",   "uLightSpace",     "uShadowMap",
+        "uHasShadowMap",   "uAmbient",        "uIrradiance",
+        "uHasEnvironment", "uEnvironmentIntensity", "uHdrOutput",
+        "uDirectionalCount", "uDirectionalColor", "uDirectionalDirection",
+        "uPointCount",     "uPointColor",     "uPointPosition",
+        "uPointAttenuation", "uSpotCount",    "uSpotColor",
+        "uSpotDirection",  "uSpotPosition",   "uSpotAttenuation",
+        "uSpotCone"};
     for (const std::string_view reserved : kReserved) {
         if (name == reserved) {
             return true;

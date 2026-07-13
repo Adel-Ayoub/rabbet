@@ -200,6 +200,35 @@ static void parentedLightGathersAtWorldPosition() {
     CHECK(!lighting.pointPositions.empty() && approx(lighting.pointPositions[0].y, 2.0f));
 }
 
+// Over the shader caps the renderer keeps the lights nearest the view, deterministically
+// (distance, then index): pool churn from destroys can no longer reshuffle which lights
+// survive the cut.
+static void nearestLightSelectionIsDeterministic() {
+    std::vector<glm::vec3> positions;
+    for (int i = 0; i < 12; ++i) {
+        positions.push_back(glm::vec3(static_cast<float>(12 - i), 0.0f, 0.0f));
+    }
+
+    const std::vector<std::size_t> keep =
+        rb::selectNearestLights(positions, glm::vec3(0.0f), 8);
+    CHECK(keep.size() == 8u);
+    CHECK(keep.front() == 11u); // distance 1, the nearest
+    for (std::size_t i = 1; i < keep.size(); ++i) {
+        CHECK(keep[i] == 11u - i); // strictly increasing distance
+    }
+
+    const std::vector<std::size_t> all =
+        rb::selectNearestLights(positions, glm::vec3(0.0f), 16);
+    CHECK(all.size() == positions.size()); // under the cap: everything, original order
+    CHECK(all.front() == 0u);
+
+    std::vector<glm::vec3> tied(3, glm::vec3(2.0f, 0.0f, 0.0f));
+    const std::vector<std::size_t> firstTwo = rb::selectNearestLights(tied, glm::vec3(0.0f), 2);
+    CHECK(firstTwo.size() == 2u);
+    CHECK(firstTwo[0] == 0u); // ties break on the lower index
+    CHECK(firstTwo[1] == 1u);
+}
+
 int main() {
     coneCosinesMapAnglesToCosines();
     coneCosinesClampInvertedCone();
@@ -209,5 +238,6 @@ int main() {
     primitiveEmissiveRoundTrips();
     primitiveWithoutEmissiveDefaultsToZero();
     parentedLightGathersAtWorldPosition();
+    nearestLightSelectionIsDeterministic();
     return rbtest::summary("lighting_extended");
 }

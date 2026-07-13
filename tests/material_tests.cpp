@@ -58,17 +58,22 @@ static void glTypeMapping() {
 }
 
 // Engine-driven uniforms (transforms, camera, lights, shadows) are filtered out of the
-// material-editable set; the light/point arrays are matched by prefix.
+// material-editable set; light arrays match by base name, so a custom shader's own
+// uPoint*/uSpot* uniforms stay inspectable.
 static void engineUniformClassification() {
     CHECK(rb::isEngineUniform("uModel"));
     CHECK(rb::isEngineUniform("uViewProjection"));
-    CHECK(rb::isEngineUniform("uDirectionalColor")); // array, prefix match
+    CHECK(rb::isEngineUniform("uDirectionalColor"));
     CHECK(rb::isEngineUniform("uPointPosition"));
+    CHECK(rb::isEngineUniform("uPointPosition[3]")); // reflected array element
+    CHECK(rb::isEngineUniform("uSpotCone[0]"));
     CHECK(rb::isEngineUniform("uShadowMap"));
     CHECK(!rb::isEngineUniform("uBaseColor"));
     CHECK(!rb::isEngineUniform("uMetallic"));
     CHECK(!rb::isEngineUniform("uAlbedoTex"));
     CHECK(!rb::isEngineUniform("uTint"));
+    CHECK(!rb::isEngineUniform("uPointSize"));      // custom, not the engine's light family
+    CHECK(!rb::isEngineUniform("uSpotlightTint")); // custom, must reach the inspector
 }
 
 // A material round-trips through its .material.json form: shader uuid, every uniform value

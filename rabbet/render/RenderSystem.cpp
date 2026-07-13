@@ -24,6 +24,7 @@
 #include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/SphereCollider.h"
 #include "rabbet/render/DebugDraw.h"
+#include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scene/WorldMatrix.h"
 #include "rabbet/util/Log.h"
@@ -236,6 +237,18 @@ void uploadLights(gl::Shader& shader, const glm::mat4& viewProjection, const glm
     shader.setVec2Array("uSpotCone", {lighting->spotCones.data(), spotCount});
 }
 
+// Rewrites `values` to hold only the entries at `keep`, in that order; the companion of
+// selectNearestLights for the parallel per-light arrays.
+template <typename T>
+void keepIndices(std::vector<T>& values, const std::vector<std::size_t>& keep) {
+    std::vector<T> kept;
+    kept.reserve(keep.size());
+    for (const std::size_t index : keep) {
+        kept.push_back(values[index]);
+    }
+    values = std::move(kept);
+}
+
 // A soft round dot used as the default particle sprite when an emitter has no texture: white with
 // a smooth radial alpha falloff, so additive sparks glow and alpha puffs feather at the edges.
 gl::Texture buildSoftParticleTexture() {
@@ -359,6 +372,32 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
     const glm::mat4 viewProjection = view.projection * view.view;
     const Lighting* lighting = runtime.tryResource<Lighting>();
     const EnvironmentLight* environment = runtime.tryResource<EnvironmentLight>();
+
+    // Over the shader caps, keep the lights nearest the view (selected once per frame,
+    // every uploadLights call below reads the clamped copy). Directional lights have no
+    // position, so an over-cap set of those stays authored-order.
+    Lighting selected;
+    if (lighting != nullptr && (lighting->pointPositions.size() > kMaxPointLights ||
+                                lighting->spotPositions.size() > kMaxSpotLights)) {
+        selected = *lighting;
+        if (selected.pointPositions.size() > kMaxPointLights) {
+            const std::vector<std::size_t> keep =
+                selectNearestLights(selected.pointPositions, view.position, kMaxPointLights);
+            keepIndices(selected.pointPositions, keep);
+            keepIndices(selected.pointColors, keep);
+            keepIndices(selected.pointAttenuations, keep);
+        }
+        if (selected.spotPositions.size() > kMaxSpotLights) {
+            const std::vector<std::size_t> keep =
+                selectNearestLights(selected.spotPositions, view.position, kMaxSpotLights);
+            keepIndices(selected.spotPositions, keep);
+            keepIndices(selected.spotDirections, keep);
+            keepIndices(selected.spotColors, keep);
+            keepIndices(selected.spotAttenuations, keep);
+            keepIndices(selected.spotCones, keep);
+        }
+        lighting = &selected;
+    }
 
     AssetManager* assets = runtime.tryResource<AssetManager>();
     if (assets != nullptr) {
@@ -763,6 +802,16 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         const GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
         GLboolean depthWrite = GL_TRUE;
         glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
+        // The batches switch the blend func per blend mode; capture it so the pass leaves
+        // the function exactly as found, not stuck on whatever the last batch used.
+        GLint blendSrcRgb = GL_ONE;
+        GLint blendDstRgb = GL_ZERO;
+        GLint blendSrcAlpha = GL_ONE;
+        GLint blendDstAlpha = GL_ZERO;
+        glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
+        glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcAlpha);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstAlpha);
 
         glEnable(GL_BLEND);
         glDepthMask(GL_FALSE);
@@ -813,6 +862,9 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         }
 
         glDepthMask(depthWrite);
+        glBlendFuncSeparate(static_cast<GLenum>(blendSrcRgb), static_cast<GLenum>(blendDstRgb),
+                            static_cast<GLenum>(blendSrcAlpha),
+                            static_cast<GLenum>(blendDstAlpha));
         if (wasCull == GL_TRUE) {
             glEnable(GL_CULL_FACE);
         }
@@ -830,25 +882,32 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         m_flat->setVec3("uColor", glm::vec3(0.25f, 0.95f, 0.40f));
         glDisable(GL_DEPTH_TEST);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        runtime.scene().each<Transform, BoxCollider>(
-            [this](Entity, Transform& transform, BoxCollider& box) {
+        // Outlines compose the world pose like the bodies do (PhysicsSystem spawns at
+        // worldPoseOf + rotated offset): a parented collider's wireframe must sit where
+        // the body actually collides, not at the raw local TRS. Collider dimensions stay
+        // world-space, so the composed scale is deliberately not applied to them.
+        Scene& wireScene = runtime.scene();
+        wireScene.each<Transform, BoxCollider>(
+            [this, &wireScene](Entity entity, Transform&, BoxCollider& box) {
                 if (!m_primitiveCube) {
                     return;
                 }
-                const glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position) *
-                                        glm::mat4_cast(transform.rotation) *
+                const WorldPose pose = worldPoseOf(wireScene, entity);
+                const glm::mat4 model = glm::translate(glm::mat4(1.0f), pose.position) *
+                                        glm::mat4_cast(pose.rotation) *
                                         glm::translate(glm::mat4(1.0f), box.offset) *
                                         glm::scale(glm::mat4(1.0f), box.halfExtents * 2.0f);
                 m_flat->setMat4("uModel", model);
                 m_primitiveCube->draw();
             });
-        runtime.scene().each<Transform, SphereCollider>(
-            [this](Entity, Transform& transform, SphereCollider& sphere) {
+        wireScene.each<Transform, SphereCollider>(
+            [this, &wireScene](Entity entity, Transform&, SphereCollider& sphere) {
                 if (!m_primitiveSphere) {
                     return;
                 }
-                const glm::mat4 model = glm::translate(glm::mat4(1.0f), transform.position) *
-                                        glm::mat4_cast(transform.rotation) *
+                const WorldPose pose = worldPoseOf(wireScene, entity);
+                const glm::mat4 model = glm::translate(glm::mat4(1.0f), pose.position) *
+                                        glm::mat4_cast(pose.rotation) *
                                         glm::translate(glm::mat4(1.0f), sphere.offset) *
                                         glm::scale(glm::mat4(1.0f), glm::vec3(sphere.radius * 2.0f));
                 m_flat->setMat4("uModel", model);
@@ -884,6 +943,7 @@ Entity RenderSystem::pick(Runtime& runtime, int x, int y) {
     glEnable(GL_DEPTH_TEST);
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LESS);
+    const GLboolean pickWasBlend = glIsEnabled(GL_BLEND);
     glDisable(GL_BLEND); // integer colour targets cannot be blended
 
     m_pick->bind();
@@ -913,18 +973,44 @@ Entity RenderSystem::pick(Runtime& runtime, int x, int y) {
             });
     }
 
-    runtime.scene().each<WorldMatrix, gl::Mesh>(
-        [this](Entity e, WorldMatrix& world, gl::Mesh& mesh) {
+    Scene& pickScene = runtime.scene();
+    pickScene.each<WorldMatrix, gl::Mesh>(
+        [this, &pickScene](Entity e, WorldMatrix& world, gl::Mesh& mesh) {
+            // Pick truth must match visual truth: a bare mesh with no material never
+            // reaches a colour pass, so it must not steal clicks while invisible.
+            if (!pickScene.has<Material>(e) && !pickScene.has<PbrMaterial>(e) &&
+                !pickScene.has<MaterialComponent>(e)) {
+                return;
+            }
             m_pick->setMat4("uModel", world.value);
             m_pick->setInt("uEntityId", static_cast<int>(e.index()));
             mesh.draw();
         });
+
+    // Terrain occludes and is selectable like anything else it draws over; the cached
+    // meshes are warm from the colour pass, so a missing cache entry just skips.
+    if (const TerrainRenderData* terrain = runtime.tryResource<TerrainRenderData>()) {
+        for (const TerrainDraw& draw : terrain->draws) {
+            const WorldMatrix* world = pickScene.tryGet<WorldMatrix>(draw.entity);
+            const auto cached = m_terrainMeshes.find(draw.entity);
+            if (world == nullptr || cached == m_terrainMeshes.end() ||
+                !cached->second.mesh.has_value()) {
+                continue;
+            }
+            m_pick->setMat4("uModel", world->value);
+            m_pick->setInt("uEntityId", static_cast<int>(draw.entity.index()));
+            cached->second.mesh->draw();
+        }
+    }
 
     // y arrives measured from the top; flip to GL's bottom-left origin for the read.
     const std::int32_t id = m_pickBuffer->readPixel(x, height - 1 - y);
 
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
     glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+    if (pickWasBlend == GL_TRUE) {
+        glEnable(GL_BLEND);
+    }
 
     if (id < 0) {
         return Entity{};

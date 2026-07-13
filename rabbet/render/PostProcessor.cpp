@@ -223,8 +223,18 @@ void PostProcessor::ensureTargets(int width, int height) {
         mh = std::max(mh / 2, 1);
     }
 
-    m_ldr = gl::ColorTarget::create(w, h, false);
-    m_aa = gl::ColorTarget::create(w, h, false);
+    // The composite/FXAA textures are what the viewport image displays: resize them in
+    // place so their GL ids stay stable, because ImGui recorded this frame's draw list
+    // with the OLD id before the scene render ran (recreating here left one deleted-name
+    // frame per resize step, a continuous flicker during a drag). The bloom chain is
+    // internal to this pass and its level count varies with size, so it recreates.
+    if (m_ldr && m_aa) {
+        m_ldr->resize(w, h);
+        m_aa->resize(w, h);
+    } else {
+        m_ldr = gl::ColorTarget::create(w, h, false);
+        m_aa = gl::ColorTarget::create(w, h, false);
+    }
 }
 
 void PostProcessor::drawFullscreen() const noexcept {
