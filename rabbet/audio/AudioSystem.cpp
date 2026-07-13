@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <glm/glm.hpp>
 
@@ -64,6 +65,12 @@ struct AudioSystem::Impl {
     ma_engine engine{};
     bool engineOk = false;
     std::unordered_map<Entity, std::unique_ptr<Voice>> voices;
+    // Entities whose clip failed to init: creation now retries every update (emitters can
+    // appear mid-play), and these must neither retry nor warn per tick.
+    std::unordered_set<Entity> failed;
+    // Voices exist only inside a play session; the flag keeps a stray update outside one
+    // from building any (the scheduler gates this too, but the system defends itself).
+    bool inSession = false;
 
     Impl() {
         const bool forceNull = std::getenv("RB_AUDIO_NULL") != nullptr;
@@ -102,6 +109,8 @@ struct AudioSystem::Impl {
             destroyVoice(*voice);
         }
         voices.clear();
+        failed.clear();
+        inSession = false;
     }
 
     void applyProperties(Voice& voice, const SoundEmitter& emitter, const glm::vec3* position) {
@@ -134,6 +143,7 @@ struct AudioSystem::Impl {
 
     void build(Runtime& runtime) {
         teardown();
+        inSession = true;
         if (!engineOk) {
             return;
         }
@@ -143,59 +153,65 @@ struct AudioSystem::Impl {
         }
         Scene& scene = runtime.scene();
         scene.each<SoundEmitter>([&](Entity entity, SoundEmitter& emitter) {
-            if (!emitter.handle.valid()) {
-                return;
-            }
-            const AudioAsset* asset = assets->get<AudioAsset>(emitter.handle);
-            if (asset == nullptr || asset->path.empty()) {
-                return;
-            }
-            auto voice = std::make_unique<Voice>();
-            ma_result result = MA_ERROR;
-            if (!asset->samples.empty() && asset->channels > 0) {
-                // Ogg decoded to PCM at import: play from an in-memory buffer (no streaming).
-                const ma_uint64 frameCount =
-                    static_cast<ma_uint64>(asset->samples.size() / asset->channels);
-                ma_audio_buffer_config bufferConfig = ma_audio_buffer_config_init(
-                    ma_format_s16, asset->channels, frameCount, asset->samples.data(), nullptr);
-                bufferConfig.sampleRate = asset->sampleRate;
-                if (ma_audio_buffer_init(&bufferConfig, &voice->buffer) != MA_SUCCESS) {
-                    log::warn("audio: could not buffer clip '{}' for entity {}",
-                              asset->path.string(), entity.index());
-                    return;
-                }
-                voice->usesBuffer = true;
-                result = ma_sound_init_from_data_source(&engine, &voice->buffer, 0, nullptr,
-                                                        &voice->sound);
-            } else {
-                const ma_uint32 flags = soundFlags(emitter);
-#ifdef _WIN32
-                // Wide overload so non-ASCII asset paths survive the narrowing on Windows.
-                result = ma_sound_init_from_file_w(&engine, asset->path.wstring().c_str(), flags,
-                                                   nullptr, nullptr, &voice->sound);
-#else
-                result = ma_sound_init_from_file(&engine, asset->path.string().c_str(), flags,
-                                                 nullptr, nullptr, &voice->sound);
-#endif
-            }
-            if (result != MA_SUCCESS) {
-                if (voice->usesBuffer) {
-                    ma_audio_buffer_uninit(&voice->buffer);
-                }
-                log::warn("audio: could not load clip '{}' for entity {}", asset->path.string(),
-                          entity.index());
-                return;
-            }
-            voice->inited = true;
-            const glm::vec3 world = worldPoseOf(scene, entity).position;
-            applyProperties(*voice, emitter,
-                            scene.tryGet<Transform>(entity) != nullptr ? &world : nullptr);
-            if (emitter.playOnStart && ma_sound_start(&voice->sound) != MA_SUCCESS) {
-                log::warn("audio: could not start clip '{}' for entity {}", asset->path.string(),
-                          entity.index());
-            }
-            voices.emplace(entity, std::move(voice));
+            createVoice(scene, *assets, entity, emitter);
         });
+    }
+
+    void createVoice(Scene& scene, AssetManager& assets, Entity entity, SoundEmitter& emitter) {
+        if (!emitter.handle.valid()) {
+            return; // not resolved yet; the resolve system may still deliver it
+        }
+        const AudioAsset* asset = assets.get<AudioAsset>(emitter.handle);
+        if (asset == nullptr || asset->path.empty()) {
+            return;
+        }
+        auto voice = std::make_unique<Voice>();
+        ma_result result = MA_ERROR;
+        if (!asset->samples.empty() && asset->channels > 0) {
+            // Ogg decoded to PCM at import: play from an in-memory buffer (no streaming).
+            const ma_uint64 frameCount =
+                static_cast<ma_uint64>(asset->samples.size() / asset->channels);
+            ma_audio_buffer_config bufferConfig = ma_audio_buffer_config_init(
+                ma_format_s16, asset->channels, frameCount, asset->samples.data(), nullptr);
+            bufferConfig.sampleRate = asset->sampleRate;
+            if (ma_audio_buffer_init(&bufferConfig, &voice->buffer) != MA_SUCCESS) {
+                failed.insert(entity);
+                log::warn("audio: could not buffer clip '{}' for entity {}",
+                          asset->path.string(), entity.index());
+                return;
+            }
+            voice->usesBuffer = true;
+            result = ma_sound_init_from_data_source(&engine, &voice->buffer, 0, nullptr,
+                                                    &voice->sound);
+        } else {
+            const ma_uint32 flags = soundFlags(emitter);
+#ifdef _WIN32
+            // Wide overload so non-ASCII asset paths survive the narrowing on Windows.
+            result = ma_sound_init_from_file_w(&engine, asset->path.wstring().c_str(), flags,
+                                               nullptr, nullptr, &voice->sound);
+#else
+            result = ma_sound_init_from_file(&engine, asset->path.string().c_str(), flags,
+                                             nullptr, nullptr, &voice->sound);
+#endif
+        }
+        if (result != MA_SUCCESS) {
+            if (voice->usesBuffer) {
+                ma_audio_buffer_uninit(&voice->buffer);
+            }
+            failed.insert(entity);
+            log::warn("audio: could not load clip '{}' for entity {}", asset->path.string(),
+                      entity.index());
+            return;
+        }
+        voice->inited = true;
+        const glm::vec3 world = worldPoseOf(scene, entity).position;
+        applyProperties(*voice, emitter,
+                        scene.tryGet<Transform>(entity) != nullptr ? &world : nullptr);
+        if (emitter.playOnStart && ma_sound_start(&voice->sound) != MA_SUCCESS) {
+            log::warn("audio: could not start clip '{}' for entity {}", asset->path.string(),
+                      entity.index());
+        }
+        voices.emplace(entity, std::move(voice));
     }
 
     void updateListener(Runtime& runtime) {
@@ -227,19 +243,26 @@ struct AudioSystem::Impl {
     }
 
     void update(Runtime& runtime) {
-        if (!engineOk || voices.empty()) {
+        if (!engineOk) {
             return;
         }
         Scene& scene = runtime.scene();
         reap(scene);
-        if (voices.empty()) {
-            return;
-        }
+        AssetManager* assets = runtime.tryResource<AssetManager>();
         updateListener(runtime);
         scene.each<SoundEmitter>([&](Entity entity, SoundEmitter& emitter) {
-            const auto it = voices.find(entity);
+            auto it = voices.find(entity);
             if (it == voices.end()) {
-                return;
+                // An emitter that appeared after the play edge (world.spawn, a scene swap)
+                // gets its voice here, playOnStart honored, instead of staying silent.
+                if (!inSession || assets == nullptr || failed.count(entity) != 0) {
+                    return;
+                }
+                createVoice(scene, *assets, entity, emitter);
+                it = voices.find(entity);
+                if (it == voices.end()) {
+                    return;
+                }
             }
             const glm::vec3 world = worldPoseOf(scene, entity).position;
             applyProperties(*it->second, emitter,

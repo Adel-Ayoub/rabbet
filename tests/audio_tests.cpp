@@ -354,6 +354,33 @@ void oggDecodesAndPlays() {
 
 } // namespace
 
+// An emitter appearing mid-session (the world.spawn shape, or a scene swap replacing every
+// entity) gets a live voice from the next update instead of staying silent until the next
+// Play; a stray update outside a session still builds nothing.
+void midSessionEmitterGetsAVoice(const fs::path& wav) {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AudioSystem audio;
+
+    audio.onPlayBegin(runtime); // the session starts with no emitters at all
+    CHECK(audio.activeVoiceCount() == 0u);
+
+    const rb::Entity e = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, true);
+    audio.onUpdate(runtime, 1.0f / 60.0f);
+    CHECK(audio.activeVoiceCount() == 1u);
+    CHECK(audio.voicePlaying(e)); // playOnStart honored at mid-session creation
+
+    // The scene-swap shape: the old population dies, a new emitter appears, same session.
+    runtime.scene().destroy(e);
+    const rb::Entity next = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, true);
+    audio.onUpdate(runtime, 1.0f / 60.0f);
+    CHECK(audio.activeVoiceCount() == 1u);
+    CHECK(audio.voicePlaying(next));
+
+    audio.onPlayEnd(runtime);
+    CHECK(audio.activeVoiceCount() == 0u);
+}
+
 int main() {
     // Force the silent null backend so the suite is deterministic and needs no audio hardware.
     ::setenv("RB_AUDIO_NULL", "1", 1);
@@ -376,6 +403,7 @@ int main() {
     streamedClipPlays(wav);
     rebuildsBetweenSessions(wav);
     resolveLazilyImports(wav);
+    midSessionEmitterGetsAVoice(wav);
     serializeRoundTrip();
 #ifdef RB_AUDIO_TEST_OGG
     oggDecodesAndPlays();
