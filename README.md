@@ -13,6 +13,9 @@
 
 ---
 
+Rabbet is a 3D engine I'm building from scratch in C++. It's a sparse-set ECS with a modern
+OpenGL renderer and an editor called `forge` on top.
+
 ## Screenshot
 
 <p align="center">
@@ -21,17 +24,16 @@
 
 ## Features
 
-- **Core & ECS** — a sparse-set ECS (versioned entity handles, dense component pools, multi-component queries) over a modular runtime of systems, resources and modules, with an `Always` / `Play` system scheduler and play-session edges so gameplay is gated behind Play/Stop.
-- **Rendering** — OpenGL 4.1 forward renderer, metallic-roughness PBR (Cook–Torrance) and Phong, directional shadow maps with PCF, directional & point lights, a cubemap skybox with a procedural sky fallback, and RAII GL wrappers.
-- **Assets** — stable UUID asset handles, a generational-handle `AssetManager` with an on-disk asset database and `.import` sidecars, assimp model import (glTF / OBJ / FBX, base-color), and stb image loading.
-- **Serialization** — one component reflection registry powering human-readable JSON scene save/load with id-remapped round-trips, plus the editor's add/remove-component menu.
-- **Editor (forge)** — a dockable ImGui workspace (Hierarchy · Inspector · Console · Assets · render-to-texture Viewport), a free-look camera, ID-buffer click-picking, ImGuizmo translate/rotate/scale with snapping, and Play / Pause / Step / Stop with snapshot-restore.
-- **Scripting** — Lua components (lua + sol2) with `Transform` / `Input` / frame-time bindings, inspector-exposed script fields, and live file hot-reload.
-- **Physics** — Jolt rigidbodies (static / dynamic / kinematic) with box & sphere colliders, fixed-timestep play-mode stepping with transform write-back, and a collider debug-draw pass.
-- **Audio** — miniaudio sound emitters with volume / pitch / loop and spatial attenuation & pan from the active camera listener; wav / mp3 / flac decode natively, ogg via stb_vorbis.
-- **Quality** — 34 headless CTest suites and strict `-Werror` builds in both Debug and Release.
+- **ECS core.** Sparse-set entities with versioned handles over dense component pools, run by a small system-and-resource runtime. Systems are tagged Always or Play, so gameplay code only ticks between Play and Stop.
+- **Renderer.** An OpenGL 4.1 forward path with metallic-roughness PBR and a Phong fallback. There are directional, point and spot lights, shadow maps, emissive surfaces and optional image-based lighting, plus a post stack (bloom, tone mapping, FXAA), CPU particles, and heightmap or noise terrain.
+- **Editor (`forge`).** A dockable ImGui workspace around a render-to-texture viewport, with click-to-pick, gizmo handles with snapping, and Play/Pause/Step/Stop that snapshots the scene and restores it on Stop. The asset browser draws live thumbnails, and the hierarchy is a real tree you reparent by dragging.
+- **Content is data.** Every asset carries a stable UUID and an `.import` sidecar. Models (glTF, OBJ, FBX), textures, audio, materials, shaders and prefabs are all first-class, and scenes save to readable JSON. Prefabs can capture and rebuild whole entity subtrees, not just single objects.
+- **Scripting.** Lua behaviour through sol2, with live hot-reload and inspector-editable fields. Scripts get an entity and world API to find other entities, spawn and destroy prefabs, and move physics bodies.
+- **Physics and audio.** Jolt rigidbodies with box, sphere and terrain-mesh colliders, advanced at a fixed timestep. Audio is miniaudio, with spatial emitters placed from the active camera.
+- **Tested.** 45 headless CTest suites, and the engine and editor build clean under `-Werror` in Debug and Release.
 
-**In progress / planned:** materials & shaders as first-class assets&nbsp;·&nbsp;prefabs&nbsp;·&nbsp;extended lighting (spot / image-based)&nbsp;·&nbsp;a particle system&nbsp;·&nbsp;an HDR post-processing stack (bloom / tonemap / AA)&nbsp;·&nbsp;terrain&nbsp;·&nbsp;a deeper asset browser.
+A small demo game, Orb Hunt, lives under `examples/forge/assets/orbhunt` and runs from the
+editor. Load the scene, hit Play, and roll the ball around collecting orbs.
 
 ## Quick start
 
@@ -44,7 +46,9 @@ cmake --build build -j       # builds the engine, editor, examples and tests
 ./build/bin/forge            # launch the editor
 ```
 
-Requires **CMake 3.24+** and a **C++20** compiler. Dependencies are fetched automatically (or reused if already installed); a handful of small single-header libraries are vendored in-tree under `third_party/`.
+Requires **CMake 3.24+** and a **C++20** compiler. Dependencies are fetched and built from
+pinned sources on first configure; a few single-header libraries are vendored in-tree under
+`third_party/`.
 
 ## Build
 
