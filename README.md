@@ -16,10 +16,13 @@
 Rabbet is a 3D engine I'm building from scratch in C++. It's a sparse-set ECS with a modern
 OpenGL renderer and an editor called `forge` on top.
 
-## Screenshot
+## Showcase
 
 <p align="center">
-  <img src="docs/editor.png" alt="The Rabbet 'forge' editor — hierarchy, viewport, inspector, console and assets panels around a render-to-texture scene">
+  <img src="docs/orbhunt.gif" alt="Orb Hunt gameplay running in the Forge editor" width="90%">
+</p>
+<p align="center">
+  <img src="docs/editor.png" alt="Forge editor showing asset search, icon chrome and the component inspector" width="90%">
 </p>
 
 ## Features
