@@ -59,6 +59,7 @@ add_executable(forge
     ComponentDrawers.cpp
     ThumbnailRenderer.cpp
     AssetAssign.cpp
+    Widgets.cpp
     panels/ConsolePanel.cpp
     panels/HierarchyPanel.cpp
     panels/ViewportPanel.cpp

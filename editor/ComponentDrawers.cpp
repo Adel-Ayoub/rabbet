@@ -2,6 +2,8 @@
 
 #include "editor/AssetAssign.h"
 #include "editor/EditorContext.h"
+#include "editor/Icons.h"
+#include "editor/Widgets.h"
 
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
@@ -40,6 +42,7 @@
 #include <imgui.h>
 #include <magic_enum/magic_enum.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -49,12 +52,12 @@
 namespace rb::editor {
 namespace {
 
-// One dropdown for any enum: the labels come straight from magic_enum, so adding an
-// enumerator needs no editor change (no hand-written name table to keep in sync).
+// One row-aligned dropdown for any enum: the labels come straight from magic_enum,
+// so adding an enumerator needs no editor change.
 template <typename T>
 void enumCombo(const char* label, T& value) {
     static_assert(std::is_enum_v<T>, "enumCombo requires an enum type");
-    if (ImGui::BeginCombo(label, magic_enum::enum_name(value).data())) {
+    if (ui::beginCombo(label, magic_enum::enum_name(value).data())) {
         for (const T option : magic_enum::enum_values<T>()) {
             const bool selected = option == value;
             if (ImGui::Selectable(magic_enum::enum_name(option).data(), selected)) {
@@ -72,106 +75,95 @@ void drawName(rb::Scene& scene, rb::Entity e) {
     rb::Name& n = scene.get<rb::Name>(e);
     char buffer[128];
     std::snprintf(buffer, sizeof(buffer), "%s", n.value.c_str());
-    if (ImGui::InputText("Value", buffer, sizeof(buffer))) {
+    if (ui::inputText("Name", buffer, sizeof(buffer))) {
         n.value = buffer;
     }
 }
 
 void drawTransform(rb::Scene& scene, rb::Entity e) {
     rb::Transform& t = scene.get<rb::Transform>(e);
-    ImGui::DragFloat3("Position", &t.position.x, 0.05f);
+    ui::dragFloat3("Position", &t.position.x, 0.05f);
     glm::vec3 euler = glm::degrees(glm::eulerAngles(t.rotation));
-    if (ImGui::DragFloat3("Rotation", &euler.x, 0.5f)) {
+    if (ui::dragFloat3("Rotation", &euler.x, 0.5f)) {
         t.rotation = glm::quat(glm::radians(euler));
     }
-    ImGui::DragFloat3("Scale", &t.scale.x, 0.05f, 0.01f, 100.0f);
+    ui::dragFloat3("Scale", &t.scale.x, 0.05f, 0.01f, 100.0f);
 }
 
 void drawCamera(rb::Scene& scene, rb::Entity e) {
     rb::Camera& c = scene.get<rb::Camera>(e);
     float fovDeg = glm::degrees(c.fovY);
-    if (ImGui::DragFloat("FOV (Y)", &fovDeg, 0.5f, 10.0f, 170.0f)) {
+    if (ui::dragFloat("FOV (Y)", &fovDeg, 0.5f, 10.0f, 170.0f)) {
         c.fovY = glm::radians(fovDeg);
     }
-    ImGui::DragFloat("Near", &c.nearPlane, 0.01f, 0.001f, c.farPlane);
-    ImGui::DragFloat("Far", &c.farPlane, 0.5f, c.nearPlane, 10000.0f);
+    ui::dragFloat("Near", &c.nearPlane, 0.01f, 0.001f, c.farPlane);
+    ui::dragFloat("Far", &c.farPlane, 0.5f, c.nearPlane, 10000.0f);
 }
 
 void drawDirectionalLight(rb::Scene& scene, rb::Entity e) {
     rb::DirectionalLight& l = scene.get<rb::DirectionalLight>(e);
-    ImGui::ColorEdit3("Color", &l.color.x);
-    ImGui::DragFloat("Intensity", &l.intensity, 0.05f, 0.0f, 20.0f);
-    ImGui::DragFloat3("Direction", &l.direction.x, 0.02f);
+    ui::colorEdit3("Color", &l.color.x);
+    ui::dragFloat("Intensity", &l.intensity, 0.05f, 0.0f, 20.0f);
+    ui::dragFloat3("Direction", &l.direction.x, 0.02f);
 }
 
 void drawPointLight(rb::Scene& scene, rb::Entity e) {
     rb::PointLight& l = scene.get<rb::PointLight>(e);
-    ImGui::ColorEdit3("Color", &l.color.x);
-    ImGui::DragFloat("Intensity", &l.intensity, 0.05f, 0.0f, 50.0f);
-    ImGui::DragFloat("Constant", &l.constant, 0.01f, 0.0f, 5.0f);
-    ImGui::DragFloat("Linear", &l.linear, 0.001f, 0.0f, 2.0f);
-    ImGui::DragFloat("Quadratic", &l.quadratic, 0.001f, 0.0f, 2.0f);
+    ui::colorEdit3("Color", &l.color.x);
+    ui::dragFloat("Intensity", &l.intensity, 0.05f, 0.0f, 50.0f);
+    ui::dragFloat("Constant", &l.constant, 0.01f, 0.0f, 5.0f);
+    ui::dragFloat("Linear", &l.linear, 0.001f, 0.0f, 2.0f);
+    ui::dragFloat("Quadratic", &l.quadratic, 0.001f, 0.0f, 2.0f);
 }
 
 void drawSpotLight(rb::Scene& scene, rb::Entity e) {
     rb::SpotLight& l = scene.get<rb::SpotLight>(e);
-    ImGui::ColorEdit3("Color", &l.color.x);
-    ImGui::DragFloat("Intensity", &l.intensity, 0.05f, 0.0f, 50.0f);
-    ImGui::DragFloat3("Direction", &l.direction.x, 0.02f);
-    ImGui::DragFloat("Inner Angle", &l.innerAngle, 0.5f, 0.0f, l.outerAngle);
-    ImGui::DragFloat("Outer Angle", &l.outerAngle, 0.5f, 0.0f, 89.9f);
-    ImGui::DragFloat("Constant", &l.constant, 0.01f, 0.0f, 5.0f);
-    ImGui::DragFloat("Linear", &l.linear, 0.001f, 0.0f, 2.0f);
-    ImGui::DragFloat("Quadratic", &l.quadratic, 0.001f, 0.0f, 2.0f);
+    ui::colorEdit3("Color", &l.color.x);
+    ui::dragFloat("Intensity", &l.intensity, 0.05f, 0.0f, 50.0f);
+    ui::dragFloat3("Direction", &l.direction.x, 0.02f);
+    ui::dragFloat("Inner Angle", &l.innerAngle, 0.5f, 0.0f, l.outerAngle);
+    ui::dragFloat("Outer Angle", &l.outerAngle, 0.5f, 0.0f, 89.9f);
+    ui::dragFloat("Constant", &l.constant, 0.01f, 0.0f, 5.0f);
+    ui::dragFloat("Linear", &l.linear, 0.001f, 0.0f, 2.0f);
+    ui::dragFloat("Quadratic", &l.quadratic, 0.001f, 0.0f, 2.0f);
 }
 
 void drawPrimitive(rb::Scene& scene, rb::Entity e) {
     rb::Primitive& p = scene.get<rb::Primitive>(e);
     enumCombo("Shape", p.shape);
-    ImGui::ColorEdit3("Color", &p.color.x);
-    ImGui::ColorEdit3("Emissive", &p.emissive.x,
-                      ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
-    ImGui::DragFloat("Metallic", &p.metallic, 0.01f, 0.0f, 1.0f);
-    ImGui::DragFloat("Roughness", &p.roughness, 0.01f, 0.0f, 1.0f);
+    ui::colorEdit3("Color", &p.color.x);
+    ui::colorEdit3("Emissive", &p.emissive.x,
+                   ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float);
+    ui::dragFloat("Metallic", &p.metallic, 0.01f, 0.0f, 1.0f);
+    ui::dragFloat("Roughness", &p.roughness, 0.01f, 0.0f, 1.0f);
 }
 
-// The asset reference itself is assigned from the Assets panel (it needs the asset
-// database); here we show the bound uuid and whether it resolved this frame.
 void drawModelRenderer(rb::Scene& scene, rb::Entity e) {
     rb::ModelRenderer& r = scene.get<rb::ModelRenderer>(e);
-    if (!r.model.valid()) {
-        ImGui::TextDisabled("No model assigned");
-        ImGui::TextDisabled("Assign one from the Assets panel.");
-        return;
-    }
-    ImGui::Text("Model %s", r.model.toString().c_str());
-    if (r.handle.valid()) {
-        ImGui::TextDisabled("resolved");
-    } else {
-        ImGui::TextDisabled("unresolved (import or re-assign)");
-    }
-    if (ImGui::Button("Clear")) {
+    const ui::SlotResult slot =
+        ui::assetSlot("Model", rb::AssetType::Model, r.model, r.handle.valid());
+    if (slot.dropped.valid()) {
+        r.model = slot.dropped.id;
+        r.handle = {}; // AssetResolveSystem repopulates it from the uuid
+    } else if (slot.cleared) {
         r.model = rb::Uuid{};
         r.handle = {};
     }
 }
 
-// The .lua reference is assigned from the Assets panel (it needs the asset database);
-// here we show the bound script and edit its exposed fields, which drive the running
-// script and serialize with the component.
+// The .lua reference stays panel-assigned (dropping here could not introspect the
+// script's fields, which needs the asset database); the slot still shows the link.
 void drawScript(rb::Scene& scene, rb::Entity e) {
     rb::ScriptComponent& s = scene.get<rb::ScriptComponent>(e);
-    if (!s.script.valid()) {
-        ImGui::TextDisabled("No script assigned");
-        ImGui::TextDisabled("Assign a .lua from the Assets panel.");
-        return;
-    }
-    ImGui::Text("Script %s", s.script.toString().c_str());
-    ImGui::TextDisabled("%s", s.handle.valid() ? "resolved" : "unresolved (re-assign or import)");
-    if (ImGui::Button("Clear")) {
+    const ui::SlotResult slot =
+        ui::assetSlot("Script", rb::AssetType::Script, s.script, s.handle.valid(), false);
+    if (slot.cleared) {
         s.script = rb::Uuid{};
         s.handle = {};
         s.fields.clear();
+        return;
+    }
+    if (!s.script.valid()) {
         return;
     }
     if (s.fields.empty()) {
@@ -183,18 +175,18 @@ void drawScript(rb::Scene& scene, rb::Entity e) {
         switch (f.type) {
         case rb::ScriptField::Type::Number: {
             float value = static_cast<float>(f.number);
-            if (ImGui::DragFloat(f.name.c_str(), &value, 0.05f)) {
+            if (ui::dragFloat(f.name.c_str(), &value, 0.05f)) {
                 f.number = static_cast<double>(value);
             }
             break;
         }
         case rb::ScriptField::Type::Boolean:
-            ImGui::Checkbox(f.name.c_str(), &f.boolean);
+            ui::checkbox(f.name.c_str(), &f.boolean);
             break;
         case rb::ScriptField::Type::String: {
             char buffer[256];
             std::snprintf(buffer, sizeof(buffer), "%s", f.text.c_str());
-            if (ImGui::InputText(f.name.c_str(), buffer, sizeof(buffer))) {
+            if (ui::inputText(f.name.c_str(), buffer, sizeof(buffer))) {
                 f.text = buffer;
             }
             break;
@@ -206,102 +198,86 @@ void drawScript(rb::Scene& scene, rb::Entity e) {
 void drawRigidBody(rb::Scene& scene, rb::Entity e) {
     rb::RigidBody& b = scene.get<rb::RigidBody>(e);
     enumCombo("Type", b.type);
-    ImGui::DragFloat("Mass", &b.mass, 0.05f, 0.0f, 1000.0f);
-    ImGui::DragFloat("Friction", &b.friction, 0.01f, 0.0f, 2.0f);
-    ImGui::DragFloat("Restitution", &b.restitution, 0.01f, 0.0f, 1.0f);
-    ImGui::Checkbox("Gravity", &b.gravity);
+    ui::dragFloat("Mass", &b.mass, 0.05f, 0.0f, 1000.0f);
+    ui::dragFloat("Friction", &b.friction, 0.01f, 0.0f, 2.0f);
+    ui::dragFloat("Restitution", &b.restitution, 0.01f, 0.0f, 1.0f);
+    ui::checkbox("Gravity", &b.gravity);
 }
 
 void drawBoxCollider(rb::Scene& scene, rb::Entity e) {
     rb::BoxCollider& c = scene.get<rb::BoxCollider>(e);
-    ImGui::DragFloat3("Half Extents", &c.halfExtents.x, 0.05f, 0.01f, 1000.0f);
-    ImGui::DragFloat3("Offset", &c.offset.x, 0.05f);
+    ui::dragFloat3("Half Extents", &c.halfExtents.x, 0.05f, 0.01f, 1000.0f);
+    ui::dragFloat3("Offset", &c.offset.x, 0.05f);
 }
 
 void drawSphereCollider(rb::Scene& scene, rb::Entity e) {
     rb::SphereCollider& c = scene.get<rb::SphereCollider>(e);
-    ImGui::DragFloat("Radius", &c.radius, 0.05f, 0.01f, 1000.0f);
-    ImGui::DragFloat3("Offset", &c.offset.x, 0.05f);
+    ui::dragFloat("Radius", &c.radius, 0.05f, 0.01f, 1000.0f);
+    ui::dragFloat3("Offset", &c.offset.x, 0.05f);
 }
 
-// The clip is assigned from the Assets panel (it needs the asset database); here we show the
-// bound clip and edit playback properties, which drive the running voice and serialize.
 void drawSoundEmitter(rb::Scene& scene, rb::Entity e) {
     rb::SoundEmitter& s = scene.get<rb::SoundEmitter>(e);
-    if (!s.sound.valid()) {
-        ImGui::TextDisabled("No clip assigned");
-        ImGui::TextDisabled("Assign an audio clip from the Assets panel.");
-    } else {
-        ImGui::Text("Clip %s", s.sound.toString().c_str());
-        ImGui::TextDisabled("%s", s.handle.valid() ? "resolved" : "unresolved (re-assign or import)");
-        if (ImGui::Button("Clear")) {
-            s.sound = rb::Uuid{};
-            s.handle = {};
-        }
+    const ui::SlotResult slot =
+        ui::assetSlot("Clip", rb::AssetType::Audio, s.sound, s.handle.valid());
+    if (slot.dropped.valid()) {
+        s.sound = slot.dropped.id;
+        s.handle = {}; // AudioAssetResolveSystem lazily imports + resolves
+    } else if (slot.cleared) {
+        s.sound = rb::Uuid{};
+        s.handle = {};
     }
-    ImGui::DragFloat("Volume", &s.volume, 0.01f, 0.0f, 2.0f);
-    ImGui::DragFloat("Pitch", &s.pitch, 0.01f, 0.1f, 4.0f);
-    ImGui::Checkbox("Loop", &s.loop);
-    ImGui::Checkbox("Spatial", &s.spatial);
-    ImGui::Checkbox("Play on start", &s.playOnStart);
-    ImGui::Checkbox("Stream", &s.stream);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Stream from disk instead of decoding up front (for long music tracks).");
-    }
+    ui::dragFloat("Volume", &s.volume, 0.01f, 0.0f, 2.0f);
+    ui::dragFloat("Pitch", &s.pitch, 0.01f, 0.1f, 4.0f);
+    ui::checkbox("Loop", &s.loop);
+    ui::checkbox("Spatial", &s.spatial);
+    ui::checkbox("Play on start", &s.playOnStart);
+    ui::checkbox("Stream", &s.stream);
+    ImGui::SetItemTooltip("Stream from disk instead of decoding up front (for long music tracks).");
 }
 
-// All-data drawer: the sprite reference is assigned from the Assets panel (it needs the asset
-// database), so here we show the bound uuid and edit every simulation/appearance field live.
 void drawParticleEmitter(rb::Scene& scene, rb::Entity e) {
     rb::ParticleEmitter& p = scene.get<rb::ParticleEmitter>(e);
 
-    ImGui::DragFloat("Emission Rate", &p.emissionRate, 0.5f, 0.0f, 10000.0f);
-    ImGui::DragInt("Max Particles", &p.maxParticles, 1.0f, 0, 100000);
+    ui::dragFloat("Emission Rate", &p.emissionRate, 0.5f, 0.0f, 10000.0f);
+    ui::dragInt("Max Particles", &p.maxParticles, 1.0f, 0, 100000);
     enumCombo("Blend Mode", p.blendMode);
-    ImGui::Checkbox("Looping", &p.looping);
+    ui::checkbox("Looping", &p.looping);
     if (!p.looping) {
-        ImGui::DragFloat("Duration", &p.duration, 0.1f, 0.0f, 600.0f);
+        ui::dragFloat("Duration", &p.duration, 0.1f, 0.0f, 600.0f);
     }
 
     ImGui::SeparatorText("Life");
-    ImGui::DragFloat("Lifetime", &p.lifetime, 0.05f, 0.01f, 600.0f);
-    ImGui::DragFloat("Lifetime Jitter", &p.lifetimeJitter, 0.05f, 0.0f, 600.0f);
+    ui::dragFloat("Lifetime", &p.lifetime, 0.05f, 0.01f, 600.0f);
+    ui::dragFloat("Lifetime Jitter", &p.lifetimeJitter, 0.05f, 0.0f, 600.0f);
 
     ImGui::SeparatorText("Motion");
-    ImGui::DragFloat3("Velocity", &p.velocity.x, 0.05f);
-    ImGui::DragFloat("Cone Angle", &p.coneAngle, 0.5f, 0.0f, 89.9f);
-    ImGui::DragFloat("Speed Jitter", &p.speedJitter, 0.01f, 0.0f, 1.0f);
-    ImGui::DragFloat3("Gravity", &p.gravity.x, 0.05f);
+    ui::dragFloat3("Velocity", &p.velocity.x, 0.05f);
+    ui::dragFloat("Cone Angle", &p.coneAngle, 0.5f, 0.0f, 89.9f);
+    ui::dragFloat("Speed Jitter", &p.speedJitter, 0.01f, 0.0f, 1.0f);
+    ui::dragFloat3("Gravity", &p.gravity.x, 0.05f);
 
     ImGui::SeparatorText("Appearance");
-    ImGui::DragFloat("Start Size", &p.startSize, 0.01f, 0.0f, 100.0f);
-    ImGui::DragFloat("End Size", &p.endSize, 0.01f, 0.0f, 100.0f);
+    ui::dragFloat("Start Size", &p.startSize, 0.01f, 0.0f, 100.0f);
+    ui::dragFloat("End Size", &p.endSize, 0.01f, 0.0f, 100.0f);
     constexpr ImGuiColorEditFlags colorFlags =
         ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float | ImGuiColorEditFlags_AlphaPreviewHalf;
-    ImGui::ColorEdit4("Start Color", &p.startColor.x, colorFlags);
-    ImGui::ColorEdit4("End Color", &p.endColor.x, colorFlags);
+    ui::colorEdit4("Start Color", &p.startColor.x, colorFlags);
+    ui::colorEdit4("End Color", &p.endColor.x, colorFlags);
 
     int seed = static_cast<int>(p.seed);
-    if (ImGui::DragInt("Seed", &seed, 1.0f, 0, 1000000)) {
+    if (ui::dragInt("Seed", &seed, 1.0f, 0, 1000000)) {
         p.seed = static_cast<std::uint32_t>(seed < 0 ? 0 : seed);
     }
 
     ImGui::SeparatorText("Sprite");
-    if (!p.sprite.valid()) {
-        ImGui::TextDisabled("No sprite (soft dot)");
-    } else {
-        ImGui::Text("Sprite %s", p.sprite.toString().c_str());
-        ImGui::TextDisabled("%s", p.handle.valid() ? "resolved" : "unresolved (re-assign or import)");
-        if (ImGui::Button("Clear Sprite")) {
-            p.sprite = rb::Uuid{};
-            p.handle = {};
-        }
-    }
-    // Drop a texture from the browser to set the sprite (AssetResolveSystem imports + resolves it).
-    ImGui::Selectable("(drop a texture here)##spritedrop");
-    if (const AssetDragPayload dropped = acceptAssetDropTarget();
-        dropped.valid() && dropped.type == rb::AssetType::Texture) {
-        p.sprite = dropped.id;
+    const ui::SlotResult slot =
+        ui::assetSlot("Sprite", rb::AssetType::Texture, p.sprite, p.handle.valid());
+    if (slot.dropped.valid()) {
+        p.sprite = slot.dropped.id;
+        p.handle = {}; // AssetResolveSystem imports + resolves it
+    } else if (slot.cleared) {
+        p.sprite = rb::Uuid{};
         p.handle = {};
     }
 }
@@ -309,26 +285,26 @@ void drawParticleEmitter(rb::Scene& scene, rb::Entity e) {
 // Post-processing settings for the scene (a single enabled instance drives the editor's view).
 void drawPostProcess(rb::Scene& scene, rb::Entity e) {
     rb::PostProcess& p = scene.get<rb::PostProcess>(e);
-    ImGui::Checkbox("Enabled", &p.enabled);
+    ui::checkbox("Enabled", &p.enabled);
 
     ImGui::SeparatorText("Tonemap");
     enumCombo("Operator", p.tonemap);
-    ImGui::DragFloat("Exposure (EV)", &p.exposure, 0.05f, -8.0f, 8.0f);
-    ImGui::DragFloat("Gamma", &p.gamma, 0.01f, 1.0f, 3.0f);
+    ui::dragFloat("Exposure (EV)", &p.exposure, 0.05f, -8.0f, 8.0f);
+    ui::dragFloat("Gamma", &p.gamma, 0.01f, 1.0f, 3.0f);
 
     ImGui::SeparatorText("Bloom");
-    ImGui::Checkbox("Bloom", &p.bloom);
-    ImGui::DragFloat("Threshold", &p.bloomThreshold, 0.02f, 0.0f, 20.0f);
-    ImGui::DragFloat("Knee", &p.bloomKnee, 0.01f, 0.0f, 1.0f);
-    ImGui::DragFloat("Intensity", &p.bloomIntensity, 0.005f, 0.0f, 2.0f);
+    ui::checkbox("Bloom", &p.bloom);
+    ui::dragFloat("Threshold", &p.bloomThreshold, 0.02f, 0.0f, 20.0f);
+    ui::dragFloat("Knee", &p.bloomKnee, 0.01f, 0.0f, 1.0f);
+    ui::dragFloat("Intensity", &p.bloomIntensity, 0.005f, 0.0f, 2.0f);
 
     ImGui::SeparatorText("Grade");
-    ImGui::DragFloat("Contrast", &p.contrast, 0.01f, 0.0f, 2.0f);
-    ImGui::DragFloat("Saturation", &p.saturation, 0.01f, 0.0f, 2.0f);
-    ImGui::DragFloat("Vignette", &p.vignette, 0.01f, 0.0f, 1.0f);
+    ui::dragFloat("Contrast", &p.contrast, 0.01f, 0.0f, 2.0f);
+    ui::dragFloat("Saturation", &p.saturation, 0.01f, 0.0f, 2.0f);
+    ui::dragFloat("Vignette", &p.vignette, 0.01f, 0.0f, 1.0f);
 
     ImGui::SeparatorText("Anti-aliasing");
-    ImGui::Checkbox("FXAA", &p.fxaa);
+    ui::checkbox("FXAA", &p.fxaa);
 }
 
 bool isColorName(const std::string& name) {
@@ -343,6 +319,7 @@ bool isColorName(const std::string& name) {
 bool drawUniformOverride(rb::MaterialAsset& material, const rb::ShaderUniform& uniform) {
     ImGui::PushID(uniform.name.c_str());
     if (rb::isSamplerType(uniform.type)) {
+        ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("%s  (sampler)", uniform.name.c_str());
         ImGui::PopID();
         return false;
@@ -357,9 +334,10 @@ bool drawUniformOverride(rb::MaterialAsset& material, const rb::ShaderUniform& u
     }
 
     if (existing == nullptr) {
+        ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("%s  (%s)", uniform.name.c_str(),
                             std::string(rb::uniformTypeName(uniform.type)).c_str());
-        ImGui::SameLine();
+        ImGui::SameLine(ui::labelColumnWidth());
         bool added = false;
         if (ImGui::SmallButton("Override")) {
             rb::MaterialUniform created;
@@ -373,45 +351,51 @@ bool drawUniformOverride(rb::MaterialAsset& material, const rb::ShaderUniform& u
         return added;
     }
 
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(uniform.name.c_str());
+    ImGui::SameLine(ui::labelColumnWidth());
+    const float removeWidth = 22.0f + ImGui::GetStyle().ItemInnerSpacing.x;
+    ImGui::SetNextItemWidth(std::max(60.0f, ImGui::GetContentRegionAvail().x - removeWidth));
+
     bool changed = false;
     switch (uniform.type) {
     case rb::UniformType::Float:
-        changed = ImGui::DragFloat(uniform.name.c_str(), &existing->vec.x, 0.01f);
+        changed = ImGui::DragFloat("##value", &existing->vec.x, 0.01f);
         break;
     case rb::UniformType::Vec2:
-        changed = ImGui::DragFloat2(uniform.name.c_str(), &existing->vec.x, 0.01f);
+        changed = ImGui::DragFloat2("##value", &existing->vec.x, 0.01f);
         break;
     case rb::UniformType::Vec3:
-        changed = isColorName(uniform.name)
-                      ? ImGui::ColorEdit3(uniform.name.c_str(), &existing->vec.x)
-                      : ImGui::DragFloat3(uniform.name.c_str(), &existing->vec.x, 0.01f);
+        changed = isColorName(uniform.name) ? ImGui::ColorEdit3("##value", &existing->vec.x)
+                                            : ImGui::DragFloat3("##value", &existing->vec.x, 0.01f);
         break;
     case rb::UniformType::Vec4:
-        changed = ImGui::ColorEdit4(uniform.name.c_str(), &existing->vec.x);
+        changed = ImGui::ColorEdit4("##value", &existing->vec.x);
         break;
     case rb::UniformType::Int:
-        changed = ImGui::DragInt(uniform.name.c_str(), &existing->integer);
+        changed = ImGui::DragInt("##value", &existing->integer);
         break;
     case rb::UniformType::Bool:
-        changed = ImGui::Checkbox(uniform.name.c_str(), &existing->boolean);
+        changed = ImGui::Checkbox("##value", &existing->boolean);
         break;
     default:
         break;
     }
-    ImGui::SameLine();
-    if (ImGui::SmallButton("x")) {
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    if (ImGui::Button(icon::kX, ImVec2(22.0f, 0.0f))) {
         const std::string name = uniform.name;
         std::erase_if(material.uniforms,
                       [&name](const rb::MaterialUniform& value) { return value.name == name; });
         changed = true;
     }
+    ImGui::SetItemTooltip("Remove override");
     ImGui::PopID();
     return changed;
 }
 
-// A combo over the catalogued Texture assets (plus "(none)") that writes the chosen uuid. This is
-// how terrain assigns its heightmap / layer albedos / splat: multi-slot assignment is clearer inline
-// than routing a single Assets-panel action to a hidden "active slot".
+// A row-aligned combo over the catalogued Texture assets (plus "(none)") that writes the chosen
+// uuid. This is how terrain assigns its heightmap / layer albedos / splat: multi-slot assignment
+// is clearer inline than routing a single Assets-panel action to a hidden "active slot".
 bool textureSlot(const char* label, rb::AssetDatabase& database, rb::Uuid& target) {
     std::string current = "(none)";
     if (target.valid()) {
@@ -422,7 +406,7 @@ bool textureSlot(const char* label, rb::AssetDatabase& database, rb::Uuid& targe
         }
     }
     bool changed = false;
-    if (ImGui::BeginCombo(label, current.c_str())) {
+    if (ui::beginCombo(label, current.c_str())) {
         if (ImGui::Selectable("(none)", !target.valid())) {
             target = rb::Uuid{};
             changed = true;
@@ -452,17 +436,6 @@ bool textureSlot(const char* label, rb::AssetDatabase& database, rb::Uuid& targe
     return changed;
 }
 
-// Rebinds a MaterialComponent when a Material asset is dropped on the previous item.
-bool acceptMaterialDrop(rb::MaterialComponent& component) {
-    const AssetDragPayload dropped = acceptAssetDropTarget();
-    if (!dropped.valid() || dropped.type != rb::AssetType::Material) {
-        return false;
-    }
-    component.material = dropped.id;
-    component.handle = {}; // MaterialAssetResolveSystem repopulates it from the uuid
-    return true;
-}
-
 } // namespace
 
 void registerComponentDrawers(rb::ComponentRegistry& registry) {
@@ -487,27 +460,20 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e) {
     rb::Scene& scene = context.runtime.scene();
     rb::MaterialComponent& component = scene.get<rb::MaterialComponent>(e);
 
-    if (!component.material.valid()) {
-        ImGui::TextDisabled("No material assigned");
-        ImGui::Selectable("(drop a Material asset here)##matdrop0");
-        if (acceptMaterialDrop(component)) {
-            return;
-        }
-        ImGui::TextDisabled("...or assign one from the Assets panel.");
+    const ui::SlotResult slot =
+        ui::assetSlot("Material", rb::AssetType::Material, component.material,
+                      component.handle.valid());
+    if (slot.dropped.valid()) {
+        component.material = slot.dropped.id;
+        component.handle = {}; // MaterialAssetResolveSystem repopulates it from the uuid
         return;
     }
-    ImGui::Text("Material %s", component.material.toString().c_str());
-    ImGui::TextDisabled("%s",
-                        component.handle.valid() ? "resolved" : "unresolved (re-assign or import)");
-    if (ImGui::Button("Clear")) {
+    if (slot.cleared) {
         component.material = rb::Uuid{};
         component.handle = {};
         return;
     }
-    ImGui::SameLine();
-    ImGui::Selectable("(drop a Material to rebind)##matdrop1", false, ImGuiSelectableFlags_None,
-                      ImVec2(220.0f, 0.0f));
-    if (acceptMaterialDrop(component)) {
+    if (!component.material.valid()) {
         return;
     }
 
@@ -524,7 +490,7 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e) {
     // materials have no file, so there is nothing to save.
     const bool fileBacked = !material->path.empty();
     ImGui::BeginDisabled(!fileBacked || !material->dirty);
-    if (ImGui::Button("Save Material")) {
+    if (ImGui::Button((std::string(icon::kSave) + "  Save Material").c_str())) {
         if (rb::saveMaterialAsset(*assets, component.handle)) {
             rb::log::info("material: saved '{}'", material->path.string());
         }
@@ -543,13 +509,16 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e) {
         ImGui::TextDisabled("No shader");
         return;
     }
-    ImGui::Text("Shader %s", material->shader.toString().c_str());
     rb::ShaderAsset* shader = assets->get<rb::ShaderAsset>(material->shaderHandle);
-    ImGui::TextDisabled("%s", shader != nullptr ? "resolved" : "unresolved");
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("%s  %s", material->shader.toString().substr(0, 8).c_str(),
+                        shader != nullptr ? "resolved" : "unresolved");
 
     const bool hasFile = shader != nullptr && !shader->path.empty();
+    ImGui::SameLine(ui::labelColumnWidth());
     ImGui::BeginDisabled(!hasFile);
-    if (ImGui::Button("Reload Shader") && shader != nullptr) {
+    if (ImGui::SmallButton((std::string(icon::kRotateCcw) + "  Reload").c_str()) &&
+        shader != nullptr) {
         shader->sourceTimestamp = 0; // force the resolve poll to re-read + recompile
     }
     ImGui::EndDisabled();
@@ -584,28 +553,28 @@ void drawPrefabInspector(EditorContext& context, rb::Entity e) {
     rb::Scene& scene = context.runtime.scene();
     rb::PrefabInstance& instance = scene.get<rb::PrefabInstance>(e);
 
-    if (!instance.prefab.valid()) {
-        ImGui::TextDisabled("Not linked to a prefab");
+    const ui::SlotResult slot = ui::assetSlot("Prefab", rb::AssetType::Prefab, instance.prefab,
+                                              instance.handle.valid(), false);
+    if (slot.cleared) {
+        instance.prefab = rb::Uuid{};
+        instance.handle = {};
         return;
     }
-    ImGui::Text("Prefab %s", instance.prefab.toString().c_str());
-    ImGui::TextDisabled("%s", instance.handle.valid() ? "resolved" : "unresolved");
+    if (!instance.prefab.valid()) {
+        return;
+    }
 
     rb::AssetManager* assets = context.runtime.tryResource<rb::AssetManager>();
     rb::PrefabAsset* prefab =
         assets != nullptr ? assets->get<rb::PrefabAsset>(instance.handle) : nullptr;
 
     ImGui::BeginDisabled(prefab == nullptr);
-    if (ImGui::Button("Revert to Prefab") && prefab != nullptr) {
+    if (ImGui::Button((std::string(icon::kRotateCcw) + "  Revert to Prefab").c_str()) &&
+        prefab != nullptr) {
         // Re-applies the prefab's component data, discarding this instance's overrides.
         rb::applyPrefab(scene, context.registry, e, *prefab);
     }
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button("Unlink")) {
-        instance.prefab = rb::Uuid{};
-        instance.handle = {};
-    }
 }
 
 void drawTerrainInspector(EditorContext& context, rb::Entity e) {
@@ -617,12 +586,10 @@ void drawTerrainInspector(EditorContext& context, rb::Entity e) {
     }
 
     ImGui::SeparatorText("Shape");
-    ImGui::DragFloat("Size", &t.size, 0.5f, 1.0f, 4096.0f);
-    ImGui::DragInt("Resolution", &t.resolution, 1.0f, 2, 512);
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Vertices per side. The mesh rebuilds shortly after you stop editing.");
-    }
-    ImGui::DragFloat("Height Scale", &t.heightScale, 0.1f, 0.0f, 1000.0f);
+    ui::dragFloat("Size", &t.size, 0.5f, 1.0f, 4096.0f);
+    ui::dragInt("Resolution", &t.resolution, 1.0f, 2, 512);
+    ImGui::SetItemTooltip("Vertices per side. The mesh rebuilds shortly after you stop editing.");
+    ui::dragFloat("Height Scale", &t.heightScale, 0.1f, 0.0f, 1000.0f);
 
     ImGui::SeparatorText("Height Source");
     enumCombo("Source", t.source);
@@ -633,17 +600,17 @@ void drawTerrainInspector(EditorContext& context, rb::Entity e) {
         ImGui::TextDisabled("Grayscale image; read on the CPU for the heightfield.");
     } else if (t.source == rb::TerrainHeightSource::Noise) {
         int seed = static_cast<int>(t.seed);
-        if (ImGui::DragInt("Seed", &seed, 1.0f, 0, 1000000)) {
+        if (ui::dragInt("Seed", &seed, 1.0f, 0, 1000000)) {
             t.seed = static_cast<std::uint32_t>(seed < 0 ? 0 : seed);
         }
-        ImGui::DragInt("Octaves", &t.octaves, 1.0f, 1, 12);
-        ImGui::DragFloat("Frequency", &t.frequency, 0.05f, 0.1f, 64.0f);
-        ImGui::DragFloat("Lacunarity", &t.lacunarity, 0.01f, 1.0f, 4.0f);
-        ImGui::DragFloat("Gain", &t.gain, 0.01f, 0.0f, 1.0f);
+        ui::dragInt("Octaves", &t.octaves, 1.0f, 1, 12);
+        ui::dragFloat("Frequency", &t.frequency, 0.05f, 0.1f, 64.0f);
+        ui::dragFloat("Lacunarity", &t.lacunarity, 0.01f, 1.0f, 4.0f);
+        ui::dragFloat("Gain", &t.gain, 0.01f, 0.0f, 1.0f);
     }
 
     ImGui::SeparatorText("Layers");
-    ImGui::DragInt("Layer Count", &t.layerCount, 0.1f, 1, rb::TerrainComponent::kMaxLayers);
+    ui::dragInt("Layer Count", &t.layerCount, 0.1f, 1, rb::TerrainComponent::kMaxLayers);
     for (int i = 0; i < t.layerCount; ++i) {
         ImGui::PushID(i);
         rb::TerrainLayer& layer = t.layers[static_cast<std::size_t>(i)];
@@ -651,10 +618,10 @@ void drawTerrainInspector(EditorContext& context, rb::Entity e) {
         if (database != nullptr) {
             textureSlot("Albedo", *database, layer.albedo);
         }
-        ImGui::DragFloat("Tiling", &layer.tiling, 0.25f, 0.1f, 256.0f);
-        ImGui::DragFloat2("Height Range", &layer.heightRange.x, 0.01f, 0.0f, 1.0f);
-        ImGui::DragFloat2("Slope Range", &layer.slopeRange.x, 0.01f, 0.0f, 1.0f);
-        ImGui::DragFloat("Sharpness", &layer.sharpness, 0.005f, 0.0f, 0.5f);
+        ui::dragFloat("Tiling", &layer.tiling, 0.25f, 0.1f, 256.0f);
+        ui::dragFloat2("Height Range", &layer.heightRange.x, 0.01f, 0.0f, 1.0f);
+        ui::dragFloat2("Slope Range", &layer.slopeRange.x, 0.01f, 0.0f, 1.0f);
+        ui::dragFloat("Sharpness", &layer.sharpness, 0.005f, 0.0f, 0.5f);
         ImGui::PopID();
     }
 

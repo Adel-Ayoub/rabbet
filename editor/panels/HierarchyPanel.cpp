@@ -2,13 +2,17 @@
 
 #include "editor/AssetAssign.h"
 #include "editor/EditorContext.h"
+#include "editor/Icons.h"
+#include "editor/Palette.h"
 
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/assets/AssetType.h"
+#include "rabbet/audio/SoundEmitter.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/particle/ParticleEmitter.h"
+#include "rabbet/render/ModelRenderer.h"
 #include "rabbet/render/PostProcess.h"
 #include "rabbet/render/Primitive.h"
 #include "rabbet/scene/Camera.h"
@@ -17,7 +21,9 @@
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Parent.h"
 #include "rabbet/scene/Transform.h"
+#include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/serialize/Prefab.h"
+#include "rabbet/serialize/PrefabInstance.h"
 #include "rabbet/terrain/TerrainComponent.h"
 #include "rabbet/serialize/SceneSerializer.h"
 #include "rabbet/util/Log.h"
@@ -54,6 +60,52 @@ std::string displayName(rb::Scene& scene, rb::Entity e) {
         return n->value;
     }
     return "Entity " + std::to_string(e.index());
+}
+
+// The row glyph for what an entity most visibly is, by component priority.
+const char* entityGlyph(rb::Scene& scene, rb::Entity e) {
+    if (scene.tryGet<rb::Camera>(e) != nullptr) {
+        return icon::kVideo;
+    }
+    if (scene.tryGet<rb::DirectionalLight>(e) != nullptr) {
+        return icon::kSun;
+    }
+    if (scene.tryGet<rb::PointLight>(e) != nullptr) {
+        return icon::kLightbulb;
+    }
+    if (scene.tryGet<rb::SpotLight>(e) != nullptr) {
+        return icon::kFlashlight;
+    }
+    if (scene.tryGet<rb::TerrainComponent>(e) != nullptr) {
+        return icon::kMountain;
+    }
+    if (scene.tryGet<rb::ParticleEmitter>(e) != nullptr) {
+        return icon::kSparkles;
+    }
+    if (scene.tryGet<rb::PostProcess>(e) != nullptr) {
+        return icon::kWandSparkles;
+    }
+    if (scene.tryGet<rb::ModelRenderer>(e) != nullptr) {
+        return icon::kBoxes;
+    }
+    if (const rb::Primitive* primitive = scene.tryGet<rb::Primitive>(e)) {
+        switch (primitive->shape) {
+        case rb::PrimitiveShape::Cube:
+            return icon::kBox;
+        case rb::PrimitiveShape::Sphere:
+            return icon::kCircle;
+        case rb::PrimitiveShape::Plane:
+            return icon::kFrame;
+        }
+        return icon::kBox;
+    }
+    if (scene.tryGet<rb::ScriptComponent>(e) != nullptr) {
+        return icon::kFileCode;
+    }
+    if (scene.tryGet<rb::SoundEmitter>(e) != nullptr) {
+        return icon::kVolume;
+    }
+    return icon::kSquareDashed;
 }
 
 // Saves the entity as a reusable prefab under <assets>/prefabs/ and re-catalogues the database so
@@ -108,8 +160,17 @@ void drawEntityNode(EditorContext& context, rb::Scene& scene, rb::AssetDatabase*
     if (children.empty()) {
         flags |= ImGuiTreeNodeFlags_Leaf;
     }
-    const std::string label = displayName(scene, e) + "##" + std::to_string(e.index());
+    const std::string label = std::string(entityGlyph(scene, e)) + "  " + displayName(scene, e) +
+                              "##" + std::to_string(e.index());
+    // Prefab instances read in accent, like linked content in other editors.
+    const bool linked = scene.tryGet<rb::PrefabInstance>(e) != nullptr;
+    if (linked) {
+        ImGui::PushStyleColor(ImGuiCol_Text, palette().accentHot);
+    }
     const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+    if (linked) {
+        ImGui::PopStyleColor();
+    }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
         actions.select = e;
     }
@@ -169,57 +230,61 @@ void HierarchyPanel::onImGui() {
     rb::Entity toDuplicate{};
     rb::Entity toDelete{};
 
-    if (ImGui::Button("Create")) {
+    const auto entry = [](const char* glyph, const char* name) {
+        return ImGui::MenuItem((std::string(glyph) + "  " + name).c_str());
+    };
+    if (ImGui::Button(icon::kPlus)) {
         ImGui::OpenPopup("##create");
     }
+    ImGui::SetItemTooltip("Create entity");
     if (ImGui::BeginPopup("##create")) {
-        if (ImGui::MenuItem("Empty")) {
+        if (entry(icon::kSquareDashed, "Empty")) {
             toSelect = createEmpty(scene, "Empty");
         }
-        if (ImGui::MenuItem("Cube")) {
+        if (entry(icon::kBox, "Cube")) {
             toSelect = createPrimitive(scene, "Cube", rb::PrimitiveShape::Cube, 0.5f);
         }
-        if (ImGui::MenuItem("Sphere")) {
+        if (entry(icon::kCircle, "Sphere")) {
             toSelect = createPrimitive(scene, "Sphere", rb::PrimitiveShape::Sphere, 0.4f);
         }
-        if (ImGui::MenuItem("Plane")) {
+        if (entry(icon::kFrame, "Plane")) {
             toSelect = createPrimitive(scene, "Plane", rb::PrimitiveShape::Plane, 0.9f);
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Directional Light")) {
+        if (entry(icon::kSun, "Directional Light")) {
             const rb::Entity e = createEmpty(scene, "Directional Light");
             scene.add<rb::DirectionalLight>(e, rb::DirectionalLight{});
             toSelect = e;
         }
-        if (ImGui::MenuItem("Point Light")) {
+        if (entry(icon::kLightbulb, "Point Light")) {
             const rb::Entity e = createEmpty(scene, "Point Light");
             scene.add<rb::PointLight>(e, rb::PointLight{});
             toSelect = e;
         }
-        if (ImGui::MenuItem("Spot Light")) {
+        if (entry(icon::kFlashlight, "Spot Light")) {
             const rb::Entity e = createEmpty(scene, "Spot Light");
             scene.add<rb::SpotLight>(e, rb::SpotLight{});
             toSelect = e;
         }
-        if (ImGui::MenuItem("Camera")) {
+        if (entry(icon::kVideo, "Camera")) {
             const rb::Entity e = createEmpty(scene, "Camera");
             scene.add<rb::Camera>(e, rb::Camera{});
             toSelect = e;
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Particle Emitter")) {
+        if (entry(icon::kSparkles, "Particle Emitter")) {
             const rb::Entity e = createEmpty(scene, "Particle Emitter");
             scene.add<rb::ParticleEmitter>(e, rb::ParticleEmitter{});
             toSelect = e;
         }
-        if (ImGui::MenuItem("Post Process")) {
+        if (entry(icon::kWandSparkles, "Post Process")) {
             const rb::Entity e = createEmpty(scene, "Post Process");
             rb::PostProcess pp;
             pp.enabled = true; // created on -> the HDR pipeline engages immediately
             scene.add<rb::PostProcess>(e, pp);
             toSelect = e;
         }
-        if (ImGui::MenuItem("Terrain")) {
+        if (entry(icon::kMountain, "Terrain")) {
             const rb::Entity e = createEmpty(scene, "Terrain");
             rb::TerrainComponent terrain;
             terrain.size = 48.0f;
@@ -241,17 +306,20 @@ void HierarchyPanel::onImGui() {
     ImGui::SameLine();
     const bool hasSelection = scene.alive(m_context.selected);
     ImGui::BeginDisabled(!hasSelection);
-    if (ImGui::Button("Duplicate")) {
+    if (ImGui::Button(icon::kCopy)) {
         toDuplicate = m_context.selected;
     }
+    ImGui::SetItemTooltip("Duplicate selected");
     ImGui::SameLine();
-    if (ImGui::Button("Delete")) {
+    if (ImGui::Button(icon::kTrash)) {
         toDelete = m_context.selected;
     }
+    ImGui::SetItemTooltip("Delete selected");
     ImGui::SameLine();
-    if (ImGui::Button("Create Prefab")) {
+    if (ImGui::Button(icon::kPackage)) {
         createPrefab(m_context, m_context.selected);
     }
+    ImGui::SetItemTooltip("Save selected as prefab");
     ImGui::EndDisabled();
     ImGui::Separator();
 
@@ -270,6 +338,16 @@ void HierarchyPanel::onImGui() {
         }
     });
     const std::vector<rb::Entity> entities = scene.entities();
+    if (entities.empty()) {
+        ImGui::Dummy(ImVec2(0.0f, 10.0f));
+        const auto centered = [](const char* text) {
+            ImGui::SetCursorPosX(
+                std::max(0.0f, (ImGui::GetWindowSize().x - ImGui::CalcTextSize(text).x) * 0.5f));
+            ImGui::TextDisabled("%s", text);
+        };
+        centered("Scene is empty");
+        centered("Create an entity with +");
+    }
     for (const rb::Entity e : entities) {
         if (rb::parentOf(scene, e) == rb::kNullEntity) {
             drawEntityNode(m_context, scene, database, childIndex, e, actions);
