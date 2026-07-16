@@ -1,6 +1,7 @@
 #include "editor/Editor.h"
 
 #include "editor/ComponentDrawers.h"
+#include "editor/Icons.h"
 #include "editor/Palette.h"
 #include "editor/panels/AssetsPanel.h"
 #include "editor/panels/ConsolePanel.h"
@@ -59,6 +60,8 @@
 
 #include <glad/glad.h>
 
+#include <GLFW/glfw3.h>
+
 #include <ImGuizmo.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -71,6 +74,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdio>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -89,6 +93,8 @@ namespace {
 // Loads a cubemap from six face images named right/left/top/bottom/front/back
 // (+X,-X,+Y,-Y,+Z,-Z). Missing faces fall back to a flat sky-blue so the editor
 // still opens if an image is absent.
+constexpr float kStatusBarHeight = 24.0f;
+
 rb::gl::Cubemap loadCubemap(const std::filesystem::path& dir) {
     const std::array<std::string, 6> faces = {"right.jpg", "left.jpg",   "top.jpg",
                                               "bottom.jpg", "front.jpg", "back.jpg"};
@@ -129,8 +135,12 @@ Editor::Editor(rb::Window& window, rb::RenderDevice& device)
     io.IniFilename = iniPath.c_str();
     // The default scratch scene lives in the workspace too, so saving never litters the launch dir.
     m_scenePath = (std::filesystem::path(RB_EDITOR_WORKSPACE) / "rabbet_editor.scene.json").string();
-    applyStyle();
-    loadFonts();
+    applyTheme();
+    // Rasterize fonts at the display's content scale so text is crisp on hidpi.
+    float scaleX = 1.0f;
+    float scaleY = 1.0f;
+    glfwGetWindowContentScale(m_window.handle(), &scaleX, &scaleY);
+    loadFonts(std::max(scaleX, scaleY));
     ImGui_ImplGlfw_InitForOpenGL(m_window.handle(), true);
     ImGui_ImplOpenGL3_Init("#version 410");
 
@@ -283,12 +293,6 @@ void Editor::drawDockspaceAndMenu() {
     ImGui::Begin("##RabbetDockHost", nullptr, flags);
     ImGui::PopStyleVar(3);
 
-    const ImGuiID dockId = ImGui::GetID("RabbetDockSpace");
-    if (ImGui::DockBuilderGetNode(dockId) == nullptr) {
-        buildDefaultLayout(dockId);
-    }
-    ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
-
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Scene")) {
@@ -314,30 +318,119 @@ void Editor::drawDockspaceAndMenu() {
             }
             ImGui::EndMenu();
         }
-
-        // Play controls.
-        ImGui::TextUnformatted("   ");
-        if (!m_playSession) {
-            if (ImGui::Button("Play")) {
-                startPlay();
-            }
-        } else {
-            if (ImGui::Button(m_paused ? "Resume" : "Pause")) {
-                m_paused = !m_paused;
-            }
-            ImGui::BeginDisabled(!m_paused);
-            if (ImGui::Button("Step")) {
-                m_step = true;
-            }
-            ImGui::EndDisabled();
-            if (ImGui::Button("Stop")) {
-                stopPlay();
-            }
-            ImGui::TextDisabled(m_paused ? "[paused]" : "[playing]");
-        }
+        drawTransport();
         ImGui::EndMenuBar();
     }
+
+    const ImGuiID dockId = ImGui::GetID("RabbetDockSpace");
+    if (ImGui::DockBuilderGetNode(dockId) == nullptr) {
+        buildDefaultLayout(dockId);
+    }
+    // Leave a strip below the dockspace for the status bar.
+    ImGui::DockSpace(dockId, ImVec2(0.0f, -kStatusBarHeight), ImGuiDockNodeFlags_None);
+
+    drawStatusBar();
+
     ImGui::End();
+}
+
+// Play controls inline in the menu bar, centered in the window, so the chrome
+// stays a single row.
+void Editor::drawTransport() {
+    const Palette& p = palette();
+    const float buttonWidth = 30.0f;
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float stripWidth = 4.0f * buttonWidth + 3.0f * spacing;
+    const ImVec2 buttonSize(buttonWidth, 0.0f);
+    ImGui::SetCursorPosX(
+        std::max(ImGui::GetCursorPosX(), (ImGui::GetWindowSize().x - stripWidth) * 0.5f));
+
+    const bool playing = m_playSession && !m_paused;
+
+    if (playing) {
+        ImGui::PushStyleColor(ImGuiCol_Text, p.accent);
+    }
+    if (ImGui::Button(icon::kPlay, buttonSize)) {
+        if (!m_playSession) {
+            startPlay();
+        } else {
+            m_paused = false;
+        }
+    }
+    if (playing) {
+        ImGui::PopStyleColor();
+    }
+    ImGui::SetItemTooltip(m_playSession ? "Resume" : "Play");
+
+    ImGui::BeginDisabled(!m_playSession);
+    if (m_paused) {
+        ImGui::PushStyleColor(ImGuiCol_Text, p.warn);
+    }
+    if (ImGui::Button(icon::kPause, buttonSize)) {
+        m_paused = !m_paused;
+    }
+    if (m_paused) {
+        ImGui::PopStyleColor();
+    }
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("Pause");
+
+    ImGui::BeginDisabled(!(m_playSession && m_paused));
+    if (ImGui::Button(icon::kStepForward, buttonSize)) {
+        m_step = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("Step one frame");
+
+    ImGui::BeginDisabled(!m_playSession);
+    if (ImGui::Button(icon::kSquare, buttonSize)) {
+        stopPlay();
+    }
+    ImGui::EndDisabled();
+    ImGui::SetItemTooltip("Stop");
+}
+
+void Editor::drawStatusBar() {
+    const Palette& p = palette();
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, p.well);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 3.0f));
+    ImGui::BeginChild("##status", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding,
+                      ImGuiWindowFlags_NoScrollbar);
+
+    const char* state = "Editing";
+    ImVec4 stateColor = p.inkMuted;
+    if (m_playSession) {
+        state = m_paused ? "Paused" : "Playing";
+        stateColor = m_paused ? p.warn : p.good;
+    }
+    const float lineHeight = ImGui::GetTextLineHeight();
+    const ImVec2 dotPos = ImGui::GetCursorScreenPos();
+    ImGui::GetWindowDrawList()->AddCircleFilled(
+        ImVec2(dotPos.x + 4.0f, dotPos.y + lineHeight * 0.5f + 1.0f), 3.5f,
+        ImGui::GetColorU32(stateColor));
+    ImGui::Dummy(ImVec2(12.0f, lineHeight));
+    ImGui::SameLine();
+    ImGui::TextUnformatted(state);
+
+    std::size_t assetCount = 0;
+    if (const rb::AssetDatabase* database = m_runtime.tryResource<rb::AssetDatabase>()) {
+        assetCount = database->size();
+    }
+    char stats[96];
+    std::snprintf(stats, sizeof(stats), "%.0f fps    %zu entities    %zu assets",
+                  static_cast<double>(ImGui::GetIO().Framerate),
+                  m_runtime.scene().entities().size(), assetCount);
+    ImGui::PushFont(fonts().mono);
+    const float statsWidth = ImGui::CalcTextSize(stats).x;
+    ImGui::SameLine(ImGui::GetWindowSize().x - statsWidth - 10.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, p.inkMuted);
+    ImGui::TextUnformatted(stats);
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
+
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
 }
 
 void Editor::renderScene(int width, int height, float dt) {
@@ -501,7 +594,8 @@ void Editor::run() {
 
 
         m_device.setViewport(m_window.width(), m_window.height());
-        m_device.setClearColor(glm::vec4(0.06f, 0.06f, 0.07f, 1.0f));
+        const ImVec4& chrome = palette().well;
+        m_device.setClearColor(glm::vec4(chrome.x, chrome.y, chrome.z, 1.0f));
         m_device.clear();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());

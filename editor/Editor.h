@@ -41,6 +41,8 @@ public:
 private:
     void buildDefaultScene();
     void drawDockspaceAndMenu();
+    void drawTransport();
+    void drawStatusBar();
     void buildDefaultLayout(unsigned int dockId);
     void renderScene(int width, int height, float dt);
     void newScene();

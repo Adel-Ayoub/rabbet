@@ -70,7 +70,7 @@ Options: `-DCMAKE_BUILD_TYPE=Release`, `-DRABBET_BUILD_EDITOR=OFF`, `-DRABBET_BU
 
 ## Acknowledgements
 
-Built on excellent open-source libraries: [GLFW](https://www.glfw.org/), [GLM](https://github.com/g-truc/glm), [Dear ImGui](https://github.com/ocornut/imgui) + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo), [assimp](https://github.com/assimp/assimp), [nlohmann/json](https://github.com/nlohmann/json), [Lua](https://www.lua.org/) + [sol2](https://github.com/ThePhD/sol2), [Jolt Physics](https://github.com/jrouwe/JoltPhysics), [miniaudio](https://github.com/mackron/miniaudio), [stb](https://github.com/nothings/stb) and [glad](https://github.com/Dav1dde/glad). The sample crate model is from [Poly Haven](https://polyhaven.com/) (CC0).
+Built on excellent open-source libraries: [GLFW](https://www.glfw.org/), [GLM](https://github.com/g-truc/glm), [Dear ImGui](https://github.com/ocornut/imgui) + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo), [assimp](https://github.com/assimp/assimp), [nlohmann/json](https://github.com/nlohmann/json), [Lua](https://www.lua.org/) + [sol2](https://github.com/ThePhD/sol2), [Jolt Physics](https://github.com/jrouwe/JoltPhysics), [miniaudio](https://github.com/mackron/miniaudio), [stb](https://github.com/nothings/stb) and [glad](https://github.com/Dav1dde/glad). The sample crate model is from [Poly Haven](https://polyhaven.com/) (CC0). The editor bundles the [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) typefaces (OFL) and icon glyphs from [Lucide](https://lucide.dev/) (ISC).
 
 ## License
 
