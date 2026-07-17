@@ -306,8 +306,8 @@ unsigned int PostProcessor::process(unsigned int hdrTexture, int width, int heig
 
     unsigned int result = m_ldr->texture();
 
-    // --- FXAA on the LDR image. ---
-    if (settings.fxaa) {
+    // --- FXAA on the LDR image (skipped if its shader failed to compile at init). ---
+    if (settings.fxaa && m_fxaa) {
         m_aa->bind();
         m_fxaa->bind();
         m_ldr->bindTexture(0);

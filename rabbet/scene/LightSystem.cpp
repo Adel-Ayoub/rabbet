@@ -12,6 +12,19 @@
 #include <cmath>
 
 namespace rb {
+namespace {
+
+// An authored zero direction (typed into the inspector, then saved) would normalize to NaN
+// and poison the light uniforms and the shadow matrix; fall back to straight down instead.
+glm::vec3 normalizedDirection(const glm::vec3& direction) noexcept {
+    const float lengthSq = glm::dot(direction, direction);
+    if (lengthSq < 1.0e-12f) {
+        return {0.0f, -1.0f, 0.0f};
+    }
+    return direction * glm::inversesqrt(lengthSq);
+}
+
+} // namespace
 
 glm::vec2 spotConeCosines(const SpotLight& light) noexcept {
     const float outer = glm::clamp(light.outerAngle, 0.0f, 89.9f);
@@ -38,7 +51,7 @@ void LightSystem::onUpdate(Runtime& runtime, float) {
 
     Scene& scene = runtime.scene();
     scene.each<DirectionalLight>([&lighting](Entity, DirectionalLight& light) {
-        lighting.directionalDirections.push_back(glm::normalize(light.direction));
+        lighting.directionalDirections.push_back(normalizedDirection(light.direction));
         lighting.directionalColors.push_back(light.color * light.intensity);
     });
     // Positions compose through the parent chain (a root's pose is exactly its own
@@ -53,7 +66,7 @@ void LightSystem::onUpdate(Runtime& runtime, float) {
     scene.each<SpotLight, Transform>(
         [&lighting, &scene](Entity entity, SpotLight& light, Transform&) {
             lighting.spotPositions.push_back(worldPoseOf(scene, entity).position);
-            lighting.spotDirections.push_back(glm::normalize(light.direction));
+            lighting.spotDirections.push_back(normalizedDirection(light.direction));
             lighting.spotColors.push_back(light.color * light.intensity);
             lighting.spotAttenuations.emplace_back(light.constant, light.linear, light.quadratic);
             lighting.spotCones.push_back(spotConeCosines(light));

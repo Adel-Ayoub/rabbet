@@ -94,11 +94,12 @@ float spotFalloff(int i, vec3 toLight, out vec3 L, out float attenuation) {
 
 // The Cook-Torrance BRDF helpers shared by the PBR and terrain fragment shaders, so the two cannot
 // drift. brdf() reads the global uRoughness/uMetallic uniforms (every user declares them) and PI;
-// the rest are pure. Kept byte-for-byte equivalent to the original inline PBR helpers.
+// the rest are pure. Equivalent to the original inline PBR helpers, plus an a2 floor so a zero
+// roughness cannot produce 0/0 = NaN in the NDF when H aligns exactly with N.
 constexpr const char* kPbrFunctions = R"(
 float distributionGGX(vec3 N, vec3 H, float roughness) {
     float a = roughness * roughness;
-    float a2 = a * a;
+    float a2 = max(a * a, 1.0e-6);
     float nh = max(dot(N, H), 0.0);
     float d = nh * nh * (a2 - 1.0) + 1.0;
     return a2 / (PI * d * d);

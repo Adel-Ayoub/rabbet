@@ -19,6 +19,17 @@ std::optional<Image> loadImage(const std::filesystem::path& path, bool flipVerti
         log::error("failed to load image '{}': {}", path.string(), stbi_failure_reason());
         return std::nullopt;
     }
+    if (channels == 2) {
+        // The GL upload paths have no grey+alpha format; re-decode expanded to rgba
+        // (grey replicated, alpha kept) instead of over-reading a 2-channel buffer.
+        stbi_image_free(data);
+        data = stbi_load(path.string().c_str(), &width, &height, &channels, 4);
+        if (data == nullptr) {
+            log::error("failed to load image '{}': {}", path.string(), stbi_failure_reason());
+            return std::nullopt;
+        }
+        channels = 4;
+    }
 
     Image image;
     image.width = width;

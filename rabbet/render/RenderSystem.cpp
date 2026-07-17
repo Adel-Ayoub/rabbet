@@ -151,6 +151,10 @@ std::vector<ShaderUniform> reflectMaterialUniforms(const gl::Shader& shader) {
     return result;
 }
 
+// Texture unit for the environment irradiance cubemap. Units 0 (albedo) and 1 (shadow) are
+// reserved and material textures start at 2, so this sits clear of them (materials may use 2..6).
+constexpr unsigned int kEnvTextureUnit = 7;
+
 // Uploads a material's uniform overrides and binds its textures on top of whatever per-surface
 // values were already set. Texture units 0 (albedo) and 1 (shadow map) are reserved, so material
 // textures start at unit 2. Setting a uniform the program lacks is a silent no-op.
@@ -183,16 +187,19 @@ void applyMaterialOverrides(gl::Shader& program, const MaterialAsset& material,
     unsigned int unit = 2;
     for (const MaterialTexture& texture : material.textures) {
         if (TextureAsset* asset = assets.get<TextureAsset>(texture.handle)) {
+            if (unit >= kEnvTextureUnit) {
+                // Out of material slots (2..6). Point the sampler at the albedo unit rather
+                // than leaving stale program state; unit 7 would collide with the environment
+                // samplerCube and kill the draw.
+                program.setInt(texture.name, 0);
+                continue;
+            }
             asset->texture.bind(unit);
             program.setInt(texture.name, static_cast<int>(unit));
             ++unit;
         }
     }
 }
-
-// Texture unit for the environment irradiance cubemap. Units 0 (albedo) and 1 (shadow) are
-// reserved and material textures start at 2, so this sits clear of them (materials may use 2..6).
-constexpr unsigned int kEnvTextureUnit = 7;
 
 // Sets the per-program environment uniforms. The cubemap itself is bound once per frame (in
 // onUpdate) so the lit shaders' samplerCube is always backed by a complete texture, even when
