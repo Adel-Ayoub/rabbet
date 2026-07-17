@@ -4,7 +4,6 @@
 #include <cstdlib>
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 
 #include <glm/glm.hpp>
 
@@ -65,9 +64,10 @@ struct AudioSystem::Impl {
     ma_engine engine{};
     bool engineOk = false;
     std::unordered_map<Entity, std::unique_ptr<Voice>> voices;
-    // Entities whose clip failed to init: creation now retries every update (emitters can
-    // appear mid-play), and these must neither retry nor warn per tick.
-    std::unordered_set<Entity> failed;
+    // The clip uuid that failed to init, per entity: creation retries every update (emitters
+    // can appear mid-play), so a failed clip must neither retry nor warn per tick, but
+    // assigning a different clip to the same emitter gets a fresh attempt.
+    std::unordered_map<Entity, Uuid> failed;
     // Voices exist only inside a play session; the flag keeps a stray update outside one
     // from building any (the scheduler gates this too, but the system defends itself).
     bool inSession = false;
@@ -175,7 +175,7 @@ struct AudioSystem::Impl {
                 ma_format_s16, asset->channels, frameCount, asset->samples.data(), nullptr);
             bufferConfig.sampleRate = asset->sampleRate;
             if (ma_audio_buffer_init(&bufferConfig, &voice->buffer) != MA_SUCCESS) {
-                failed.insert(entity);
+                failed[entity] = emitter.sound;
                 log::warn("audio: could not buffer clip '{}' for entity {}",
                           asset->path.string(), entity.index());
                 return;
@@ -198,7 +198,7 @@ struct AudioSystem::Impl {
             if (voice->usesBuffer) {
                 ma_audio_buffer_uninit(&voice->buffer);
             }
-            failed.insert(entity);
+            failed[entity] = emitter.sound;
             log::warn("audio: could not load clip '{}' for entity {}", asset->path.string(),
                       entity.index());
             return;
@@ -211,6 +211,7 @@ struct AudioSystem::Impl {
             log::warn("audio: could not start clip '{}' for entity {}", asset->path.string(),
                       entity.index());
         }
+        failed.erase(entity);
         voices.emplace(entity, std::move(voice));
     }
 
@@ -255,8 +256,12 @@ struct AudioSystem::Impl {
             if (it == voices.end()) {
                 // An emitter that appeared after the play edge (world.spawn, a scene swap)
                 // gets its voice here, playOnStart honored, instead of staying silent.
-                if (!inSession || assets == nullptr || failed.count(entity) != 0) {
+                if (!inSession || assets == nullptr) {
                     return;
+                }
+                const auto miss = failed.find(entity);
+                if (miss != failed.end() && miss->second == emitter.sound) {
+                    return; // this exact clip already failed; retry only on a new assignment
                 }
                 createVoice(scene, *assets, entity, emitter);
                 it = voices.find(entity);

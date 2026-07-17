@@ -91,6 +91,29 @@ rb::Entity addEmitter(rb::Runtime& runtime, rb::AssetManager& assets, const fs::
     return e;
 }
 
+// One bad clip does not silence the emitter for the session: the failure is remembered per
+// clip, so assigning a different, valid clip mid-play retries and builds the voice.
+void retriesWhenClipChanges(const fs::path& wav, const fs::path& junk) {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AudioSystem audio;
+    const rb::Entity e = addEmitter(runtime, assets, junk, glm::vec3(0.0f), false, true);
+
+    audio.onPlayBegin(runtime);
+    CHECK(audio.activeVoiceCount() == 0u); // the junk clip failed to init
+
+    audio.onUpdate(runtime, 1.0f / 60.0f);
+    CHECK(audio.activeVoiceCount() == 0u); // and the same clip is not retried per tick
+
+    const rb::AssetHandle<rb::AudioAsset> good = rb::loadAudioAsset(assets, wav);
+    rb::SoundEmitter& emitter = runtime.scene().get<rb::SoundEmitter>(e);
+    emitter.sound = assets.uuidOf(good);
+    emitter.handle = good;
+    audio.onUpdate(runtime, 1.0f / 60.0f);
+    CHECK(audio.activeVoiceCount() == 1u); // the new clip got a fresh attempt
+    CHECK(audio.voicePlaying(e));
+}
+
 // The engine comes up under the null backend (forced via RB_AUDIO_NULL in main), so the rest
 // of the suite has a working engine with no real device.
 void engineInitsHeadless() {
@@ -391,6 +414,11 @@ int main() {
     fs::create_directories(root);
     const fs::path wav = root / "blip.wav";
     writeWav(wav);
+    const fs::path junk = root / "junk.wav";
+    {
+        std::ofstream out(junk, std::ios::binary);
+        out << "not a wav";
+    }
 
     engineInitsHeadless();
     playBuildsAndStopsVoices(wav);
@@ -404,6 +432,7 @@ int main() {
     rebuildsBetweenSessions(wav);
     resolveLazilyImports(wav);
     midSessionEmitterGetsAVoice(wav);
+    retriesWhenClipChanges(wav, junk);
     serializeRoundTrip();
 #ifdef RB_AUDIO_TEST_OGG
     oggDecodesAndPlays();
