@@ -352,6 +352,96 @@ void kinematicFollowsAuthoredTransform() {
     CHECK(posY(runtime, kin) == 2.0f); // and nothing else was written back
 }
 
+// A kinematic body that stops being authored comes to rest: the carry velocity from the last
+// MoveKinematic is cleared, instead of oscillating the body around its target every step.
+void kinematicRestsAfterMotion() {
+    rb::Runtime runtime;
+    rb::PhysicsSystem physics;
+    const rb::Entity kin = makeBox(runtime, glm::vec3(0.0f, 2.0f, 0.0f), rb::BodyType::Kinematic);
+
+    physics.onPlayBegin(runtime);
+    for (int i = 0; i < 30; ++i) {
+        runtime.scene().get<rb::Transform>(kin).position.x += 0.1f;
+        physics.onUpdate(runtime, kStep);
+    }
+    for (int i = 0; i < 60; ++i) {
+        physics.onUpdate(runtime, kStep); // authoring stopped; the body must settle
+    }
+    const auto& velocities = runtime.resource<rb::PhysicsState>().linearVelocity;
+    const auto it = velocities.find(kin);
+    CHECK(it != velocities.end());
+    if (it != velocities.end()) {
+        CHECK(glm::dot(it->second, it->second) < 1.0e-6f);
+    }
+}
+
+// A warned entity is not barred for the session: fixing the blocking condition mid-play
+// (here, adding the missing collider after a command warned about it) creates the body.
+void warnedEntityGainsBodyOnceFixed() {
+    rb::Runtime runtime;
+    rb::PhysicsSystem physics;
+    const rb::Entity e = runtime.scene().create();
+    rb::Transform transform;
+    transform.position = {0.0f, 5.0f, 0.0f};
+    runtime.scene().add<rb::Transform>(e, transform);
+    runtime.scene().add<rb::RigidBody>(
+        e, rb::RigidBody{rb::BodyType::Dynamic, 1.0f, 0.4f, 0.0f, true});
+
+    physics.onPlayBegin(runtime);
+    runtime.resource<rb::PhysicsCommands>().queue.push_back(
+        {e, rb::PhysicsCommands::Op::SetVelocity, glm::vec3(0.0f, 7.0f, 0.0f)});
+    physics.onUpdate(runtime, kStep); // no collider yet: the command warns, no body exists
+
+    runtime.scene().add<rb::BoxCollider>(e, rb::BoxCollider{glm::vec3(0.5f), glm::vec3(0.0f)});
+    for (int i = 0; i < 120; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    CHECK(posY(runtime, e) < 4.0f); // it fell: the body was created after the fix
+}
+
+// A terrain parented under a moved group collides where it renders: the body takes the
+// composed world pose, not the raw local Transform.
+void parentedTerrainCollidesAtWorldPose() {
+    rb::Runtime runtime;
+    const rb::Entity group = runtime.scene().create();
+    rb::Transform groupTransform;
+    groupTransform.position = {0.0f, 5.0f, 0.0f};
+    runtime.scene().add<rb::Transform>(group, groupTransform);
+
+    const rb::Entity island = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(island, rb::Transform{});
+    rb::TerrainComponent terrain;
+    terrain.size = 20.0f;
+    terrain.resolution = 16;
+    terrain.heightScale = 2.0f;
+    terrain.source = rb::TerrainHeightSource::Flat;
+    runtime.scene().add<rb::TerrainComponent>(island, terrain);
+    CHECK(rb::setParent(runtime.scene(), island, group));
+
+    runtime.addSystem<rb::TerrainSystem>();
+    runtime.start();
+    runtime.tick(0.1f);
+    runtime.tick(0.1f); // settle -> mesh built + published
+
+    rb::PhysicsSystem physics;
+    physics.onPlayBegin(runtime);
+
+    const rb::Entity ball = runtime.scene().create();
+    rb::Transform ballStart;
+    ballStart.position = {0.0f, 8.0f, 0.0f};
+    runtime.scene().add<rb::Transform>(ball, ballStart);
+    runtime.scene().add<rb::RigidBody>(
+        ball, rb::RigidBody{rb::BodyType::Dynamic, 1.0f, 0.5f, 0.0f, true});
+    runtime.scene().add<rb::SphereCollider>(ball, rb::SphereCollider{0.5f, glm::vec3(0.0f)});
+
+    for (int i = 0; i < 300; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    const float restY = posY(runtime, ball);
+    CHECK(restY > 5.2f); // resting on the lifted ground, not on y=0 where the local pose sat
+    CHECK(restY < 5.8f);
+}
+
 // A terrain rebuilt mid-play (a geometry edit bumps the draw revision) swaps its mesh
 // body, so collision follows the new shape instead of freezing at the play edge.
 void terrainRebuildSwapsTheBody() {
@@ -418,6 +508,9 @@ int main() {
     midPlayDestroyRemovesTheBody();
     midPlaySpawnedBodySimulates();
     kinematicFollowsAuthoredTransform();
+    kinematicRestsAfterMotion();
+    warnedEntityGainsBodyOnceFixed();
     terrainRebuildSwapsTheBody();
+    parentedTerrainCollidesAtWorldPose();
     return rbtest::summary("physics");
 }

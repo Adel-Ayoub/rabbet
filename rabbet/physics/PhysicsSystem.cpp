@@ -156,8 +156,12 @@ struct PhysicsSystem::Impl {
     std::unordered_map<Entity, Record> m_bodies;
     // One warning per entity per session for creation failures and commands aimed at
     // entities that never became bodies; reconcile runs every tick, so per-occurrence
-    // logging would flood.
+    // logging would flood. Only the log is deduped: creation itself keeps retrying, so a
+    // collider fixed mid-play starts simulating without a Stop/Play round trip.
     std::unordered_set<Entity> m_warned;
+    // Terrain revisions whose body creation failed: retrying those per tick would redo the
+    // full vertex copy + mesh bake every frame, so they wait for the next rebuild instead.
+    std::unordered_map<Entity, std::uint32_t> m_terrainFailed;
     float m_accumulator = 0.0f;
 
     Impl() {
@@ -173,6 +177,7 @@ struct PhysicsSystem::Impl {
         }
         m_bodies.clear();
         m_warned.clear();
+        m_terrainFailed.clear();
     }
 
     void build(Runtime& runtime) {
@@ -279,9 +284,12 @@ struct PhysicsSystem::Impl {
             }
             return;
         }
-        const Transform* transform = scene.tryGet<Transform>(draw.entity);
-        if (transform == nullptr) {
+        if (!scene.has<Transform>(draw.entity)) {
             return;
+        }
+        const auto failedIt = m_terrainFailed.find(draw.entity);
+        if (failedIt != m_terrainFailed.end() && failedIt->second == draw.revision) {
+            return; // this exact mesh already failed; a rebuild bumps the revision
         }
         JPH::VertexList vertices;
         vertices.reserve(draw.mesh->vertices.size());
@@ -299,13 +307,18 @@ struct PhysicsSystem::Impl {
         JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
         const JPH::ShapeSettings::ShapeResult result = settings.Create();
         if (result.HasError()) {
+            m_terrainFailed[draw.entity] = draw.revision;
             if (m_warned.insert(draw.entity).second) {
                 log::error("physics: terrain shape error: {}", result.GetError().c_str());
             }
             return;
         }
-        JPH::BodyCreationSettings body(result.Get(), toJolt(transform->position),
-                                       toJolt(transform->rotation), JPH::EMotionType::Static,
+        // Terrain meshes are authored in local space and the renderer places them with the
+        // composed WorldMatrix, so the body takes the same world pose (scale is dropped,
+        // the rigid-body convention).
+        const WorldPose pose = worldPoseOf(scene, draw.entity);
+        JPH::BodyCreationSettings body(result.Get(), toJolt(pose.position),
+                                       toJolt(pose.rotation), JPH::EMotionType::Static,
                                        Layers::kNonMoving);
         body.mFriction = 0.8f; // grippy default so rolling bodies do not glide forever
         const JPH::BodyID id = bodies.CreateAndAddBody(body, JPH::EActivation::DontActivate);
@@ -314,9 +327,13 @@ struct PhysicsSystem::Impl {
             record.terrain = true;
             record.terrainRevision = draw.revision;
             m_bodies.emplace(draw.entity, record);
-        } else if (m_warned.insert(draw.entity).second) {
-            log::warn("physics: could not create a terrain body for entity {}",
-                      draw.entity.index());
+            m_terrainFailed.erase(draw.entity);
+        } else {
+            m_terrainFailed[draw.entity] = draw.revision;
+            if (m_warned.insert(draw.entity).second) {
+                log::warn("physics: could not create a terrain body for entity {}",
+                          draw.entity.index());
+            }
         }
     }
 
@@ -331,7 +348,10 @@ struct PhysicsSystem::Impl {
         const TerrainRenderData* terrain = runtime.tryResource<TerrainRenderData>();
 
         for (auto it = m_bodies.begin(); it != m_bodies.end();) {
-            bool keep = scene.alive(it->first);
+            // A removed Transform retires the body like a removed RigidBody would: the
+            // renderer stops drawing the entity, and keeping the collider would leave an
+            // invisible wall behind.
+            bool keep = scene.alive(it->first) && scene.has<Transform>(it->first);
             if (keep && it->second.terrain) {
                 keep = false;
                 if (terrain != nullptr) {
@@ -356,13 +376,13 @@ struct PhysicsSystem::Impl {
         }
 
         scene.each<Transform, RigidBody>([&](Entity entity, Transform&, RigidBody& body) {
-            if (m_bodies.count(entity) == 0 && m_warned.count(entity) == 0) {
+            if (m_bodies.count(entity) == 0) {
                 createBody(scene, bodies, entity, body);
             }
         });
         if (terrain != nullptr) {
             for (const TerrainDraw& draw : terrain->draws) {
-                if (m_bodies.count(draw.entity) == 0 && m_warned.count(draw.entity) == 0) {
+                if (m_bodies.count(draw.entity) == 0) {
                     createTerrainBody(scene, bodies, draw);
                 }
             }
@@ -389,8 +409,10 @@ struct PhysicsSystem::Impl {
                 continue;
             }
             const RigidBody* body = scene.tryGet<RigidBody>(command.entity);
-            if (body == nullptr || body->type == BodyType::Static) {
-                continue; // static bodies do not move; Jolt would reject the write
+            if (body == nullptr || body->type != BodyType::Dynamic) {
+                // Statics reject the write; kinematics are transform-driven, and a scripted
+                // velocity would only fight the per-step MoveKinematic sync.
+                continue;
             }
             switch (command.op) {
             case PhysicsCommands::Op::SetVelocity:
@@ -428,7 +450,11 @@ struct PhysicsSystem::Impl {
                                            currentRot.GetY() * pose.rotation.y +
                                            currentRot.GetZ() * pose.rotation.z);
             if (glm::dot(delta, delta) < 1.0e-10f && rotDot > 1.0f - 1.0e-6f) {
-                continue; // already there; leave a resting body asleep
+                // At the target: zero the carry velocity from the last MoveKinematic, or the
+                // still-active body integrates past the pose and snaps back every step.
+                bodies.SetLinearAndAngularVelocity(record.id, JPH::Vec3::sZero(),
+                                                   JPH::Vec3::sZero());
+                continue;
             }
             bodies.ActivateBody(record.id);
             bodies.MoveKinematic(record.id, toJolt(target), toJolt(pose.rotation), duration);
