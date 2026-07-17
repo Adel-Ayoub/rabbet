@@ -84,6 +84,25 @@ static void systemCachesWorldMatrix() {
     CHECK(same);
 }
 
+// Removing an entity's Transform retires its WorldMatrix on the next tick; a stale matrix
+// would keep the render and pick passes drawing the ghost at its last pose.
+static void removingTransformDropsWorldMatrix() {
+    rb::Runtime rt;
+    rt.addSystem<rb::TransformSystem>();
+
+    const rb::Entity e = rt.scene().create();
+    rt.scene().add<rb::Transform>(e, rb::Transform{});
+
+    rt.start();
+    rt.tick(0.0f);
+    CHECK(rt.scene().has<rb::WorldMatrix>(e));
+
+    rt.scene().remove<rb::Transform>(e);
+    rt.tick(0.0f);
+    CHECK(!rt.scene().has<rb::WorldMatrix>(e));
+    rt.stop();
+}
+
 int main() {
     identityLeavesPointsUntouched();
     translationMovesOrigin();
@@ -91,5 +110,6 @@ int main() {
     rotationRotatesPoint();
     composedTransformAppliesScaleRotateTranslate();
     systemCachesWorldMatrix();
+    removingTransformDropsWorldMatrix();
     return rbtest::summary("scene_transform");
 }

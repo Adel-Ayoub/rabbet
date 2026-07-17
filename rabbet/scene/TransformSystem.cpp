@@ -7,6 +7,8 @@
 #include "rabbet/scene/WorldMatrix.h"
 #include "rabbet/util/Log.h"
 
+#include <vector>
+
 namespace rb {
 
 void TransformSystem::onUpdate(Runtime& runtime, float) {
@@ -21,6 +23,19 @@ void TransformSystem::onUpdate(Runtime& runtime, float) {
                                     : transform.matrix();
         scene.add<WorldMatrix>(entity, WorldMatrix{world});
     });
+
+    // A removed Transform must take its WorldMatrix along, or the render and pick passes keep
+    // seeing the ghost at its last pose. Collected first: removal mid-each would mutate the
+    // iterated pool.
+    std::vector<Entity> stale;
+    scene.each<WorldMatrix>([&](Entity entity, WorldMatrix&) {
+        if (!scene.has<Transform>(entity)) {
+            stale.push_back(entity);
+        }
+    });
+    for (const Entity entity : stale) {
+        scene.remove<WorldMatrix>(entity);
+    }
 }
 
 // The ancestor's world matrix, memoized per tick so a shared parent is composed once.
