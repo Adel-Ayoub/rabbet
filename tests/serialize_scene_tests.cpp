@@ -293,6 +293,63 @@ static void staleParentIsNotSaved() {
     CHECK(!doc["entities"][0].contains("parent"));
 }
 
+// A component whose asset ref was never assigned (a fresh emitter, a noise terrain) must
+// survive save -> load -> save; the null uuid used to serialize as 32 zeros and the loader
+// rejected that as malformed, silently dropping the component.
+static void unsetAssetRefsSurviveRoundTrip() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    rb::Scene scene;
+    const rb::Entity e = spawnNamed(scene, "bare");
+    scene.add<rb::ModelRenderer>(e, rb::ModelRenderer{});
+    scene.add<rb::ParticleEmitter>(e, rb::ParticleEmitter{});
+    scene.add<rb::TerrainComponent>(e, rb::TerrainComponent{});
+
+    const nlohmann::json first = rb::SceneSerializer::toJson(scene, registry);
+    CHECK(first["entities"][0]["components"]["ModelRenderer"]["model"] == "");
+
+    rb::Scene loaded;
+    rb::SceneSerializer::fromJson(first, loaded, registry);
+    const rb::Entity l = firstNamed(loaded, "bare");
+    CHECK(l.valid());
+    CHECK(loaded.has<rb::ModelRenderer>(l));
+    CHECK(loaded.has<rb::ParticleEmitter>(l));
+    CHECK(loaded.has<rb::TerrainComponent>(l));
+    CHECK(!loaded.get<rb::ModelRenderer>(l).model.valid());
+
+    const nlohmann::json second = rb::SceneSerializer::toJson(loaded, registry);
+    CHECK(first == second);
+}
+
+// Scenes saved before the "" convention carry the null uuid spelled out; those must load as
+// unset, while genuinely malformed text still drops the component.
+static void zeroUuidTextLoadsAsUnset() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    rb::Scene scene;
+    const rb::Entity e = spawnNamed(scene, "legacy");
+    scene.add<rb::ModelRenderer>(e, rb::ModelRenderer{});
+
+    nlohmann::json doc = rb::SceneSerializer::toJson(scene, registry);
+    doc["entities"][0]["components"]["ModelRenderer"]["model"] = std::string(32, '0');
+    rb::Scene loaded;
+    rb::SceneSerializer::fromJson(doc, loaded, registry);
+    const rb::Entity l = firstNamed(loaded, "legacy");
+    CHECK(loaded.has<rb::ModelRenderer>(l));
+    CHECK(!loaded.get<rb::ModelRenderer>(l).model.valid());
+
+    doc["entities"][0]["components"]["ModelRenderer"]["model"] = "not-a-uuid";
+    rb::Scene rejected;
+    rb::SceneSerializer::fromJson(doc, rejected, registry);
+    const rb::Entity r = firstNamed(rejected, "legacy");
+    CHECK(r.valid());
+    CHECK(!rejected.has<rb::ModelRenderer>(r));
+
+    // A truncated zero run is corruption, not the canonical null spelling.
+    doc["entities"][0]["components"]["ModelRenderer"]["model"] = "0";
+    rb::Scene truncated;
+    rb::SceneSerializer::fromJson(doc, truncated, registry);
+    CHECK(!truncated.has<rb::ModelRenderer>(firstNamed(truncated, "legacy")));
+}
+
 int main() {
     registryExposesBuiltins();
     roundTripPreservesComponents();
@@ -306,5 +363,7 @@ int main() {
     childRecordBeforeParentRecordResolves();
     malformedParentIsSkipped();
     staleParentIsNotSaved();
+    unsetAssetRefsSurviveRoundTrip();
+    zeroUuidTextLoadsAsUnset();
     return rbtest::summary("serialize_scene");
 }

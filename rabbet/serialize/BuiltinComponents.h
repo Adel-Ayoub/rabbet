@@ -29,6 +29,34 @@ namespace rb {
 
 class ComponentRegistry;
 
+// Unset asset refs serialize as "": the null uuid would otherwise round-trip as 32 zeros and
+// be rejected as malformed on load, silently dropping the whole component.
+inline std::string uuidText(const Uuid& id) {
+    return id.valid() ? id.toString() : std::string{};
+}
+// Exactly the canonical null spelling (32 zero nibbles, dashes ignored); anything shorter or
+// longer stays malformed so corruption is still surfaced.
+inline bool isNullUuidText(const std::string& text) {
+    std::size_t zeros = 0;
+    for (const char c : text) {
+        if (c == '-') {
+            continue;
+        }
+        if (c != '0') {
+            return false;
+        }
+        ++zeros;
+    }
+    return zeros == 32;
+}
+inline Uuid parseUuid(const std::string& text, const char* what) {
+    const Uuid id = Uuid::fromString(text);
+    if (!id.valid() && !text.empty() && !isNullUuidText(text)) {
+        throw std::runtime_error(std::string(what) + " uuid '" + text + "'");
+    }
+    return id;
+}
+
 NLOHMANN_JSON_SERIALIZE_ENUM(PrimitiveShape, {
                                                  {PrimitiveShape::Cube, "Cube"},
                                                  {PrimitiveShape::Sphere, "Sphere"},
@@ -102,38 +130,27 @@ inline void from_json(const nlohmann::json& j, SpotLight& l) {
 }
 
 inline void to_json(nlohmann::json& j, const ModelRenderer& r) {
-    j = nlohmann::json{{"model", r.model.toString()}};
+    j = nlohmann::json{{"model", uuidText(r.model)}};
 }
 inline void from_json(const nlohmann::json& j, ModelRenderer& r) {
-    const std::string text = j.at("model").get<std::string>();
-    r.model = Uuid::fromString(text);
-    if (!text.empty() && !r.model.valid()) {
-        throw std::runtime_error("ModelRenderer: malformed model uuid '" + text + "'");
-    }
+    r.model = parseUuid(j.at("model").get<std::string>(), "ModelRenderer: malformed model");
     r.handle = {};
 }
 
 inline void to_json(nlohmann::json& j, const MaterialComponent& m) {
-    j = nlohmann::json{{"material", m.material.toString()}};
+    j = nlohmann::json{{"material", uuidText(m.material)}};
 }
 inline void from_json(const nlohmann::json& j, MaterialComponent& m) {
-    const std::string text = j.at("material").get<std::string>();
-    m.material = Uuid::fromString(text);
-    if (!text.empty() && !m.material.valid()) {
-        throw std::runtime_error("MaterialComponent: malformed material uuid '" + text + "'");
-    }
+    m.material =
+        parseUuid(j.at("material").get<std::string>(), "MaterialComponent: malformed material");
     m.handle = {};
 }
 
 inline void to_json(nlohmann::json& j, const PrefabInstance& p) {
-    j = nlohmann::json{{"prefab", p.prefab.toString()}};
+    j = nlohmann::json{{"prefab", uuidText(p.prefab)}};
 }
 inline void from_json(const nlohmann::json& j, PrefabInstance& p) {
-    const std::string text = j.at("prefab").get<std::string>();
-    p.prefab = Uuid::fromString(text);
-    if (!text.empty() && !p.prefab.valid()) {
-        throw std::runtime_error("PrefabInstance: malformed prefab uuid '" + text + "'");
-    }
+    p.prefab = parseUuid(j.at("prefab").get<std::string>(), "PrefabInstance: malformed prefab");
     p.handle = {};
 }
 
@@ -152,14 +169,10 @@ inline void to_json(nlohmann::json& j, const ScriptComponent& s) {
             break;
         }
     }
-    j = nlohmann::json{{"script", s.script.toString()}, {"fields", fields}};
+    j = nlohmann::json{{"script", uuidText(s.script)}, {"fields", fields}};
 }
 inline void from_json(const nlohmann::json& j, ScriptComponent& s) {
-    const std::string text = j.at("script").get<std::string>();
-    s.script = Uuid::fromString(text);
-    if (!text.empty() && !s.script.valid()) {
-        throw std::runtime_error("ScriptComponent: malformed script uuid '" + text + "'");
-    }
+    s.script = parseUuid(j.at("script").get<std::string>(), "ScriptComponent: malformed script");
     s.handle = {};
     s.fields.clear();
     if (j.contains("fields") && j.at("fields").is_object()) {
@@ -236,7 +249,7 @@ inline void from_json(const nlohmann::json& j, SphereCollider& c) {
 }
 
 inline void to_json(nlohmann::json& j, const SoundEmitter& s) {
-    j = nlohmann::json{{"sound", s.sound.toString()},
+    j = nlohmann::json{{"sound", uuidText(s.sound)},
                        {"volume", s.volume},
                        {"pitch", s.pitch},
                        {"loop", s.loop},
@@ -245,11 +258,7 @@ inline void to_json(nlohmann::json& j, const SoundEmitter& s) {
                        {"stream", s.stream}};
 }
 inline void from_json(const nlohmann::json& j, SoundEmitter& s) {
-    const std::string text = j.at("sound").get<std::string>();
-    s.sound = Uuid::fromString(text);
-    if (!text.empty() && !s.sound.valid()) {
-        throw std::runtime_error("SoundEmitter: malformed sound uuid '" + text + "'");
-    }
+    s.sound = parseUuid(j.at("sound").get<std::string>(), "SoundEmitter: malformed sound");
     s.handle = {};
     j.at("volume").get_to(s.volume);
     j.at("pitch").get_to(s.pitch);
@@ -281,7 +290,7 @@ inline void to_json(nlohmann::json& j, const ParticleEmitter& e) {
                        {"looping", e.looping},
                        {"duration", e.duration},
                        {"seed", e.seed},
-                       {"sprite", e.sprite.toString()}};
+                       {"sprite", uuidText(e.sprite)}};
 }
 inline void from_json(const nlohmann::json& j, ParticleEmitter& e) {
     // Tolerant reads: every field falls back to its default, so a partial or hand-edited emitter
@@ -302,11 +311,7 @@ inline void from_json(const nlohmann::json& j, ParticleEmitter& e) {
     e.looping = j.value("looping", e.looping);
     e.duration = j.value("duration", e.duration);
     e.seed = j.value("seed", e.seed);
-    const std::string text = j.value("sprite", std::string{});
-    e.sprite = Uuid::fromString(text);
-    if (!text.empty() && !e.sprite.valid()) {
-        throw std::runtime_error("ParticleEmitter: malformed sprite uuid '" + text + "'");
-    }
+    e.sprite = parseUuid(j.value("sprite", std::string{}), "ParticleEmitter: malformed sprite");
     e.handle = {};
 }
 
@@ -358,18 +363,14 @@ NLOHMANN_JSON_SERIALIZE_ENUM(TerrainBlend, {
                                            })
 
 inline void to_json(nlohmann::json& j, const TerrainLayer& layer) {
-    j = nlohmann::json{{"albedo", layer.albedo.toString()},
+    j = nlohmann::json{{"albedo", uuidText(layer.albedo)},
                        {"tiling", layer.tiling},
                        {"heightRange", layer.heightRange},
                        {"slopeRange", layer.slopeRange},
                        {"sharpness", layer.sharpness}};
 }
 inline void from_json(const nlohmann::json& j, TerrainLayer& layer) {
-    const std::string text = j.value("albedo", std::string{});
-    layer.albedo = Uuid::fromString(text);
-    if (!text.empty() && !layer.albedo.valid()) {
-        throw std::runtime_error("TerrainLayer: malformed albedo uuid '" + text + "'");
-    }
+    layer.albedo = parseUuid(j.value("albedo", std::string{}), "TerrainLayer: malformed albedo");
     layer.handle = {};
     layer.tiling = j.value("tiling", layer.tiling);
     layer.heightRange = j.value("heightRange", layer.heightRange);
@@ -389,7 +390,7 @@ inline void to_json(nlohmann::json& j, const TerrainComponent& t) {
                        {"resolution", t.resolution},
                        {"heightScale", t.heightScale},
                        {"source", t.source},
-                       {"heightmap", t.heightmap.toString()},
+                       {"heightmap", uuidText(t.heightmap)},
                        {"seed", t.seed},
                        {"octaves", t.octaves},
                        {"frequency", t.frequency},
@@ -397,7 +398,7 @@ inline void to_json(nlohmann::json& j, const TerrainComponent& t) {
                        {"gain", t.gain},
                        {"layers", layers},
                        {"blend", t.blend},
-                       {"splat", t.splat.toString()}};
+                       {"splat", uuidText(t.splat)}};
 }
 inline void from_json(const nlohmann::json& j, TerrainComponent& t) {
     // Tolerant reads: each field falls back to its default so partial / older terrains load cleanly.
@@ -405,11 +406,8 @@ inline void from_json(const nlohmann::json& j, TerrainComponent& t) {
     t.resolution = j.value("resolution", t.resolution);
     t.heightScale = j.value("heightScale", t.heightScale);
     t.source = j.value("source", t.source);
-    const std::string heightmap = j.value("heightmap", std::string{});
-    t.heightmap = Uuid::fromString(heightmap);
-    if (!heightmap.empty() && !t.heightmap.valid()) {
-        throw std::runtime_error("TerrainComponent: malformed heightmap uuid '" + heightmap + "'");
-    }
+    t.heightmap = parseUuid(j.value("heightmap", std::string{}),
+                            "TerrainComponent: malformed heightmap");
     t.seed = j.value("seed", t.seed);
     t.octaves = j.value("octaves", t.octaves);
     t.frequency = j.value("frequency", t.frequency);
@@ -428,11 +426,7 @@ inline void from_json(const nlohmann::json& j, TerrainComponent& t) {
     }
     t.layerCount = count > 0 ? count : 1; // always keep at least the base layer
     t.blend = j.value("blend", t.blend);
-    const std::string splat = j.value("splat", std::string{});
-    t.splat = Uuid::fromString(splat);
-    if (!splat.empty() && !t.splat.valid()) {
-        throw std::runtime_error("TerrainComponent: malformed splat uuid '" + splat + "'");
-    }
+    t.splat = parseUuid(j.value("splat", std::string{}), "TerrainComponent: malformed splat");
     t.splatHandle = {};
 }
 
