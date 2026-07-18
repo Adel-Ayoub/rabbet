@@ -52,6 +52,9 @@ foreach(suite IN LISTS RABBET_TEST_SUITES)
     set_target_properties(${suite}_tests PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
     add_test(NAME ${suite} COMMAND ${suite}_tests)
+    # A deadlock in an embedded runtime (Jolt, Lua, miniaudio) should fail the suite,
+    # not wedge ctest; the slowest suite finishes in ~2s, so 120 is generous.
+    set_tests_properties(${suite} PROPERTIES TIMEOUT 120)
 endforeach()
 
 # The audio suite decodes a committed Ogg Vorbis fixture to verify the stb_vorbis import path.
