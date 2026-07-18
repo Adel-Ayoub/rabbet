@@ -611,6 +611,9 @@ void drawTerrainInspector(EditorContext& context, rb::Entity e) {
 
     ImGui::SeparatorText("Layers");
     ui::dragInt("Layer Count", &t.layerCount, 0.1f, 1, rb::TerrainComponent::kMaxLayers);
+    // CTRL+click typed entry bypasses the drag bounds; unclamped, the loop below would
+    // index past the fixed layers array.
+    t.layerCount = std::clamp(t.layerCount, 1, rb::TerrainComponent::kMaxLayers);
     for (int i = 0; i < t.layerCount; ++i) {
         ImGui::PushID(i);
         rb::TerrainLayer& layer = t.layers[static_cast<std::size_t>(i)];

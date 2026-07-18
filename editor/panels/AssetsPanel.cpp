@@ -191,7 +191,11 @@ void AssetsPanel::onImGui() {
         if (ImGui::SmallButton((std::string(icon::kFolderOpen) + " assets").c_str())) {
             m_folder.clear();
         }
+        // Navigation is applied after the loop: assigning m_folder mid-iteration would
+        // invalidate the path iterators driving the range-for.
         std::filesystem::path crumb;
+        std::filesystem::path target;
+        bool navigate = false;
         for (const std::filesystem::path& part : m_folder) {
             crumb /= part;
             ImGui::SameLine(0.0f, 2.0f);
@@ -199,8 +203,12 @@ void AssetsPanel::onImGui() {
             ImGui::TextDisabled("%s", icon::kChevronRight);
             ImGui::SameLine(0.0f, 2.0f);
             if (ImGui::SmallButton((part.string() + "##bc_" + crumb.string()).c_str())) {
-                m_folder = crumb;
+                target = crumb;
+                navigate = true;
             }
+        }
+        if (navigate) {
+            m_folder = target;
         }
     }
     ImGui::Separator();

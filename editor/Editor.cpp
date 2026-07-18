@@ -363,13 +363,15 @@ void Editor::drawTransport() {
     ImGui::SetItemTooltip(m_playSession ? "Resume" : "Play");
 
     ImGui::BeginDisabled(!m_playSession);
-    if (m_paused) {
+    // Snapshot before the click: the button flips m_paused, and push/pop must agree.
+    const bool paused = m_paused;
+    if (paused) {
         ImGui::PushStyleColor(ImGuiCol_Text, p.warn);
     }
     if (ImGui::Button(icon::kPause, buttonSize)) {
         m_paused = !m_paused;
     }
-    if (m_paused) {
+    if (paused) {
         ImGui::PopStyleColor();
     }
     ImGui::EndDisabled();
@@ -418,8 +420,8 @@ void Editor::drawStatusBar() {
     }
     char stats[96];
     std::snprintf(stats, sizeof(stats), "%.0f fps    %zu entities    %zu assets",
-                  static_cast<double>(ImGui::GetIO().Framerate),
-                  m_runtime.scene().entities().size(), assetCount);
+                  static_cast<double>(ImGui::GetIO().Framerate), m_runtime.scene().aliveCount(),
+                  assetCount);
     ImGui::PushFont(fonts().mono);
     const float statsWidth = ImGui::CalcTextSize(stats).x;
     ImGui::SameLine(ImGui::GetWindowSize().x - statsWidth - 10.0f);

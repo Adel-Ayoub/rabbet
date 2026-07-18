@@ -81,7 +81,9 @@ void ConsolePanel::onImGui() {
     for (std::size_t i = 0; i < m_levelEnabled.size(); ++i) {
         const auto level = static_cast<rb::LogLevel>(i);
         char label[48];
-        std::snprintf(label, sizeof(label), "%s %d##chip%zu", levelGlyph(level), counts[i], i);
+        // "###" keeps the widget id stable while the count changes; with "##" the count is
+        // hashed into the id and a click during log spam lands on a dead id.
+        std::snprintf(label, sizeof(label), "%s %d###chip%zu", levelGlyph(level), counts[i], i);
         const bool enabled = m_levelEnabled[i];
         ImGui::PushStyleColor(ImGuiCol_Text, enabled ? levelColor(level) : p.inkMuted);
         ImGui::PushStyleColor(ImGuiCol_Button, enabled ? p.layer : p.well);
