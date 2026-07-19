@@ -119,13 +119,16 @@ void AssetsPanel::onImGui() {
         }
     } else if (selected != nullptr && selected->type == rb::AssetType::Scene) {
         // Replaces the current scene wholesale; gated out of Play so a load can never
-        // fight the Stop-time snapshot restore.
+        // fight the Stop-time snapshot restore. No clear first: loadFromFile clears only
+        // once the document proves to be a scene, so a refused file keeps the live scene.
         ImGui::BeginDisabled(m_context.runtime.inPlaySession());
         if (ImGui::Button((std::string(icon::kFile) + "  Load Scene").c_str())) {
-            m_context.runtime.scene().clear();
             if (rb::SceneSerializer::loadFromFile(m_context.runtime.scene(), m_context.registry,
                                                   selected->path)) {
                 m_context.selected = {};
+                // A panel load is an Open: plain Save must target this file from now on,
+                // not whichever path was tracked before the swap.
+                m_context.scenePath = selected->path.string();
                 rb::log::info("assets: loaded scene '{}'", selected->name);
             } else {
                 rb::log::error("assets: failed to load scene '{}'", selected->path.string());

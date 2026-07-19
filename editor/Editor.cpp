@@ -68,6 +68,8 @@
 #include <imgui_impl_opengl3.h>
 #include <imgui_internal.h>
 
+#include <nfd.h>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
@@ -114,6 +116,16 @@ rb::gl::Cubemap loadCubemap(const std::filesystem::path& dir) {
     return rb::gl::Cubemap::fromFaces(images);
 }
 
+constexpr nfdu8filteritem_t kSceneFilter[] = {{"Scene", "json"}};
+
+// Where a scene dialog starts browsing: beside the tracked file, else the assets root.
+std::string sceneDialogStartDir(const std::string& scenePath) {
+    const std::string dir =
+        scenePath.empty() ? std::string()
+                          : std::filesystem::path(scenePath).parent_path().string();
+    return dir.empty() ? std::string(RB_EDITOR_ASSETS) : dir;
+}
+
 } // namespace
 
 Editor::Editor(rb::Window& window, rb::RenderDevice& device)
@@ -134,7 +146,7 @@ Editor::Editor(rb::Window& window, rb::RenderDevice& device)
         (std::filesystem::path(RB_EDITOR_WORKSPACE) / "forge.ini").string();
     io.IniFilename = iniPath.c_str();
     // The default scratch scene lives in the workspace too, so saving never litters the launch dir.
-    m_scenePath = (std::filesystem::path(RB_EDITOR_WORKSPACE) / "rabbet_editor.scene.json").string();
+    m_context.scenePath = (std::filesystem::path(RB_EDITOR_WORKSPACE) / "rabbet_editor.scene.json").string();
     applyTheme();
     // Rasterize fonts at the display's content scale so text is crisp on hidpi.
     float scaleX = 1.0f;
@@ -151,9 +163,19 @@ Editor::Editor(rb::Window& window, rb::RenderDevice& device)
     m_panels.add<InspectorPanel>(m_context);
     m_panels.add<ConsolePanel>(m_context, m_log);
     m_panels.add<AssetsPanel>(m_context);
+
+    // Native dialogs need the app context the window created; a failed init leaves
+    // the editor running with the dialog menu items reporting the error instead.
+    m_nfdReady = NFD_Init() == NFD_OKAY;
+    if (!m_nfdReady) {
+        rb::log::error("editor: native file dialogs unavailable: {}", NFD_GetError());
+    }
 }
 
 Editor::~Editor() {
+    if (m_nfdReady) {
+        NFD_Quit();
+    }
     rb::log::resetSink(); // detach the console sink before m_log is destroyed
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
@@ -295,15 +317,23 @@ void Editor::drawDockspaceAndMenu() {
 
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
+            // Disabled during play: the live scene is then a throwaway copy, so saving
+            // would leak play state into the authored file and loading would fight the
+            // Stop-time snapshot restore (the Assets panel gates its Load Scene the same way).
+            ImGui::BeginDisabled(m_runtime.inPlaySession());
             if (ImGui::MenuItem("New Scene")) {
                 newScene();
             }
-            if (ImGui::MenuItem("Open Scene")) {
+            if (ImGui::MenuItem("Open Scene...")) {
                 openScene();
             }
             if (ImGui::MenuItem("Save Scene")) {
                 saveScene();
             }
+            if (ImGui::MenuItem("Save Scene As...")) {
+                saveSceneAs();
+            }
+            ImGui::EndDisabled();
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) {
                 m_window.requestClose();
@@ -487,23 +517,77 @@ void Editor::renderScene(int width, int height, float dt) {
 void Editor::newScene() {
     m_runtime.scene().clear();
     m_context.selected = rb::Entity{};
+    m_context.scenePath.clear(); // no home yet; the next Save asks for one
     rb::log::info("editor: new (empty) scene");
 }
 
 void Editor::saveScene() {
-    if (rb::SceneSerializer::saveToFile(m_runtime.scene(), m_registry, m_scenePath)) {
-        rb::log::info("editor: saved scene to '{}'", m_scenePath);
+    if (m_context.scenePath.empty()) {
+        saveSceneAs();
+        return;
+    }
+    if (rb::SceneSerializer::saveToFile(m_runtime.scene(), m_registry, m_context.scenePath)) {
+        rb::log::info("editor: saved scene to '{}'", m_context.scenePath);
     } else {
-        rb::log::error("editor: failed to save scene to '{}'", m_scenePath);
+        rb::log::error("editor: failed to save scene to '{}'", m_context.scenePath);
+    }
+}
+
+void Editor::saveSceneAs() {
+    if (!m_nfdReady) {
+        rb::log::error("editor: save dialog unavailable (native dialogs failed to initialise)");
+        return;
+    }
+    const std::string startDir = sceneDialogStartDir(m_context.scenePath);
+    const std::string startName =
+        m_context.scenePath.empty() ? std::string("untitled.scene.json")
+                            : std::filesystem::path(m_context.scenePath).filename().string();
+    nfdu8char_t* picked = nullptr;
+    const nfdresult_t result =
+        NFD_SaveDialogU8(&picked, kSceneFilter, 1, startDir.c_str(), startName.c_str());
+    if (result == NFD_CANCEL) {
+        return; // backing out is a no-op, not an error
+    }
+    if (result != NFD_OKAY) {
+        rb::log::error("editor: save dialog failed: {}", NFD_GetError());
+        return;
+    }
+    const std::string chosen(picked);
+    NFD_FreePathU8(picked);
+    if (rb::SceneSerializer::saveToFile(m_runtime.scene(), m_registry, chosen)) {
+        m_context.scenePath = chosen; // adopt only a path that proved writable
+        rb::log::info("editor: saved scene to '{}'", chosen);
+    } else {
+        rb::log::error("editor: failed to save scene to '{}'", chosen);
     }
 }
 
 void Editor::openScene() {
-    if (rb::SceneSerializer::loadFromFile(m_runtime.scene(), m_registry, m_scenePath)) {
+    if (!m_nfdReady) {
+        rb::log::error("editor: open dialog unavailable (native dialogs failed to initialise)");
+        return;
+    }
+    const std::string startDir = sceneDialogStartDir(m_context.scenePath);
+    nfdu8char_t* picked = nullptr;
+    const nfdresult_t result = NFD_OpenDialogU8(&picked, kSceneFilter, 1, startDir.c_str());
+    if (result == NFD_CANCEL) {
+        return; // backing out is a no-op, not an error
+    }
+    if (result != NFD_OKAY) {
+        rb::log::error("editor: open dialog failed: {}", NFD_GetError());
+        return;
+    }
+    const std::string chosen(picked);
+    NFD_FreePathU8(picked);
+    // The same serializer gate world.load_scene rides: the scene is cleared only once
+    // the document proves to be a scene, so a refused file leaves the live scene and
+    // the tracked path exactly as they were (the serializer logs why it refused).
+    if (rb::SceneSerializer::loadFromFile(m_runtime.scene(), m_registry, chosen)) {
+        m_context.scenePath = chosen;
         m_context.selected = rb::Entity{};
-        rb::log::info("editor: loaded scene from '{}'", m_scenePath);
+        rb::log::info("editor: loaded scene from '{}'", chosen);
     } else {
-        rb::log::warn("editor: could not load '{}'", m_scenePath);
+        rb::log::error("editor: could not load '{}'", chosen);
     }
 }
 

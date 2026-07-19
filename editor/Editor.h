@@ -1,7 +1,6 @@
 #pragma once
 
 #include <optional>
-#include <string>
 
 #include <nlohmann/json.hpp>
 
@@ -48,6 +47,7 @@ private:
     void newScene();
     void openScene();
     void saveScene();
+    void saveSceneAs();
     void startPlay();
     void stopPlay();
 
@@ -64,8 +64,8 @@ private:
     rb::PostProcessor m_postProcessor;          // HDR -> LDR chain, run when post-processing is on
     ThumbnailRenderer m_thumbnails;             // offscreen asset previews for the Assets panel
     rb::RenderSystem* m_renderSystem = nullptr; // owned by m_runtime; used for picking
-    std::string m_scenePath; // set in the constructor to a workspace-local path
     bool m_cameraActive = false;
+    bool m_nfdReady = false; // NFD_Init succeeded; the dialog actions no-op with an error when false
 
     // Play mode: a snapshot is taken on Play and reloaded on Stop, so gameplay edits
     // never touch the authored scene. Pause freezes Play systems; Step runs one frame.

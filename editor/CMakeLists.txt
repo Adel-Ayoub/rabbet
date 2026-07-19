@@ -68,7 +68,8 @@ add_executable(forge
 target_link_libraries(forge PRIVATE
     Rabbet::Rabbet
     imgui
-    magic_enum::magic_enum)
+    magic_enum::magic_enum
+    nfd)
 target_include_directories(forge PRIVATE "${PROJECT_SOURCE_DIR}")
 target_compile_definitions(forge PRIVATE
     RB_EDITOR_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/resources"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "rabbet/ecs/Entity.h"
 #include "rabbet/render/RenderView.h"
 
@@ -20,6 +22,10 @@ struct EditorContext {
     rb::ComponentRegistry& registry;
 
     rb::Entity selected{};
+
+    // The tracked scene file: saves target it, successful loads adopt it. Shared so the
+    // Assets panel's Load Scene retargets plain Save too, never a stale earlier file.
+    std::string scenePath{};
 
     ThumbnailRenderer* thumbnails = nullptr; // asset preview cache (set by Editor)
 
