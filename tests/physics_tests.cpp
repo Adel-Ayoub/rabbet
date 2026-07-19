@@ -1,4 +1,5 @@
 #include "rabbet/assets/AssetManager.h"
+#include "rabbet/core/Clock.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/BoxCollider.h"
@@ -21,7 +22,7 @@
 
 namespace {
 
-constexpr float kStep = 1.0f / 60.0f;
+constexpr float kStep = rb::kFixedDelta; // drive the sim at its own substep size
 
 rb::Entity makeBox(rb::Runtime& runtime, const glm::vec3& position, rb::BodyType type,
                    bool gravity = true) {
@@ -494,6 +495,52 @@ void terrainRebuildSwapsTheBody() {
 
 } // namespace
 
+// A wholesale mid-play scene swap (what world.load_scene does: clear + reload in place)
+// retires every outgoing body and simulates the incoming ones. The new ball must fall
+// straight through the plane where the old floor stood: a leaked ghost body there would
+// catch it at ~1.0 instead of the new floor's ~-1.0.
+void sceneSwapMidPlayRebuildsTheWorld() {
+    rb::Runtime runtime;
+    rb::PhysicsSystem physics;
+
+    const rb::Entity oldFloor = runtime.scene().create();
+    runtime.scene().add<rb::Transform>(oldFloor, rb::Transform{});
+    runtime.scene().add<rb::RigidBody>(
+        oldFloor, rb::RigidBody{rb::BodyType::Static, 0.0f, 0.4f, 0.0f, true});
+    runtime.scene().add<rb::BoxCollider>(
+        oldFloor, rb::BoxCollider{glm::vec3(5.0f, 0.5f, 5.0f), glm::vec3(0.0f)});
+    const rb::Entity oldBox =
+        makeBox(runtime, glm::vec3(0.0f, 3.0f, 0.0f), rb::BodyType::Dynamic);
+
+    physics.onPlayBegin(runtime);
+    for (int i = 0; i < 120; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    const float oldRest = posY(runtime, oldBox);
+    CHECK(oldRest > 0.6f);
+    CHECK(oldRest < 1.4f);
+
+    runtime.scene().clear();
+    const rb::Entity newFloor = runtime.scene().create();
+    rb::Transform lowered;
+    lowered.position = glm::vec3(0.0f, -2.0f, 0.0f);
+    runtime.scene().add<rb::Transform>(newFloor, lowered);
+    runtime.scene().add<rb::RigidBody>(
+        newFloor, rb::RigidBody{rb::BodyType::Static, 0.0f, 0.4f, 0.0f, true});
+    runtime.scene().add<rb::BoxCollider>(
+        newFloor, rb::BoxCollider{glm::vec3(5.0f, 0.5f, 5.0f), glm::vec3(0.0f)});
+    const rb::Entity ball =
+        makeBox(runtime, glm::vec3(0.0f, 3.0f, 0.0f), rb::BodyType::Dynamic);
+
+    for (int i = 0; i < 240; ++i) {
+        physics.onUpdate(runtime, kStep);
+    }
+    const float newRest = posY(runtime, ball);
+    CHECK(newRest > -1.4f);
+    CHECK(newRest < -0.6f); // through the old plane, resting on the new floor
+    physics.onPlayEnd(runtime);
+}
+
 int main() {
     dynamicFallsAndLands();
     staticStaysPut();
@@ -512,5 +559,6 @@ int main() {
     warnedEntityGainsBodyOnceFixed();
     terrainRebuildSwapsTheBody();
     parentedTerrainCollidesAtWorldPose();
+    sceneSwapMidPlayRebuildsTheWorld();
     return rbtest::summary("physics");
 }
