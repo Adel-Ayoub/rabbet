@@ -10,6 +10,7 @@
 #include "tests/Test.h"
 
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <system_error>
 
@@ -194,6 +195,28 @@ static void loadFromFileReplaces() {
     std::filesystem::remove(path, ec);
 }
 
+// Valid JSON that is not a scene document ("{}", an array, a stub) must refuse without
+// clearing: parse success alone once wiped the target and reported a successful load.
+static void loadFromFileRefusesShapelessJson() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "rabbet_shapeless.scene.json";
+
+    rb::Scene target;
+    spawnHero(target);
+    for (const char* text : {"{}", "[]", "null", "{\"entities\": {}}"}) {
+        {
+            std::ofstream out(path);
+            out << text << '\n';
+        }
+        CHECK(!rb::SceneSerializer::loadFromFile(target, registry, path));
+        CHECK(target.aliveCount() == 1u); // untouched
+    }
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 static void parentLinksRoundTrip() {
     const rb::ComponentRegistry registry = makeRegistry();
 
@@ -358,6 +381,7 @@ int main() {
     saveAndLoadFile();
     malformedDataLoadsGracefully();
     loadFromFileReplaces();
+    loadFromFileRefusesShapelessJson();
     parentLinksRoundTrip();
     parentedSaveLoadSaveIsIdempotent();
     childRecordBeforeParentRecordResolves();

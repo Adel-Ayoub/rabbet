@@ -184,6 +184,13 @@ bool SceneSerializer::loadFromFile(Scene& scene, const ComponentRegistry& regist
         log::warn("scene load: '{}' is not valid JSON", path.string());
         return false;
     }
+    // Valid JSON is not enough to clear the live scene: a hand-edited "{}" would parse,
+    // wipe everything, and load nothing. Only a document with an entity array counts.
+    const auto entitiesIt = doc.find("entities");
+    if (entitiesIt == doc.end() || !entitiesIt->is_array()) {
+        log::warn("scene load: '{}' is not a scene document", path.string());
+        return false;
+    }
     // Loading a file replaces the scene; call fromJson directly to merge instead.
     scene.clear();
     fromJson(doc, scene, registry);
