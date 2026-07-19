@@ -225,11 +225,15 @@ void AssetsPanel::onImGui() {
         if (m_folder.empty()) {
             rootFlags |= ImGuiTreeNodeFlags_Selected;
         }
-        ImGui::TreeNodeEx((std::string(icon::kFolderOpen) + "  assets##root").c_str(), rootFlags);
-        if (ImGui::IsItemClicked()) {
-            m_folder.clear();
+        // Pop only what was pushed: a clipped child (a small enough window) sets SkipItems,
+        // and TreeNodeEx then returns false without pushing, Leaf flag or not.
+        if (ImGui::TreeNodeEx((std::string(icon::kFolderOpen) + "  assets##root").c_str(),
+                              rootFlags)) {
+            if (ImGui::IsItemClicked()) {
+                m_folder.clear();
+            }
+            ImGui::TreePop();
         }
-        ImGui::TreePop();
         drawFolderTree(tree, m_folder);
     }
     ImGui::EndChild();
