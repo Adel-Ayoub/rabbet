@@ -219,7 +219,12 @@ void AssetsPanel::onImGui() {
     const rb::AssetTree tree = rb::buildAssetTree(database->root(), database->records());
 
     // Left: folder tree. Right: the current folder's contents (or search matches).
-    ImGui::BeginChild("##assetTree", ImVec2(150.0f, 0.0f), ImGuiChildFlags_Borders);
+    // Drag the right border to widen the tree when nesting pushes names past the edge;
+    // ImGui keeps the chosen width in the layout ini, so it survives a restart. The
+    // horizontal scrollbar reaches a deep name without giving up contents width.
+    ImGui::BeginChild("##assetTree", ImVec2(150.0f, 0.0f),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX,
+                      ImGuiWindowFlags_HorizontalScrollbar);
     {
         ImGuiTreeNodeFlags rootFlags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Leaf;
         if (m_folder.empty()) {
