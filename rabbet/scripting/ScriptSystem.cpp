@@ -25,12 +25,14 @@
 #include "rabbet/platform/Input.h"
 #include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Name.h"
+#include "rabbet/scene/NameIndex.h"
 #include "rabbet/scene/Transform.h"
 #include "rabbet/scripting/ScriptAsset.h"
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/serialize/Prefab.h"
 #include "rabbet/serialize/PrefabAsset.h"
 #include "rabbet/serialize/PrefabInstance.h"
+#include "rabbet/serialize/SceneSerializer.h"
 #include "rabbet/util/Log.h"
 
 namespace rb {
@@ -122,7 +124,10 @@ struct ScriptEntity {
 
     // Physics goes through the command/state resources, not the components: PhysicsSystem
     // drains the queue before it steps (same tick), and publishes velocities after (so a
-    // read is one step stale). No-ops when no PhysicsSystem is in the session.
+    // read is one step stale). No-ops when no PhysicsSystem is in the session. Commands
+    // move Dynamic bodies only: a Static body rejects the write, and a Kinematic one is
+    // driven by its Transform (set_position), so a scripted velocity would only fight the
+    // per-step kinematic sync. velocity() still reads back for both moving kinds.
     void pushPhysicsCommand(PhysicsCommands::Op op, double x, double y, double z) {
         if (runtime == nullptr) {
             return;
@@ -251,10 +256,14 @@ struct ScriptSystem::Impl {
     std::unordered_map<Entity, Instance> instances;
     Input* input = nullptr;
     Runtime* runtime = nullptr;          // the tick currently running (null outside update)
-    const ComponentRegistry* registry = nullptr; // enables world.spawn; optional
+    const ComponentRegistry* registry = nullptr; // enables world.spawn + load_scene; optional
     std::vector<Entity> pendingDestroy;  // world.destroy is applied after the script loop
     std::vector<PendingSpawn> pendingSpawn; // world.spawn likewise
     std::unordered_set<std::string> warnedSpawns; // one warning per failing prefab name
+    NameIndex nameIndex;
+    bool nameIndexRebuilt = false; // at most one rebuild per tick, on the tick's first find
+    std::optional<std::string> pendingLoadScene; // world.load_scene; the tick's last call wins
+    std::unordered_set<std::string> warnedLoads; // one warning per failing scene name
 
     Impl() {
         lua.open_libraries(sol::lib::base, sol::lib::math, sol::lib::string, sol::lib::table);
@@ -273,15 +282,16 @@ struct ScriptSystem::Impl {
             if (runtime == nullptr) {
                 return sol::make_object(lua, sol::lua_nil);
             }
-            Entity found;
-            bool ok = false;
-            runtime->scene().each<Name>([&](Entity e, Name& n) {
-                if (!ok && n.value == name) {
-                    found = e;
-                    ok = true;
-                }
-            });
-            if (!ok) {
+            // Rebuilt on the tick's first find, then served from the map: the Name pool
+            // cannot change under the script loop (spawn/destroy/load_scene are deferred
+            // and scripts cannot rename), so one rebuild answers every call this tick
+            // with scan-identical, first-match results.
+            if (!nameIndexRebuilt) {
+                nameIndex.rebuild(runtime->scene());
+                nameIndexRebuilt = true;
+            }
+            const Entity found = nameIndex.find(name);
+            if (!found.valid()) {
                 return sol::make_object(lua, sol::lua_nil);
             }
             return sol::make_object(lua, ScriptEntity{runtime, found});
@@ -300,6 +310,12 @@ struct ScriptSystem::Impl {
                                                            static_cast<float>(y),
                                                            static_cast<float>(z))});
                                 });
+        // Deferred to the end of the tick like spawn/destroy; a single pending slot, so
+        // when two scripts request a switch in one tick the last request stands, like the
+        // last write to a variable.
+        worldTable.set_function("load_scene", [this](const std::string& name) {
+            pendingLoadScene = name;
+        });
 
         sol::table inputTable = lua.create_named_table("input");
         inputTable.set_function("down", [this](const std::string& keyName) {
@@ -394,6 +410,7 @@ struct ScriptSystem::Impl {
         dt = std::min(dt, kMaxStep);
         input = rt.tryResource<Input>();
         runtime = &rt;
+        nameIndexRebuilt = false; // anything may have renamed or churned between ticks
         Scene& scene = rt.scene();
 
         scene.each<ScriptComponent>([&](Entity entity, ScriptComponent& component) {
@@ -449,12 +466,70 @@ struct ScriptSystem::Impl {
                 it = instances.erase(it);
             }
         }
+
+        // The swap is the tick's last deferred apply: spawns and destroys queued alongside
+        // it land in the outgoing scene and are replaced with it.
+        applyLoadScene(rt);
     }
 
     void warnSpawn(const std::string& prefab, const char* why) {
         if (warnedSpawns.insert(prefab).second) {
             log::warn("script: world.spawn('{}') skipped: {}", prefab, why);
         }
+    }
+
+    void warnLoad(const std::string& name, const char* why) {
+        if (warnedLoads.insert(name).second) {
+            log::warn("script: world.load_scene('{}') skipped: {}", name, why);
+        }
+    }
+
+    // Replaces the live scene's contents in place. The editor's Play snapshot is untouched
+    // (Stop still restores the scene that was playing when Play was pressed), and the other
+    // Play systems reconcile against the swapped scene on their own next tick: physics
+    // retires dead bodies and builds the new ones, audio reaps and re-voices, and this
+    // system compiles the incoming scripts fresh so their on_start runs. loadFromFile
+    // clears the scene only once the document proves to be a scene, so a missing, corrupt,
+    // or shapeless file leaves the tick's scene exactly as it was.
+    void applyLoadScene(Runtime& rt) {
+        if (!pendingLoadScene.has_value()) {
+            return;
+        }
+        const std::string request = std::move(*pendingLoadScene);
+        pendingLoadScene.reset();
+        AssetDatabase* database = rt.tryResource<AssetDatabase>();
+        if (registry == nullptr || database == nullptr) {
+            warnLoad(request, "scenes are not available in this session");
+            return;
+        }
+        // Match the catalogued record name or the file stem, the world.spawn convention:
+        // "title" and "title.scene" both address title.scene.json.
+        const AssetDatabase::Record* record = nullptr;
+        for (const AssetDatabase::Record& candidate : database->records()) {
+            if (candidate.type != AssetType::Scene) {
+                continue;
+            }
+            if (candidate.name == request ||
+                candidate.path.stem().stem().string() == request) {
+                record = &candidate;
+                break;
+            }
+        }
+        if (record == nullptr) {
+            warnLoad(request, "no catalogued scene has that name");
+            return;
+        }
+        if (!SceneSerializer::loadFromFile(rt.scene(), *registry, record->path)) {
+            warnLoad(request, "the scene failed to load");
+            return;
+        }
+        // Every pre-swap entity is gone: drop their environments now so the incoming
+        // scene's scripts compile fresh and start next tick. Nothing runs Lua after this
+        // point in the tick, but the index must not read as authoritative for the new
+        // scene, so re-arm the rebuild too.
+        instances.clear();
+        nameIndex.clear();
+        nameIndexRebuilt = false;
     }
 
     void applySpawns(Runtime& rt) {
@@ -525,12 +600,20 @@ void ScriptSystem::onPlayBegin(Runtime&) {
     m_impl->pendingDestroy.clear();
     m_impl->pendingSpawn.clear();
     m_impl->warnedSpawns.clear();
+    m_impl->pendingLoadScene.reset();
+    m_impl->warnedLoads.clear();
+    m_impl->nameIndex.clear();
+    m_impl->nameIndexRebuilt = false;
 }
 void ScriptSystem::onPlayEnd(Runtime&) {
     m_impl->instances.clear();
     m_impl->pendingDestroy.clear();
     m_impl->pendingSpawn.clear();
     m_impl->warnedSpawns.clear();
+    m_impl->pendingLoadScene.reset();
+    m_impl->warnedLoads.clear();
+    m_impl->nameIndex.clear();
+    m_impl->nameIndexRebuilt = false;
     m_impl->input = nullptr;
     m_impl->runtime = nullptr;
 }

@@ -17,8 +17,10 @@
 #include "rabbet/serialize/SceneSerializer.h"
 #include "tests/Test.h"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -47,6 +49,16 @@ rb::Entity scriptedEntity(rb::Runtime& runtime, const rb::Uuid& script) {
 
 float posX(rb::Runtime& runtime, rb::Entity e) {
     return runtime.scene().get<rb::Transform>(e).position.x;
+}
+
+rb::Entity findByName(rb::Scene& scene, const std::string& name) {
+    rb::Entity found = rb::kNullEntity;
+    scene.each<rb::Name>([&](rb::Entity e, rb::Name& n) {
+        if (!found.valid() && n.value == name) {
+            found = e;
+        }
+    });
+    return found;
 }
 
 // The scheduler gates scripts behind Play, and on_update reads fields + frame time to
@@ -477,6 +489,220 @@ void externallyDestroyedEntityDropsItsInstance() {
     runtime.endPlay();
 }
 
+// world.load_scene is deferred to the end of the tick, resolves catalogued Scene assets by
+// friendly stem, swaps the live scene in place, and starts the incoming scene's scripts
+// fresh. The Play-snapshot workflow (the editor's Stop) still restores the scene that was
+// playing when Play was pressed; the swap never touches it.
+void worldLoadSceneSwitchesAndStopRestores() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path() / "rabbet_script_load_scene_test";
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+
+    rb::ComponentRegistry registry;
+    rb::registerBuiltinComponents(registry);
+
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AssetDatabase& database = runtime.addResource<rb::AssetDatabase>();
+
+    const rb::Uuid switcher =
+        addScript(assets, "function on_update(self, dt) world.load_scene(\"arena\") end\n");
+    const rb::Uuid greeter =
+        addScript(assets, "function on_start(self) self:set_position(9.0, 0.0, 0.0) end\n");
+
+    { // The title scene: a switcher script plus a marker only it carries.
+        rb::Scene authoring;
+        const rb::Entity control = authoring.create();
+        authoring.add<rb::Name>(control, rb::Name{"TitleControl"});
+        authoring.add<rb::Transform>(control, rb::Transform{});
+        rb::ScriptComponent script;
+        script.script = switcher;
+        authoring.add<rb::ScriptComponent>(control, script);
+        CHECK(rb::SceneSerializer::saveToFile(authoring, registry, dir / "title.scene.json"));
+    }
+    { // The arena scene: its own scripted entity, so on_start provably runs after the swap.
+        rb::Scene authoring;
+        const rb::Entity host = authoring.create();
+        authoring.add<rb::Name>(host, rb::Name{"ArenaHost"});
+        authoring.add<rb::Transform>(host, rb::Transform{});
+        rb::ScriptComponent script;
+        script.script = greeter;
+        authoring.add<rb::ScriptComponent>(host, script);
+        CHECK(rb::SceneSerializer::saveToFile(authoring, registry, dir / "arena.scene.json"));
+    }
+    CHECK(database.scan(dir, &assets) == 2u);
+
+    runtime.addSystem<rb::ScriptAssetResolveSystem>();
+    rb::ScriptSystem& scripts =
+        runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&registry);
+    CHECK(rb::SceneSerializer::loadFromFile(runtime.scene(), registry,
+                                            dir / "title.scene.json"));
+    runtime.start();
+
+    const nlohmann::json snapshot = rb::SceneSerializer::toJson(runtime.scene(), registry);
+    runtime.beginPlay();
+    runtime.setPlaying(true);
+
+    runtime.tick(0.016f); // the switcher requests the arena; the swap lands at end of tick
+    CHECK(!findByName(runtime.scene(), "TitleControl").valid());
+    const rb::Entity host = findByName(runtime.scene(), "ArenaHost");
+    CHECK(host.valid());
+    CHECK(scripts.instanceCount() == 0u); // outgoing environments dropped with their scene
+
+    runtime.tick(0.016f); // the arena's script resolves, compiles, and runs on_start
+    CHECK(approx(posX(runtime, host), 9.0f));
+    CHECK(scripts.instanceCount() == 1u);
+
+    runtime.setPlaying(false);
+    runtime.endPlay();
+    runtime.scene().clear(); // the editor's Stop: restore the snapshot taken at Play
+    rb::SceneSerializer::fromJson(snapshot, runtime.scene(), registry);
+    CHECK(findByName(runtime.scene(), "TitleControl").valid());
+    CHECK(!findByName(runtime.scene(), "ArenaHost").valid());
+    fs::remove_all(dir, ec);
+}
+
+// Two requests in one tick resolve to the last one, like the last write to a variable; an
+// unknown name, and a catalogued file that turns out not to be a scene, both warn and
+// leave the live scene untouched.
+void worldLoadSceneLastRequestWinsAndUnknownIsSafe() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path() / "rabbet_script_load_last_test";
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+
+    rb::ComponentRegistry registry;
+    rb::registerBuiltinComponents(registry);
+    for (const char* name : {"one", "two"}) {
+        rb::Scene authoring;
+        const rb::Entity marker = authoring.create();
+        authoring.add<rb::Name>(marker, rb::Name{std::string("Marker_") + name});
+        CHECK(rb::SceneSerializer::saveToFile(authoring, registry,
+                                              dir / (std::string(name) + ".scene.json")));
+    }
+    { // Valid JSON, but no scene inside: catalogued, yet loading it must refuse.
+        std::ofstream stub(dir / "hollow.scene.json");
+        stub << "{}\n";
+    }
+
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AssetDatabase& database = runtime.addResource<rb::AssetDatabase>();
+    CHECK(database.scan(dir, &assets) == 3u);
+
+    const rb::Uuid id = addScript(assets,
+                                  "function on_update(self, dt)\n"
+                                  "  world.load_scene(\"one\")\n"
+                                  "  world.load_scene(\"two\")\n"
+                                  "end\n");
+    (void)scriptedEntity(runtime, id);
+    rb::ScriptSystem scripts(&registry);
+    scripts.onPlayBegin(runtime);
+    scripts.onUpdate(runtime, 0.016f);
+    CHECK(findByName(runtime.scene(), "Marker_two").valid());
+    CHECK(!findByName(runtime.scene(), "Marker_one").valid());
+
+    // A fresh scripted entity in the swapped-in scene asks for a scene that does not
+    // exist and then for the hollow file: both requests are consumed, nothing changes,
+    // nothing accumulates.
+    const rb::Uuid bogus =
+        addScript(assets, "function on_update(self, dt) world.load_scene(\"nowhere\") end\n");
+    (void)scriptedEntity(runtime, bogus);
+    const std::size_t before = runtime.scene().aliveCount();
+    scripts.onUpdate(runtime, 0.016f);
+    scripts.onUpdate(runtime, 0.016f);
+    CHECK(runtime.scene().aliveCount() == before);
+    CHECK(findByName(runtime.scene(), "Marker_two").valid());
+
+    const rb::Uuid hollow =
+        addScript(assets, "function on_update(self, dt) world.load_scene(\"hollow\") end\n");
+    (void)scriptedEntity(runtime, hollow);
+    scripts.onUpdate(runtime, 0.016f);
+    CHECK(runtime.scene().aliveCount() == before + 1u); // only the new script entity
+    CHECK(findByName(runtime.scene(), "Marker_two").valid());
+    scripts.onPlayEnd(runtime);
+    fs::remove_all(dir, ec);
+}
+
+// Sustained wave-volume spawning through the real scheduler: a controller spawns scripted
+// wisps every tick while world.find answers under the growing population; every settled
+// wisp compiles and runs its own environment, and the play-edge teardown drops them all.
+void spawnVolumeSustainsScriptedWisps() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path() / "rabbet_script_spawn_volume_test";
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir, ec);
+
+    rb::ComponentRegistry registry;
+    rb::registerBuiltinComponents(registry);
+
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    rb::AssetDatabase& database = runtime.addResource<rb::AssetDatabase>();
+
+    const rb::Uuid drift =
+        addScript(assets, "function on_update(self, dt) self:translate(dt, 0.0, 0.0) end\n");
+    {
+        rb::Scene authoring;
+        const rb::Entity wisp = authoring.create();
+        authoring.add<rb::Name>(wisp, rb::Name{"Wisp"});
+        authoring.add<rb::Transform>(wisp, rb::Transform{});
+        rb::ScriptComponent script;
+        script.script = drift;
+        authoring.add<rb::ScriptComponent>(wisp, script);
+        CHECK(rb::savePrefabToFile(authoring, registry, wisp, dir / "wisp.prefab.json"));
+    }
+    CHECK(database.scan(dir, &assets) == 1u);
+
+    const rb::Uuid controller = addScript(assets,
+                                          "function on_update(self, dt)\n"
+                                          "  for i = 1, 8 do\n"
+                                          "    world.spawn(\"wisp\", i, 0.0, 0.0)\n"
+                                          "  end\n"
+                                          "  if world.find(\"Wisp\") ~= nil then\n"
+                                          "    self:translate(1.0, 0.0, 0.0)\n"
+                                          "  end\n"
+                                          "end\n");
+
+    runtime.addSystem<rb::ScriptAssetResolveSystem>();
+    rb::ScriptSystem& scripts =
+        runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&registry);
+    const rb::Entity control = scriptedEntity(runtime, controller);
+    runtime.start();
+    runtime.beginPlay();
+    runtime.setPlaying(true);
+
+    constexpr int kTicks = 25;
+    constexpr std::size_t kPerTick = 8;
+    const std::size_t before = runtime.scene().aliveCount();
+    for (int i = 0; i < kTicks; ++i) {
+        runtime.tick(0.016f);
+    }
+    CHECK(runtime.scene().aliveCount() == before + kPerTick * kTicks);
+    // Spawns land at end of tick, so find() sees the population from tick 2 on.
+    CHECK(approx(posX(runtime, control), static_cast<float>(kTicks - 1)));
+    // Every settled wisp runs its own environment; the last tick's batch has not yet.
+    CHECK(scripts.instanceCount() == 1u + kPerTick * (kTicks - 1));
+    // The oldest batch settled at end of tick 1 and has drifted every tick since: 24
+    // steps of 0.016 on top of its spawn x of 8.
+    float maxX = 0.0f;
+    runtime.scene().each<rb::Name>([&](rb::Entity e, rb::Name& n) {
+        if (n.value == "Wisp") {
+            maxX = std::max(maxX, posX(runtime, e));
+        }
+    });
+    CHECK(approx(maxX, 8.0f + static_cast<float>(kTicks - 1) * 0.016f));
+
+    runtime.setPlaying(false);
+    runtime.endPlay();
+    CHECK(scripts.instanceCount() == 0u);
+    fs::remove_all(dir, ec);
+}
+
 } // namespace
 
 int main() {
@@ -495,5 +721,8 @@ int main() {
     dtSpikeIsClamped();
     worldDestroyCascadesTheSubtree();
     externallyDestroyedEntityDropsItsInstance();
+    worldLoadSceneSwitchesAndStopRestores();
+    worldLoadSceneLastRequestWinsAndUnknownIsSafe();
+    spawnVolumeSustainsScriptedWisps();
     return rbtest::summary("script");
 }

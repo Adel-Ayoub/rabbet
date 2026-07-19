@@ -23,13 +23,15 @@ void introspectScriptFields(const std::string& source, std::vector<ScriptField>&
 // session (so it survives Pause, which merely stops ticking) and on_update every tick
 // after; both are bound to the entity's Transform, the Input resource, and frame time.
 // A `world` table looks up other entities by Name (the same live-resolving Entity handle
-// as `self`) and queues entity destruction, applied at end-of-tick so the component pool
-// is never mutated while scripts iterate. sol2 and Lua live entirely behind the impl, so
-// this header, and the rest of the engine and editor, never includes them.
+// as `self`, answered through a per-tick name index), queues entity destruction and prefab
+// spawning, and queues a scene switch (load_scene), all applied at end-of-tick so the
+// component pool is never mutated while scripts iterate. sol2 and Lua live entirely behind
+// the impl, so this header, and the rest of the engine and editor, never includes them.
 class ScriptSystem final : public System {
 public:
-    // The registry powers world.spawn (prefab instantiation through the component load
-    // hooks). With no registry every other binding still works and spawn is a logged no-op.
+    // The registry powers world.spawn and world.load_scene (component loading through the
+    // registry hooks). With no registry every other binding still works and both are
+    // warned no-ops.
     explicit ScriptSystem(const ComponentRegistry* registry = nullptr);
     ~ScriptSystem() override;
 
