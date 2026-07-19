@@ -19,6 +19,7 @@ set(RABBET_TEST_SUITES
     scene_transform
     scene_camera
     scene_light
+    name_index
     lighting_extended
     particle
     terrain

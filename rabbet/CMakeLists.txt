@@ -8,6 +8,7 @@ target_sources(rabbet
         ecs/Scene.cpp
         core/Runtime.cpp
         scene/TransformSystem.cpp
+        scene/NameIndex.cpp
         render/Geometry.cpp
         render/RenderDevice.cpp
         render/gl/Device.cpp
