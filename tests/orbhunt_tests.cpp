@@ -1,5 +1,6 @@
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
+#include "rabbet/core/Clock.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/PhysicsSystem.h"
@@ -22,7 +23,7 @@
 
 namespace {
 
-constexpr float kStep = 1.0f / 60.0f;
+constexpr float kStep = rb::kFixedDelta; // drive the demo at the engine's fixed cadence
 
 std::vector<rb::Entity> entitiesNamed(rb::Scene& scene, const std::string& name) {
     std::vector<rb::Entity> found;

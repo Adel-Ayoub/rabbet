@@ -24,6 +24,7 @@
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 
+#include "rabbet/core/Clock.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/BoxCollider.h"
@@ -124,7 +125,7 @@ JPH::EMotionType motionType(BodyType type) {
 
 // Advance physics in fixed substeps so the simulation is frame-rate independent; cap the
 // substeps per frame so a long hitch can't trigger a spiral of death (the backlog is dropped).
-constexpr float kFixedTimestep = 1.0f / 60.0f;
+// The substep size is the engine-wide kFixedDelta (core/Clock.h).
 constexpr int kMaxSubsteps = 5;
 
 } // namespace
@@ -470,17 +471,17 @@ struct PhysicsSystem::Impl {
         Scene& scene = runtime.scene();
         m_accumulator += std::max(dt, 0.0f);
         const int steps =
-            std::min(static_cast<int>(m_accumulator / kFixedTimestep), kMaxSubsteps);
+            std::min(static_cast<int>(m_accumulator / kFixedDelta), kMaxSubsteps);
         if (steps == 0) {
             return; // not enough elapsed time to advance a fixed step this frame
         }
         syncKinematicBodies(scene, m_physics.GetBodyInterface(),
-                            static_cast<float>(steps) * kFixedTimestep);
+                            static_cast<float>(steps) * kFixedDelta);
         for (int i = 0; i < steps; ++i) {
-            m_physics.Update(kFixedTimestep, 1, &m_tempAllocator, &m_jobSystem);
-            m_accumulator -= kFixedTimestep;
+            m_physics.Update(kFixedDelta, 1, &m_tempAllocator, &m_jobSystem);
+            m_accumulator -= kFixedDelta;
         }
-        if (m_accumulator > kFixedTimestep) {
+        if (m_accumulator > kFixedDelta) {
             m_accumulator = 0.0f; // dropped backlog after a hitch (hit the substep cap)
         }
 

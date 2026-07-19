@@ -5,6 +5,11 @@
 
 namespace rb {
 
+// The one authoritative fixed step: the headless run loop's default delta and the physics
+// substep size advance on the same 60 Hz cadence, so gameplay tuned against either holds
+// in the other.
+inline constexpr float kFixedDelta = 1.0f / 60.0f;
+
 class FrameClock {
 public:
     float tick() noexcept {

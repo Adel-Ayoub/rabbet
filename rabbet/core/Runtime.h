@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "rabbet/core/Clock.h"
 #include "rabbet/core/Module.h"
 #include "rabbet/core/Resource.h"
 #include "rabbet/core/System.h"
@@ -107,7 +108,7 @@ private:
     ResourceRegistry m_resources;
     std::vector<SystemEntry> m_systems;
     std::vector<std::string> m_loadedModules;
-    float m_fixedDelta = 1.0f / 60.0f;
+    float m_fixedDelta = kFixedDelta;
     bool m_running = false;
     bool m_started = false;
     bool m_playing = false;
