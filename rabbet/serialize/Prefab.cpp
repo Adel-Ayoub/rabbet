@@ -16,6 +16,7 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/scene/Hierarchy.h"
 #include "rabbet/serialize/ComponentRegistry.h"
+#include "rabbet/serialize/ParentRef.h"
 #include "rabbet/serialize/PrefabAsset.h"
 #include "rabbet/util/Log.h"
 
@@ -61,28 +62,16 @@ std::size_t rootRecordIndex(const nlohmann::json& entities) {
     return 0;
 }
 
-// Links the created entities per the records' parent refs, mirroring the scene loader: refs are
-// positional, and an invalid or cyclic ref degrades to a warn + skip. The root record's ref (if
-// a malformed file gave it one) is ignored so the root never re-parents itself.
+// Links the created entities per the records' parent refs through the scene loader's shared
+// tolerance (linkParentRef). The root record's ref (if a malformed file gave it one) is
+// ignored so the root never re-parents itself.
 void linkRecordParents(Scene& scene, const nlohmann::json& entities,
                        const std::vector<Entity>& created, std::size_t rootIndex) {
     for (std::size_t i = 0; i < created.size(); ++i) {
         if (i == rootIndex) {
             continue;
         }
-        const auto parentIt = entities[i].find("parent");
-        if (parentIt == entities[i].end()) {
-            continue;
-        }
-        if (!parentIt->is_number_unsigned() || parentIt->get<std::size_t>() >= created.size() ||
-            parentIt->get<std::size_t>() == i) {
-            log::warn("prefab: record {} has an invalid parent id, skipped", i);
-            continue;
-        }
-        if (!setParent(scene, created[i], created[parentIt->get<std::size_t>()])) {
-            log::warn("prefab: record {} parent id {} refused (cycle?)", i,
-                      parentIt->get<std::size_t>());
-        }
+        linkParentRef(scene, entities[i], created, i, "prefab", "record");
     }
 }
 

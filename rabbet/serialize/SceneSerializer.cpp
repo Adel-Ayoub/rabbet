@@ -10,6 +10,7 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/scene/Hierarchy.h"
 #include "rabbet/serialize/ComponentRegistry.h"
+#include "rabbet/serialize/ParentRef.h"
 #include "rabbet/util/Log.h"
 
 namespace rb {
@@ -144,22 +145,10 @@ void SceneSerializer::fromJson(const nlohmann::json& doc, Scene& scene,
     }
 
     // Parent links resolve only after every record has an entity, so a child record may
-    // precede its parent in the file. setParent's gate turns a hand-authored cycle into
-    // a refused link instead of corrupt runtime state.
+    // precede its parent in the file. linkParentRef turns a hand-authored bad ref or
+    // cycle into a warn + skip instead of corrupt runtime state.
     for (std::size_t i = 0; i < count; ++i) {
-        const auto parentIt = (*entitiesIt)[i].find("parent");
-        if (parentIt == (*entitiesIt)[i].end()) {
-            continue;
-        }
-        if (!parentIt->is_number_unsigned() || parentIt->get<std::size_t>() >= count ||
-            parentIt->get<std::size_t>() == i) {
-            log::warn("scene load: entity {} has an invalid parent id, skipped", i);
-            continue;
-        }
-        if (!setParent(scene, created[i], created[parentIt->get<std::size_t>()])) {
-            log::warn("scene load: entity {} parent id {} refused (cycle?)", i,
-                      parentIt->get<std::size_t>());
-        }
+        linkParentRef(scene, (*entitiesIt)[i], created, i, "scene load", "entity");
     }
 }
 

@@ -32,6 +32,7 @@ target_sources(rabbet
         serialize/ComponentRegistry.cpp
         serialize/BuiltinComponents.cpp
         serialize/SceneSerializer.cpp
+        serialize/ParentRef.cpp
         serialize/Prefab.cpp
         serialize/PrefabAssetResolveSystem.cpp
         core/Uuid.cpp
