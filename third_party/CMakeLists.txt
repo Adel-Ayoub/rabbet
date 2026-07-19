@@ -58,3 +58,39 @@ set_target_properties(stb_vorbis PROPERTIES
 if(UNIX AND NOT APPLE)
     target_link_libraries(stb_vorbis PUBLIC m)
 endif()
+
+# nfd (Native File Dialog Extended): native open/save panels behind a small C API.
+# One platform backend compiles per OS. SYSTEM include so its headers never trip
+# first-party -Werror; linked PRIVATE to the editor only, the engine core never
+# opens a dialog. Gated on the editor building at all, so an engine-only configure
+# never requires the platform dialog deps (GTK3 on Linux).
+if(RABBET_BUILD_EDITOR)
+    if(APPLE)
+        add_library(nfd STATIC
+            nfd/nfd_cocoa.m)
+        target_link_libraries(nfd PUBLIC "-framework AppKit")
+        # UniformTypeIdentifiers backs the allowed-content-types filter API the cocoa
+        # backend compiles in on a macOS 11+ floor; an older explicit target takes the
+        # allowedFileTypes fallback and must not hard-link a framework its floor lacks.
+        if(NOT CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET VERSION_GREATER_EQUAL 11.0)
+            target_link_libraries(nfd PUBLIC "-framework UniformTypeIdentifiers")
+        endif()
+    elseif(WIN32)
+        add_library(nfd STATIC
+            nfd/nfd_win.cpp)
+    else()
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0)
+        add_library(nfd STATIC
+            nfd/nfd_gtk.cpp)
+        # PRIVATE keeps the gtk include dirs out of consumers; a static lib's link
+        # dependencies still reach the final executable.
+        target_link_libraries(nfd PRIVATE PkgConfig::GTK3)
+    endif()
+
+    target_include_directories(nfd SYSTEM PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/nfd")
+
+    set_target_properties(nfd PROPERTIES
+        POSITION_INDEPENDENT_CODE ON)
+endif()

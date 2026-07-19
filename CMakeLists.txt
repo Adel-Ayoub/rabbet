@@ -14,6 +14,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# Declared before third_party so the nfd target (editor-only) can gate on it there.
+option(RABBET_BUILD_EDITOR "Build the ImGui editor" ON)
+
+# nfd's macOS backend is Objective-C; the language has to be enabled at the top level
+# (a subdirectory enable_language leaves the generator without OBJC compile rules).
+if(APPLE AND RABBET_BUILD_EDITOR)
+    enable_language(OBJC)
+endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Compile with the include-path environment variables (CPATH and friends) unset: the
@@ -29,6 +38,9 @@ if(UNIX)
     endif()
     if(NOT "${CMAKE_CXX_COMPILER_LAUNCHER}" MATCHES "CPATH")
         set(CMAKE_CXX_COMPILER_LAUNCHER ${_rabbet_scrub_env} ${CMAKE_CXX_COMPILER_LAUNCHER})
+    endif()
+    if(NOT "${CMAKE_OBJC_COMPILER_LAUNCHER}" MATCHES "CPATH")
+        set(CMAKE_OBJC_COMPILER_LAUNCHER ${_rabbet_scrub_env} ${CMAKE_OBJC_COMPILER_LAUNCHER})
     endif()
 endif()
 
@@ -193,7 +205,6 @@ if(RABBET_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-option(RABBET_BUILD_EDITOR "Build the ImGui editor" ON)
 if(RABBET_BUILD_EDITOR)
     add_subdirectory(editor)
 endif()
