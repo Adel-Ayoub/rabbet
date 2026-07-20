@@ -23,6 +23,7 @@ void registerBuiltinComponents(ComponentRegistry& registry) {
     registry.add<ParticleEmitter>("ParticleEmitter");
     registry.add<PostProcess>("PostProcess");
     registry.add<TerrainComponent>("TerrainComponent");
+    registry.add<SkyboxComponent>("SkyboxComponent");
 }
 
 } // namespace rb

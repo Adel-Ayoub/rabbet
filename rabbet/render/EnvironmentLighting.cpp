@@ -65,13 +65,33 @@ EnvironmentLight buildEnvironmentLight(const gl::Cubemap& environment, int size)
     }
     gl::Mesh cube = gl::Mesh::create(geometry::cube());
 
-    GLint prevFramebuffer = 0;
+    // This runs mid-frame whenever a scene swaps its sky, not just once at startup, so
+    // every piece of state it touches has to go back exactly as it was. Read and draw
+    // bindings are saved separately: restoring both through GL_FRAMEBUFFER would collapse
+    // a split binding into one.
+    GLint prevDrawFramebuffer = 0;
+    GLint prevReadFramebuffer = 0;
     GLint prevViewport[4] = {0, 0, 0, 0};
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFramebuffer);
+    GLint prevProgram = 0;
+    GLint prevVertexArray = 0;
+    GLint prevActiveTexture = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDrawFramebuffer);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevReadFramebuffer);
     glGetIntegerv(GL_VIEWPORT, prevViewport);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVertexArray);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTexture);
     const GLboolean prevDepth = glIsEnabled(GL_DEPTH_TEST);
     const GLboolean prevCull = glIsEnabled(GL_CULL_FACE);
     const GLboolean prevSeamless = glIsEnabled(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+    const GLboolean prevScissor = glIsEnabled(GL_SCISSOR_TEST);
+    GLboolean prevColorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
+    glGetBooleanv(GL_COLOR_WRITEMASK, prevColorMask);
+
+    // The per-face clear below would otherwise inherit whatever scissor rectangle and
+    // colour mask the caller left set, leaving parts of the probe unwritten.
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
     unsigned int fbo = 0;
     glGenFramebuffers(1, &fbo);
@@ -104,12 +124,18 @@ EnvironmentLight buildEnvironmentLight(const gl::Cubemap& environment, int size)
         cube.draw();
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(prevDrawFramebuffer));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(prevReadFramebuffer));
     glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+    glUseProgram(static_cast<GLuint>(prevProgram));
+    glBindVertexArray(static_cast<GLuint>(prevVertexArray));
+    glActiveTexture(static_cast<GLenum>(prevActiveTexture));
     prevDepth ? glEnable(GL_DEPTH_TEST) : glDisable(GL_DEPTH_TEST);
     prevCull ? glEnable(GL_CULL_FACE) : glDisable(GL_CULL_FACE);
     prevSeamless ? glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS)
                  : glDisable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+    prevScissor ? glEnable(GL_SCISSOR_TEST) : glDisable(GL_SCISSOR_TEST);
+    glColorMask(prevColorMask[0], prevColorMask[1], prevColorMask[2], prevColorMask[3]);
     glDeleteFramebuffers(1, &fbo);
 
     return EnvironmentLight{std::move(irradiance), 1.0f, false};

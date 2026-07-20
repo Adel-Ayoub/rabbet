@@ -221,6 +221,15 @@ void Editor::buildDefaultScene() {
     // Real sky: a cubemap skybox.
     m_runtime.addResource<rb::Skybox>(rb::Skybox{loadCubemap(assetsRoot / "skybox/sky"),
                                                  rb::gl::Mesh::create(rb::geometry::cube())});
+    // The same six faces by uuid, so a scene that authors no SkyboxComponent reverts to
+    // this sky instead of keeping whichever one the previously loaded scene installed.
+    m_runtime.addResource<rb::SkyboxDefault>(
+        rb::SkyboxDefault{{rb::Uuid::fromString("f4f54ffaa8b1cb04aa2fe4ea8571b179"),
+                           rb::Uuid::fromString("33194416c9092bf4c6895deff847f7b4"),
+                           rb::Uuid::fromString("314c4be06a23f9061afe88909c728740"),
+                           rb::Uuid::fromString("1ce99ad72e0573183b0a5c6c8e5e54eb"),
+                           rb::Uuid::fromString("03c942e940edf8224dfc4c4bb8e00ad6"),
+                           rb::Uuid::fromString("62940bd6d7cfdd527a15e7b55da989f1")}});
 
     // Diffuse image-based ambient convolved from that skybox, off by default (the viewport
     // "Environment" toggle switches it on). Built once here while the GL context is current.

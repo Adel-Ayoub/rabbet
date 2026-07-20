@@ -69,6 +69,9 @@ const char* componentGlyph(const std::string& name) {
     if (name == "TerrainComponent") {
         return icon::kMountain;
     }
+    if (name == "SkyboxComponent") {
+        return icon::kSun;
+    }
     if (name == "PrefabInstance") {
         return icon::kLink;
     }
@@ -123,6 +126,9 @@ void InspectorPanel::onImGui() {
                 // Needs the AssetDatabase to assign heightmap / layer / splat textures, which the
                 // type-erased registry hook cannot reach.
                 drawTerrainInspector(m_context, e);
+            } else if (entry.name == "SkyboxComponent") {
+                // Same reason as terrain: assigning the six faces needs the AssetDatabase.
+                drawSkyboxInspector(m_context, e);
             } else if (entry.drawInspector != nullptr) {
                 entry.drawInspector(scene, e);
             } else {

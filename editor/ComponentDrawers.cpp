@@ -14,6 +14,7 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/render/PostProcess.h"
+#include "rabbet/render/SkyboxComponent.h"
 #include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
@@ -43,6 +44,7 @@
 #include <magic_enum/magic_enum.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -575,6 +577,24 @@ void drawPrefabInspector(EditorContext& context, rb::Entity e) {
         rb::applyPrefab(scene, context.registry, e, *prefab);
     }
     ImGui::EndDisabled();
+}
+
+void drawSkyboxInspector(EditorContext& context, rb::Entity e) {
+    rb::Scene& scene = context.runtime.scene();
+    rb::SkyboxComponent& sky = scene.get<rb::SkyboxComponent>(e);
+    rb::AssetDatabase* database = context.runtime.tryResource<rb::AssetDatabase>();
+    if (database == nullptr) {
+        ImGui::TextDisabled("No asset database (faces cannot be assigned)");
+        return;
+    }
+
+    // Cubemap face order, which is also the order the skybox folders on disk use.
+    static const std::array<const char*, rb::SkyboxComponent::kFaceCount> kLabels = {
+        "Right (+X)", "Left (-X)", "Top (+Y)", "Bottom (-Y)", "Front (+Z)", "Back (-Z)"};
+    for (std::size_t i = 0; i < kLabels.size(); ++i) {
+        textureSlot(kLabels[i], *database, sky.faces[i]);
+    }
+    ImGui::TextDisabled("Six textures, swapped in as soon as all of them resolve.");
 }
 
 void drawTerrainInspector(EditorContext& context, rb::Entity e) {

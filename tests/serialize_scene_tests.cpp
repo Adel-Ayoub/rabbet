@@ -52,8 +52,9 @@ rb::Entity firstNamed(rb::Scene& scene, const std::string& name) {
 
 static void registryExposesBuiltins() {
     const rb::ComponentRegistry registry = makeRegistry();
-    CHECK(registry.entries().size() == 18u);
+    CHECK(registry.entries().size() == 19u);
     CHECK(registry.find("Transform") != nullptr);
+    CHECK(registry.find("SkyboxComponent") != nullptr);
     CHECK(registry.find("Camera") != nullptr);
     CHECK(registry.find("Primitive") != nullptr);
     CHECK(registry.find("Missing") == nullptr);
@@ -302,6 +303,64 @@ static void malformedParentIsSkipped() {
     CHECK(dUnderE != eUnderD);
 }
 
+// A scene carries its own sky as six texture refs. Order is load-bearing (it is GL cubemap
+// face order), so the round trip has to preserve it exactly. A short list or a non-string
+// entry degrades to unset faces; a malformed uuid STRING throws inside the registry hook,
+// which drops the whole component the way every other asset-referencing component does.
+static void skyboxFacesRoundTrip() {
+    const rb::ComponentRegistry registry = makeRegistry();
+
+    rb::Scene source;
+    const rb::Entity sky = source.create();
+    rb::SkyboxComponent authored;
+    for (std::size_t i = 0; i < authored.faces.size(); ++i) {
+        authored.faces[i] = rb::Uuid::fromString(std::string(31, '0') + char('1' + i));
+    }
+    source.add<rb::SkyboxComponent>(sky, authored);
+
+    const nlohmann::json doc = rb::SceneSerializer::toJson(source, registry);
+    rb::Scene loaded;
+    rb::SceneSerializer::fromJson(doc, loaded, registry);
+
+    const rb::SkyboxComponent* active = rb::activeSkybox(loaded);
+    CHECK(active != nullptr);
+    CHECK(active != nullptr && active->faces == authored.faces); // same faces, same order
+
+    rb::Scene tolerant;
+    const nlohmann::json partial = nlohmann::json::parse(R"({
+      "version": 1,
+      "entities": [
+        { "id": 0, "components": { "SkyboxComponent": { "faces": ["00000000000000000000000000000001", 7] } } },
+        { "id": 1, "components": { "SkyboxComponent": {} } }
+      ]
+    })");
+    rb::SceneSerializer::fromJson(partial, tolerant, registry); // must not throw
+    CHECK(tolerant.aliveCount() == 2u);
+    const rb::SkyboxComponent* first = rb::activeSkybox(tolerant);
+    CHECK(first != nullptr);
+    CHECK(first != nullptr && first->faces[0].valid());
+    CHECK(first != nullptr && !first->faces[1].valid()); // the non-string entry stayed unset
+    CHECK(first != nullptr && !first->faces[5].valid()); // and the missing tail too
+
+    // A malformed uuid string is not tolerated field-by-field: parseUuid throws, the
+    // serializer logs and skips the component, and the entity loads without a sky.
+    rb::Scene malformed;
+    const nlohmann::json bad = nlohmann::json::parse(R"({
+      "version": 1,
+      "entities": [
+        { "id": 0, "components": { "Name": { "value": "sky" },
+          "SkyboxComponent": { "faces": ["not-a-uuid", "00000000000000000000000000000002",
+                                          "00000000000000000000000000000003",
+                                          "00000000000000000000000000000004",
+                                          "00000000000000000000000000000005",
+                                          "00000000000000000000000000000006"] } } }
+      ]
+    })");
+    rb::SceneSerializer::fromJson(bad, malformed, registry); // must not throw
+    CHECK(malformed.aliveCount() == 1u);
+    CHECK(rb::activeSkybox(malformed) == nullptr); // dropped, not half-applied
+}
+
 static void staleParentIsNotSaved() {
     const rb::ComponentRegistry registry = makeRegistry();
 
@@ -386,6 +445,7 @@ int main() {
     parentedSaveLoadSaveIsIdempotent();
     childRecordBeforeParentRecordResolves();
     malformedParentIsSkipped();
+    skyboxFacesRoundTrip();
     staleParentIsNotSaved();
     unsetAssetRefsSurviveRoundTrip();
     zeroUuidTextLoadsAsUnset();

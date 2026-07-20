@@ -22,6 +22,7 @@ target_sources(rabbet
         render/Sky.cpp
         render/gl/Cubemap.cpp
         render/RenderSystem.cpp
+        render/SkyboxComponent.cpp
         render/SkyboxSystem.cpp
         scene/CameraSystem.cpp
         scene/CameraView.cpp
@@ -104,6 +105,7 @@ target_sources(rabbet
             render/RenderSystem.h
             render/Sky.h
             render/Skybox.h
+            render/SkyboxComponent.h
             render/SkyboxSystem.h
             scene/Camera.h
             scene/CameraSystem.h

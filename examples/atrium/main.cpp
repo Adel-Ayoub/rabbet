@@ -47,8 +47,10 @@ public:
         rt.addSystem<rb::TransformSystem>();
         rt.addSystem<rb::CameraSystem>();
         rt.addSystem<rb::LightSystem>();
-        rt.addSystem<rb::RenderSystem>();
+        // Before RenderSystem: a skybox swap replaces the cubemap and the irradiance probe
+        // that RenderSystem binds for the frame.
         rt.addSystem<rb::SkyboxSystem>();
+        rt.addSystem<rb::RenderSystem>();
 
         const std::array<std::string, 6> faces = {"right.bmp", "left.bmp",  "top.bmp",
                                                   "bottom.bmp", "front.bmp", "back.bmp"};

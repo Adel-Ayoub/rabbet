@@ -29,4 +29,8 @@ void drawPrefabInspector(EditorContext& context, rb::Entity e);
 // catalogued Texture assets (needs the AssetDatabase), so the InspectorPanel calls it directly.
 void drawTerrainInspector(EditorContext& context, rb::Entity e);
 
+// Draws the SkyboxComponent inspector: the six cubemap faces, assigned from the catalogued
+// Texture assets, so like terrain it needs the AssetDatabase and is called by the panel.
+void drawSkyboxInspector(EditorContext& context, rb::Entity e);
+
 } // namespace rb::editor

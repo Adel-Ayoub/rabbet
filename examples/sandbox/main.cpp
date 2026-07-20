@@ -130,8 +130,10 @@ public:
         rt.addSystem<rb::TransformSystem>();
         rt.addSystem<rb::CameraSystem>();
         rt.addSystem<rb::LightSystem>();
-        rt.addSystem<rb::RenderSystem>();
+        // Before RenderSystem: a skybox swap replaces the cubemap and the irradiance probe
+        // that RenderSystem binds for the frame.
         rt.addSystem<rb::SkyboxSystem>();
+        rt.addSystem<rb::RenderSystem>();
 
         rt.addResource<rb::Skybox>(
             rb::Skybox{makeSkyCubemap(), rb::gl::Mesh::create(rb::geometry::cube())});

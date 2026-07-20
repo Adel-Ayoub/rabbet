@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -21,6 +22,7 @@
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
 #include "rabbet/render/PostProcess.h"
+#include "rabbet/render/SkyboxComponent.h"
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptField.h"
 #include "rabbet/serialize/PrefabInstance.h"
@@ -376,6 +378,29 @@ inline void from_json(const nlohmann::json& j, TerrainLayer& layer) {
     layer.heightRange = j.value("heightRange", layer.heightRange);
     layer.slopeRange = j.value("slopeRange", layer.slopeRange);
     layer.sharpness = j.value("sharpness", layer.sharpness);
+}
+
+inline void to_json(nlohmann::json& j, const SkyboxComponent& s) {
+    nlohmann::json faces = nlohmann::json::array();
+    for (const Uuid& face : s.faces) {
+        faces.push_back(uuidText(face));
+    }
+    j = nlohmann::json{{"faces", faces}};
+}
+inline void from_json(const nlohmann::json& j, SkyboxComponent& s) {
+    s.faces = {};
+    const auto it = j.find("faces");
+    if (it == j.end() || !it->is_array()) {
+        return; // an unset sky is legal: it just leaves the current one alone
+    }
+    const std::size_t count =
+        std::min<std::size_t>(it->size(), static_cast<std::size_t>(SkyboxComponent::kFaceCount));
+    for (std::size_t i = 0; i < count; ++i) {
+        const nlohmann::json& face = (*it)[i];
+        if (face.is_string()) {
+            s.faces[i] = parseUuid(face.get<std::string>(), "SkyboxComponent: malformed face");
+        }
+    }
 }
 
 inline void to_json(nlohmann::json& j, const TerrainComponent& t) {
