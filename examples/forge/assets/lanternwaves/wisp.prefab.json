@@ -1,0 +1,156 @@
+{
+  "version": 2,
+  "entities": [
+    {
+      "id": 0,
+      "components": {
+        "Name": {
+          "value": "Wisp"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "ScriptComponent": {
+          "script": "1a20000000000000000000000000e007",
+          "fields": {
+            "speed": 2.2,
+            "reach": 1.4,
+            "catch": 1.5
+          }
+        }
+      }
+    },
+    {
+      "id": 1,
+      "parent": 0,
+      "components": {
+        "Name": {
+          "value": "Wisp Core"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.26,
+            0.26,
+            0.26
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.55,
+            0.95,
+            1.0
+          ],
+          "emissive": [
+            0.9,
+            2.2,
+            2.8
+          ],
+          "metallic": 0.0,
+          "roughness": 0.2
+        },
+        "ParticleEmitter": {
+          "emissionRate": 18.0,
+          "maxParticles": 40,
+          "lifetime": 0.9,
+          "lifetimeJitter": 0.3,
+          "startSize": 0.5,
+          "endSize": 0.05,
+          "startColor": [
+            0.6,
+            0.95,
+            1.0,
+            0.9
+          ],
+          "endColor": [
+            0.15,
+            0.4,
+            0.9,
+            0.0
+          ],
+          "velocity": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "coneAngle": 45.0,
+          "speedJitter": 0.4,
+          "gravity": [
+            0.0,
+            -0.3,
+            0.0
+          ],
+          "blendMode": "Additive",
+          "looping": true,
+          "duration": 4.0,
+          "sprite": "9f8e7d6c5b4a39281706f5e4d3c2b1a0",
+          "seed": 41
+        }
+      }
+    },
+    {
+      "id": 2,
+      "parent": 1,
+      "components": {
+        "Name": {
+          "value": "Wisp Light"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "PointLight": {
+          "color": [
+            0.45,
+            0.85,
+            1.0
+          ],
+          "intensity": 2.6,
+          "constant": 1.0,
+          "linear": 0.22,
+          "quadratic": 0.2
+        }
+      }
+    }
+  ]
+}

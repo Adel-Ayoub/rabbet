@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "components": {
+    "Name": {
+      "value": "WispPop"
+    },
+    "Transform": {
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "ParticleEmitter": {
+      "emissionRate": 150.0,
+      "maxParticles": 110,
+      "lifetime": 0.6,
+      "lifetimeJitter": 0.2,
+      "startSize": 0.2,
+      "endSize": 0.02,
+      "startColor": [
+        0.7,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "endColor": [
+        0.1,
+        0.45,
+        0.95,
+        0.0
+      ],
+      "velocity": [
+        0.0,
+        2.2,
+        0.0
+      ],
+      "coneAngle": 85.0,
+      "speedJitter": 0.55,
+      "gravity": [
+        0.0,
+        -2.2,
+        0.0
+      ],
+      "blendMode": "Additive",
+      "looping": false,
+      "duration": 0.35,
+      "seed": 43,
+      "sprite": "9f8e7d6c5b4a39281706f5e4d3c2b1a0"
+    },
+    "SoundEmitter": {
+      "sound": "0eb0000000000000000000000000c006",
+      "volume": 0.75,
+      "pitch": 1.25,
+      "loop": false,
+      "spatial": true,
+      "playOnStart": true,
+      "stream": false
+    },
+    "ScriptComponent": {
+      "script": "1a20000000000000000000000000e009",
+      "fields": {}
+    }
+  }
+}
