@@ -1,0 +1,817 @@
+{
+  "version": 1,
+  "entities": [
+    {
+      "id": 0,
+      "components": {
+        "Name": {
+          "value": "Moon"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            30.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "DirectionalLight": {
+          "direction": [
+            -0.3,
+            -1.0,
+            -0.55
+          ],
+          "color": [
+            0.42,
+            0.52,
+            0.78
+          ],
+          "intensity": 0.55
+        }
+      }
+    },
+    {
+      "id": 1,
+      "components": {
+        "Name": {
+          "value": "Clearing"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "TerrainComponent": {
+          "size": 64.0,
+          "resolution": 64,
+          "heightScale": 1.0,
+          "source": "Flat",
+          "heightmap": "",
+          "seed": 2026,
+          "octaves": 4,
+          "frequency": 2.0,
+          "lacunarity": 2.0,
+          "gain": 0.5,
+          "layers": [
+            {
+              "albedo": "2b30000000000000000000000000f005",
+              "tiling": 14.0,
+              "heightRange": [
+                0.0,
+                1.0
+              ],
+              "slopeRange": [
+                0.0,
+                1.0
+              ],
+              "sharpness": 0.12
+            }
+          ],
+          "blend": "HeightSlope",
+          "splat": ""
+        }
+      }
+    },
+    {
+      "id": 2,
+      "components": {
+        "Name": {
+          "value": "Lamp Post"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "PrefabInstance": {
+          "prefab": "0f10000000000000000000000000d001"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "parent": 2,
+      "components": {
+        "Name": {
+          "value": "Pole"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.9,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.12,
+            1.8,
+            0.12
+          ]
+        },
+        "Primitive": {
+          "shape": "Cube",
+          "color": [
+            0.28,
+            0.29,
+            0.33
+          ],
+          "emissive": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "metallic": 0.9,
+          "roughness": 0.35
+        }
+      }
+    },
+    {
+      "id": 4,
+      "parent": 2,
+      "components": {
+        "Name": {
+          "value": "Head"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            1.95,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            1.0,
+            0.85,
+            0.4
+          ],
+          "emissive": [
+            1.6,
+            1.2,
+            0.5
+          ],
+          "metallic": 0.0,
+          "roughness": 0.3
+        }
+      }
+    },
+    {
+      "id": 5,
+      "parent": 4,
+      "components": {
+        "Name": {
+          "value": "Glow"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "PointLight": {
+          "color": [
+            1.0,
+            0.85,
+            0.5
+          ],
+          "intensity": 6.0,
+          "constant": 1.0,
+          "linear": 0.09,
+          "quadratic": 0.032
+        }
+      }
+    },
+    {
+      "id": 6,
+      "components": {
+        "Name": {
+          "value": "Flame"
+        },
+        "Transform": {
+          "position": [
+            0.75,
+            2.05,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.11,
+            0.11,
+            0.11
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            1.0,
+            0.78,
+            0.35
+          ],
+          "emissive": [
+            2.4,
+            1.5,
+            0.5
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "PointLight": {
+          "color": [
+            1.0,
+            0.72,
+            0.35
+          ],
+          "intensity": 2.2,
+          "constant": 1.0,
+          "linear": 0.14,
+          "quadratic": 0.07
+        }
+      }
+    },
+    {
+      "id": 7,
+      "components": {
+        "Name": {
+          "value": "Flame"
+        },
+        "Transform": {
+          "position": [
+            -0.375,
+            2.05,
+            0.65
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.11,
+            0.11,
+            0.11
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            1.0,
+            0.78,
+            0.35
+          ],
+          "emissive": [
+            2.4,
+            1.5,
+            0.5
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "PointLight": {
+          "color": [
+            1.0,
+            0.72,
+            0.35
+          ],
+          "intensity": 2.2,
+          "constant": 1.0,
+          "linear": 0.14,
+          "quadratic": 0.07
+        }
+      }
+    },
+    {
+      "id": 8,
+      "components": {
+        "Name": {
+          "value": "Flame"
+        },
+        "Transform": {
+          "position": [
+            -0.375,
+            2.05,
+            -0.65
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.11,
+            0.11,
+            0.11
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            1.0,
+            0.78,
+            0.35
+          ],
+          "emissive": [
+            2.4,
+            1.5,
+            0.5
+          ],
+          "metallic": 0.0,
+          "roughness": 0.25
+        },
+        "PointLight": {
+          "color": [
+            1.0,
+            0.72,
+            0.35
+          ],
+          "intensity": 2.2,
+          "constant": 1.0,
+          "linear": 0.14,
+          "quadratic": 0.07
+        }
+      }
+    },
+    {
+      "id": 9,
+      "components": {
+        "Name": {
+          "value": "Player"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.5,
+            7.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Primitive": {
+          "shape": "Sphere",
+          "color": [
+            0.95,
+            0.55,
+            0.2
+          ],
+          "emissive": [
+            0.35,
+            0.16,
+            0.03
+          ],
+          "metallic": 0.05,
+          "roughness": 0.4
+        },
+        "RigidBody": {
+          "type": "Dynamic",
+          "mass": 1.0,
+          "friction": 0.7,
+          "restitution": 0.05,
+          "gravity": true
+        },
+        "SphereCollider": {
+          "radius": 0.5,
+          "offset": [
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "ScriptComponent": {
+          "script": "0eb0000000000000000000000000c001",
+          "fields": {
+            "speed": 8.5
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "components": {
+        "Name": {
+          "value": "GameCamera"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            25.0,
+            19.0
+          ],
+          "rotation": [
+            0.8958,
+            -0.4444,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Camera": {
+          "fovY": 1.15,
+          "nearPlane": 0.1,
+          "farPlane": 300.0
+        }
+      }
+    },
+    {
+      "id": 11,
+      "components": {
+        "Name": {
+          "value": "WaveController"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            4.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "ScriptComponent": {
+          "script": "1a20000000000000000000000000e008",
+          "fields": {
+            "waves": 3.0,
+            "per_wave": 4.0,
+            "spawn_gap": 1.1,
+            "wave_gap": 5.0,
+            "lead_in": 2.0,
+            "radius": 20.0,
+            "height": 1.4,
+            "settle": 3.0
+          }
+        }
+      }
+    },
+    {
+      "id": 12,
+      "components": {
+        "Name": {
+          "value": "Post"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "PostProcess": {
+          "enabled": true,
+          "tonemap": "ACES",
+          "exposure": 0.35,
+          "gamma": 2.2,
+          "bloom": true,
+          "bloomThreshold": 0.85,
+          "bloomKnee": 0.5,
+          "bloomIntensity": 0.8,
+          "contrast": 1.05,
+          "saturation": 1.08,
+          "vignette": 0.34,
+          "fxaa": true
+        }
+      }
+    },
+    {
+      "components": {
+        "Name": {
+          "value": "Boulder"
+        },
+        "Transform": {
+          "position": [
+            23.43,
+            0.0,
+            7.16
+          ],
+          "rotation": [
+            0.9423,
+            0.0,
+            0.3346,
+            0.0
+          ],
+          "scale": [
+            1.35,
+            1.35,
+            1.35
+          ]
+        },
+        "ModelRenderer": {
+          "model": "2b30000000000000000000000000f001"
+        }
+      },
+      "id": 13
+    },
+    {
+      "components": {
+        "Name": {
+          "value": "Boulder"
+        },
+        "Transform": {
+          "position": [
+            7.17,
+            0.0,
+            24.99
+          ],
+          "rotation": [
+            0.0854,
+            0.0,
+            0.9963,
+            0.0
+          ],
+          "scale": [
+            0.95,
+            0.95,
+            0.95
+          ]
+        },
+        "ModelRenderer": {
+          "model": "2b30000000000000000000000000f001"
+        }
+      },
+      "id": 14
+    },
+    {
+      "components": {
+        "Name": {
+          "value": "Boulder"
+        },
+        "Transform": {
+          "position": [
+            -15.1,
+            0.0,
+            18.65
+          ],
+          "rotation": [
+            -0.8513,
+            0.0,
+            0.5247,
+            0.0
+          ],
+          "scale": [
+            1.6,
+            1.6,
+            1.6
+          ]
+        },
+        "ModelRenderer": {
+          "model": "2b30000000000000000000000000f001"
+        }
+      },
+      "id": 15
+    },
+    {
+      "components": {
+        "Name": {
+          "value": "Boulder"
+        },
+        "Transform": {
+          "position": [
+            -26.85,
+            0.0,
+            -2.82
+          ],
+          "rotation": [
+            -0.83,
+            0.0,
+            -0.5577,
+            0.0
+          ],
+          "scale": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        },
+        "ModelRenderer": {
+          "model": "2b30000000000000000000000000f001"
+        }
+      },
+      "id": 16
+    },
+    {
+      "components": {
+        "Name": {
+          "value": "Boulder"
+        },
+        "Transform": {
+          "position": [
+            -11.39,
+            0.0,
+            -20.55
+          ],
+          "rotation": [
+            0.1245,
+            0.0,
+            -0.9922,
+            0.0
+          ],
+          "scale": [
+            1.45,
+            1.45,
+            1.45
+          ]
+        },
+        "ModelRenderer": {
+          "model": "2b30000000000000000000000000f001"
+        }
+      },
+      "id": 17
+    },
+    {
+      "components": {
+        "Name": {
+          "value": "Boulder"
+        },
+        "Transform": {
+          "position": [
+            11.58,
+            0.0,
+            -22.72
+          ],
+          "rotation": [
+            0.9486,
+            0.0,
+            -0.3165,
+            0.0
+          ],
+          "scale": [
+            0.85,
+            0.85,
+            0.85
+          ]
+        },
+        "ModelRenderer": {
+          "model": "2b30000000000000000000000000f001"
+        }
+      },
+      "id": 18
+    },
+    {
+      "components": {
+        "Name": {
+          "value": "Boulder"
+        },
+        "Transform": {
+          "position": [
+            26.92,
+            0.0,
+            -7.72
+          ],
+          "rotation": [
+            0.8131,
+            0.0,
+            0.5821,
+            0.0
+          ],
+          "scale": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        },
+        "ModelRenderer": {
+          "model": "2b30000000000000000000000000f001"
+        }
+      },
+      "id": 19
+    },
+    {
+      "components": {
+        "Name": {
+          "value": "Night Sky"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "SkyboxComponent": {
+          "faces": [
+            "3c40000000000000000000000000a001",
+            "3c40000000000000000000000000a002",
+            "3c40000000000000000000000000a003",
+            "3c40000000000000000000000000a004",
+            "3c40000000000000000000000000a005",
+            "3c40000000000000000000000000a006"
+          ]
+        }
+      },
+      "id": 20
+    }
+  ]
+}

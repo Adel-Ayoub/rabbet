@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "components": {
+    "Name": {
+      "value": "Triumph"
+    },
+    "Transform": {
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    "Primitive": {
+      "shape": "Sphere",
+      "color": [
+        1.0,
+        0.9,
+        0.5
+      ],
+      "emissive": [
+        2.6,
+        2.0,
+        0.8
+      ],
+      "metallic": 0.15,
+      "roughness": 0.25
+    },
+    "ParticleEmitter": {
+      "emissionRate": 70.0,
+      "maxParticles": 260,
+      "lifetime": 1.8,
+      "lifetimeJitter": 0.45,
+      "startSize": 0.22,
+      "endSize": 0.03,
+      "startColor": [
+        1.0,
+        0.9,
+        0.45,
+        1.0
+      ],
+      "endColor": [
+        1.0,
+        0.5,
+        0.1,
+        0.0
+      ],
+      "velocity": [
+        0.0,
+        3.4,
+        0.0
+      ],
+      "coneAngle": 26.0,
+      "speedJitter": 0.4,
+      "gravity": [
+        0.0,
+        -1.1,
+        0.0
+      ],
+      "blendMode": "Additive",
+      "looping": true,
+      "duration": 5.0,
+      "seed": 47,
+      "sprite": "9f8e7d6c5b4a39281706f5e4d3c2b1a0"
+    },
+    "SoundEmitter": {
+      "sound": "0eb0000000000000000000000000c007",
+      "volume": 1.0,
+      "pitch": 1.0,
+      "loop": false,
+      "spatial": false,
+      "playOnStart": true,
+      "stream": false
+    }
+  }
+}
