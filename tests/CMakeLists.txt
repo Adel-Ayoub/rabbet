@@ -44,7 +44,8 @@ set(RABBET_TEST_SUITES
     assets_render
     assets_scene_file
     assets_resolve
-    orbhunt)
+    orbhunt
+    lanternwaves)
 
 foreach(suite IN LISTS RABBET_TEST_SUITES)
     add_executable(${suite}_tests ${suite}_tests.cpp)
@@ -68,4 +69,8 @@ target_compile_definitions(orbhunt_tests PRIVATE
 
 # The prefab suite instantiates the committed sample nested prefab (the lamp post).
 target_compile_definitions(prefab_tests PRIVATE
+    RB_FORGE_ASSETS="${PROJECT_SOURCE_DIR}/examples/forge/assets")
+
+# The lantern waves suite plays the second demo (title + arena scenes, spawned wisps) headlessly.
+target_compile_definitions(lanternwaves_tests PRIVATE
     RB_FORGE_ASSETS="${PROJECT_SOURCE_DIR}/examples/forge/assets")
