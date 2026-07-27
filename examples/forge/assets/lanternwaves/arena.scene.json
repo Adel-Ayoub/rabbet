@@ -564,7 +564,7 @@
           "exposure": 0.4,
           "gamma": 2.2,
           "bloom": true,
-          "bloomThreshold": 0.45,
+          "bloomThreshold": 1.1,
           "bloomKnee": 0.5,
           "bloomIntensity": 0.8,
           "contrast": 1.0,

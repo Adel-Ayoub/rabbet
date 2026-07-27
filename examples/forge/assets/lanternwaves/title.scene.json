@@ -36,7 +36,7 @@
             0.48,
             0.75
           ],
-          "intensity": 0.4
+          "intensity": 0.28
         }
       }
     },
@@ -199,9 +199,9 @@
             0.4
           ],
           "emissive": [
-            1.6,
-            1.2,
-            0.5
+            0.45,
+            0.32,
+            0.13
           ],
           "metallic": 0.0,
           "roughness": 0.3
@@ -239,10 +239,10 @@
             0.85,
             0.5
           ],
-          "intensity": 9.0,
+          "intensity": 5.0,
           "constant": 1.0,
-          "linear": 0.07,
-          "quadratic": 0.02
+          "linear": 0.12,
+          "quadratic": 0.05
         }
       }
     },
@@ -376,7 +376,7 @@
           "exposure": 0.26,
           "gamma": 2.2,
           "bloom": true,
-          "bloomThreshold": 0.4,
+          "bloomThreshold": 1.1,
           "bloomKnee": 0.5,
           "bloomIntensity": 0.95,
           "contrast": 1.0,
