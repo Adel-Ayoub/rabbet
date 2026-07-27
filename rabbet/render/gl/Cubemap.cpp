@@ -13,8 +13,11 @@ Cubemap Cubemap::fromFaces(const std::array<Image, 6>& faces) {
 
     const int channels = faces[0].channels;
     const GLenum format = channels == 4 ? GL_RGBA : (channels == 1 ? GL_RED : GL_RGB);
+    // Colour faces carry display-referred sRGB bytes; declare that so sampling returns
+    // linear and the filter blends linearly. GL 4.1 has no core single-channel sRGB
+    // format, so a grey face stays R8 and is never decoded.
     const GLint internalFormat =
-        channels == 4 ? GL_RGBA8 : (channels == 1 ? GL_R8 : GL_RGB8);
+        channels == 4 ? GL_SRGB8_ALPHA8 : (channels == 1 ? GL_R8 : GL_SRGB8);
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     for (unsigned int face = 0; face < 6u; ++face) {
