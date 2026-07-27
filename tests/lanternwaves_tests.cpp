@@ -138,6 +138,7 @@ void everyReferencedAssetResolves() {
     CHECK(demo.assetResolves("title", rb::AssetType::Scene));
     CHECK(demo.assetResolves("wisp", rb::AssetType::Prefab)); // world.spawn targets
     CHECK(demo.assetResolves("wisp_pop", rb::AssetType::Prefab));
+    CHECK(demo.assetResolves("flame_pop", rb::AssetType::Prefab));
     CHECK(demo.assetResolves("triumph", rb::AssetType::Prefab));
 
     CHECK(demo.uuidResolves("1a20000000000000000000000000e007")); // wisp.lua

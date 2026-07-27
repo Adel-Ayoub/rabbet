@@ -65,7 +65,7 @@
           ]
         },
         "TerrainComponent": {
-          "size": 40.0,
+          "size": 64.0,
           "resolution": 48,
           "heightScale": 1.0,
           "source": "Flat",
@@ -78,7 +78,7 @@
           "layers": [
             {
               "albedo": "2b30000000000000000000000000f005",
-              "tiling": 10.0,
+              "tiling": 16.0,
               "heightRange": [
                 0.0,
                 1.0
@@ -373,13 +373,13 @@
         "PostProcess": {
           "enabled": true,
           "tonemap": "ACES",
-          "exposure": 0.2,
+          "exposure": 0.26,
           "gamma": 2.2,
           "bloom": true,
-          "bloomThreshold": 0.8,
+          "bloomThreshold": 0.4,
           "bloomKnee": 0.5,
           "bloomIntensity": 0.95,
-          "contrast": 1.06,
+          "contrast": 1.0,
           "saturation": 1.1,
           "vignette": 0.42,
           "fxaa": true

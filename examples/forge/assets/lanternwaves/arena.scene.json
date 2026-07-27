@@ -65,7 +65,7 @@
           ]
         },
         "TerrainComponent": {
-          "size": 64.0,
+          "size": 96.0,
           "resolution": 64,
           "heightScale": 1.0,
           "source": "Flat",
@@ -78,7 +78,7 @@
           "layers": [
             {
               "albedo": "2b30000000000000000000000000f005",
-              "tiling": 14.0,
+              "tiling": 21.0,
               "heightRange": [
                 0.0,
                 1.0
@@ -265,9 +265,9 @@
             0.0
           ],
           "scale": [
-            0.11,
-            0.11,
-            0.11
+            0.16,
+            0.16,
+            0.16
           ]
         },
         "Primitive": {
@@ -291,7 +291,7 @@
             0.72,
             0.35
           ],
-          "intensity": 2.2,
+          "intensity": 3.0,
           "constant": 1.0,
           "linear": 0.14,
           "quadratic": 0.07
@@ -317,9 +317,9 @@
             0.0
           ],
           "scale": [
-            0.11,
-            0.11,
-            0.11
+            0.16,
+            0.16,
+            0.16
           ]
         },
         "Primitive": {
@@ -343,7 +343,7 @@
             0.72,
             0.35
           ],
-          "intensity": 2.2,
+          "intensity": 3.0,
           "constant": 1.0,
           "linear": 0.14,
           "quadratic": 0.07
@@ -369,9 +369,9 @@
             0.0
           ],
           "scale": [
-            0.11,
-            0.11,
-            0.11
+            0.16,
+            0.16,
+            0.16
           ]
         },
         "Primitive": {
@@ -395,7 +395,7 @@
             0.72,
             0.35
           ],
-          "intensity": 2.2,
+          "intensity": 3.0,
           "constant": 1.0,
           "linear": 0.14,
           "quadratic": 0.07
@@ -473,12 +473,12 @@
         "Transform": {
           "position": [
             0.0,
-            25.0,
-            19.0
+            13.0,
+            29.0
           ],
           "rotation": [
-            0.8958,
-            -0.4444,
+            0.9781,
+            -0.2079,
             0.0,
             0.0
           ],
@@ -524,8 +524,8 @@
           "fields": {
             "waves": 3.0,
             "per_wave": 4.0,
-            "spawn_gap": 1.1,
-            "wave_gap": 5.0,
+            "spawn_gap": 1.0,
+            "wave_gap": 4.0,
             "lead_in": 2.0,
             "radius": 20.0,
             "height": 1.4,
@@ -561,13 +561,13 @@
         "PostProcess": {
           "enabled": true,
           "tonemap": "ACES",
-          "exposure": 0.35,
+          "exposure": 0.4,
           "gamma": 2.2,
           "bloom": true,
-          "bloomThreshold": 0.85,
+          "bloomThreshold": 0.45,
           "bloomKnee": 0.5,
           "bloomIntensity": 0.8,
-          "contrast": 1.05,
+          "contrast": 1.0,
           "saturation": 1.08,
           "vignette": 0.34,
           "fxaa": true

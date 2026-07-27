@@ -24,6 +24,8 @@ function on_update(self, dt)
     -- both name the same flame and only one dies, which errs in the player's favour.
     local flame = world.find("Flame")
     if flame ~= nil then
+      local fx, fy, fz = flame:position()
+      world.spawn("flame_pop", fx, fy, fz)
       world.destroy(flame)
     end
     world.destroy(self)

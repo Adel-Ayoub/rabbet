@@ -28,7 +28,7 @@
         "ScriptComponent": {
           "script": "1a20000000000000000000000000e007",
           "fields": {
-            "speed": 2.2,
+            "speed": 2.6,
             "reach": 1.4,
             "catch": 1.5
           }
@@ -55,9 +55,9 @@
             0.0
           ],
           "scale": [
-            0.26,
-            0.26,
-            0.26
+            0.32,
+            0.32,
+            0.32
           ]
         },
         "Primitive": {
@@ -145,7 +145,7 @@
             0.85,
             1.0
           ],
-          "intensity": 2.6,
+          "intensity": 3.0,
           "constant": 1.0,
           "linear": 0.22,
           "quadratic": 0.2
