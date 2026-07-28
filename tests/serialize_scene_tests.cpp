@@ -218,6 +218,199 @@ static void loadFromFileRefusesShapelessJson() {
     std::filesystem::remove(path, ec);
 }
 
+static void saveToFileReplacesTheExistingFile() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "rabbet_atomic_replace.scene.json";
+
+    rb::Scene small;
+    spawnHero(small);
+    CHECK(rb::SceneSerializer::saveToFile(small, registry, path));
+
+    rb::Scene bigger;
+    spawnHero(bigger);
+    spawnNamed(bigger, "extra");
+    CHECK(rb::SceneSerializer::saveToFile(bigger, registry, path));
+
+    rb::Scene loaded;
+    CHECK(rb::SceneSerializer::loadFromFile(loaded, registry, path));
+    CHECK(loaded.aliveCount() == 2u);
+
+    std::filesystem::path temp = path;
+    temp += ".tmp";
+    CHECK(!std::filesystem::exists(temp)); // the working copy never outlives the save
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+static void saveToFileSurvivesAFailedReplace() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / "rabbet_atomic_taken";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    // A directory squatting on the target path stands in for any failure at replace
+    // time: the save must refuse, clean up its temp and leave the squatter alone.
+    const std::filesystem::path target = dir / "taken.scene.json";
+    std::filesystem::create_directories(target, ec);
+    {
+        std::ofstream marker(target / "marker.txt");
+        marker << "keep\n";
+    }
+
+    rb::Scene scene;
+    spawnHero(scene);
+    CHECK(!rb::SceneSerializer::saveToFile(scene, registry, target));
+    CHECK(std::filesystem::is_directory(target));
+    CHECK(std::filesystem::exists(target / "marker.txt"));
+    std::filesystem::path temp = target;
+    temp += ".tmp";
+    CHECK(!std::filesystem::exists(temp));
+
+    std::filesystem::remove_all(dir, ec);
+}
+
+static void saveToFileLeavesTheTargetWhenItCannotWrite() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / "rabbet_atomic_readonly";
+    std::error_code ec;
+    // Heal a leftover from a run killed inside the read-only window before removing.
+    std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, ec);
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir, ec);
+    const std::filesystem::path target = dir / "keep.scene.json";
+
+    rb::Scene scene;
+    spawnHero(scene);
+    CHECK(rb::SceneSerializer::saveToFile(scene, registry, target));
+    const auto sizeBefore = std::filesystem::file_size(target, ec);
+    CHECK(!ec);
+
+    // With the directory read-only the temp cannot even be created, so the old file
+    // survives untouched. Root ignores permission bits and fails this loudly, which
+    // beats asserting nothing.
+    std::filesystem::permissions(
+        dir, std::filesystem::perms::owner_read | std::filesystem::perms::owner_exec,
+        std::filesystem::perm_options::replace, ec);
+    CHECK(!ec);
+
+    rb::Scene bigger;
+    spawnHero(bigger);
+    spawnNamed(bigger, "extra");
+    CHECK(!rb::SceneSerializer::saveToFile(bigger, registry, target));
+
+    std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, ec);
+    CHECK(std::filesystem::file_size(target, ec) == sizeBefore);
+
+    std::filesystem::remove_all(dir, ec);
+}
+
+static void saveToFileRefusesAWriteProtectedTarget() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / "rabbet_atomic_protected";
+    std::error_code ec;
+    std::filesystem::permissions(dir, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, ec);
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir, ec);
+    const std::filesystem::path target = dir / "keep.scene.json";
+
+    rb::Scene scene;
+    spawnHero(scene);
+    CHECK(rb::SceneSerializer::saveToFile(scene, registry, target));
+    const auto sizeBefore = std::filesystem::file_size(target, ec);
+
+    // The rename path would bypass the file's own write protection, so the save has
+    // to refuse it the way the direct write used to.
+    std::filesystem::permissions(target,
+                                 std::filesystem::perms::owner_read |
+                                     std::filesystem::perms::group_read |
+                                     std::filesystem::perms::others_read,
+                                 std::filesystem::perm_options::replace, ec);
+    CHECK(!ec);
+
+    rb::Scene bigger;
+    spawnHero(bigger);
+    spawnNamed(bigger, "extra");
+    CHECK(!rb::SceneSerializer::saveToFile(bigger, registry, target));
+
+    std::filesystem::permissions(target, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace, ec);
+    CHECK(std::filesystem::file_size(target, ec) == sizeBefore);
+
+    std::filesystem::remove_all(dir, ec);
+}
+
+static void saveToFileWritesThroughASymlinkedTarget() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / "rabbet_atomic_symlink";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir, ec);
+    const std::filesystem::path real = dir / "real.scene.json";
+    const std::filesystem::path link = dir / "link.scene.json";
+
+    rb::Scene scene;
+    spawnHero(scene);
+    CHECK(rb::SceneSerializer::saveToFile(scene, registry, real));
+    std::filesystem::create_symlink(real, link, ec);
+    CHECK(!ec);
+
+    rb::Scene bigger;
+    spawnHero(bigger);
+    spawnNamed(bigger, "extra");
+    CHECK(rb::SceneSerializer::saveToFile(bigger, registry, link));
+
+    // The referent took the write and the link survived; nobody reading the real
+    // path is left on stale bytes.
+    CHECK(std::filesystem::is_symlink(std::filesystem::symlink_status(link, ec)));
+    rb::Scene loaded;
+    CHECK(rb::SceneSerializer::loadFromFile(loaded, registry, real));
+    CHECK(loaded.aliveCount() == 2u);
+
+    std::filesystem::remove_all(dir, ec);
+}
+
+static void saveToFileReclaimsAPlantedTempLink() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / "rabbet_atomic_planted";
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+    std::filesystem::create_directories(dir, ec);
+    const std::filesystem::path target = dir / "keep.scene.json";
+
+    rb::Scene scene;
+    spawnHero(scene);
+    CHECK(rb::SceneSerializer::saveToFile(scene, registry, target));
+
+    // A temp-name symlink pointing at the target would route the write into the
+    // target and then rename the link over it, destroying both copies at once.
+    std::filesystem::path temp = target;
+    temp += ".tmp";
+    std::filesystem::create_symlink(target, temp, ec);
+    CHECK(!ec);
+
+    rb::Scene bigger;
+    spawnHero(bigger);
+    spawnNamed(bigger, "extra");
+    CHECK(rb::SceneSerializer::saveToFile(bigger, registry, target));
+
+    CHECK(std::filesystem::is_regular_file(target));
+    CHECK(!std::filesystem::exists(std::filesystem::symlink_status(temp, ec)));
+    rb::Scene loaded;
+    CHECK(rb::SceneSerializer::loadFromFile(loaded, registry, target));
+    CHECK(loaded.aliveCount() == 2u);
+
+    std::filesystem::remove_all(dir, ec);
+}
+
 static void parentLinksRoundTrip() {
     const rb::ComponentRegistry registry = makeRegistry();
 
@@ -441,6 +634,12 @@ int main() {
     malformedDataLoadsGracefully();
     loadFromFileReplaces();
     loadFromFileRefusesShapelessJson();
+    saveToFileReplacesTheExistingFile();
+    saveToFileSurvivesAFailedReplace();
+    saveToFileLeavesTheTargetWhenItCannotWrite();
+    saveToFileRefusesAWriteProtectedTarget();
+    saveToFileWritesThroughASymlinkedTarget();
+    saveToFileReclaimsAPlantedTempLink();
     parentLinksRoundTrip();
     parentedSaveLoadSaveIsIdempotent();
     childRecordBeforeParentRecordResolves();

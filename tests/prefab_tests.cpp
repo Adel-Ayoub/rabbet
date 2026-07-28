@@ -382,6 +382,34 @@ static void savedFileRoundTrips() {
 
 // The resolve system links a PrefabInstance's uuid to its asset handle; an unknown prefab stays
 // unresolved.
+// The prefab save shares the scene save's contract: a save that cannot land leaves
+// whatever was at the path untouched and no working copy behind.
+static void savePrefabSurvivesAFailedReplace() {
+    const rb::ComponentRegistry registry = makeRegistry();
+    rb::Scene authoring;
+    const rb::Entity post = spawnLampPost(authoring);
+
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path dir = fs::temp_directory_path() / "rabbet_prefab_atomic_test";
+    fs::remove_all(dir, ec);
+    const fs::path target = dir / "taken.prefab.json";
+    fs::create_directories(target, ec);
+    {
+        std::ofstream marker(target / "marker.txt");
+        marker << "keep\n";
+    }
+
+    CHECK(!rb::savePrefabToFile(authoring, registry, post, target));
+    CHECK(fs::is_directory(target));
+    CHECK(fs::exists(target / "marker.txt"));
+    fs::path temp = target;
+    temp += ".tmp";
+    CHECK(!fs::exists(temp));
+
+    fs::remove_all(dir, ec);
+}
+
 static void resolveLinksInstance() {
     rb::Runtime runtime;
     rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
@@ -425,7 +453,7 @@ static void instanceSceneRoundTrip() {
 }
 
 // Prefab filenames are sanitized (path separators etc. neutralised, trimmed, never empty) and a
-// new prefab never silently overwrites an existing file — it de-collides with _1, _2, ...
+// new prefab never silently overwrites an existing file; it de-collides with _1, _2, ...
 static void prefabFilenameSafety() {
     CHECK(rb::sanitizePrefabName("Lamp") == "Lamp");
     CHECK(rb::sanitizePrefabName("a/b\\c:d") == "a_b_c_d");
@@ -494,6 +522,7 @@ int main() {
     revertKeepsScenePlacement();
     oldSingleEntityShapeLoads();
     savedFileRoundTrips();
+    savePrefabSurvivesAFailedReplace();
     resolveLinksInstance();
     instanceSceneRoundTrip();
     prefabFilenameSafety();

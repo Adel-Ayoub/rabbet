@@ -15,6 +15,7 @@
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/scene/Hierarchy.h"
+#include "rabbet/serialize/AtomicWrite.h"
 #include "rabbet/serialize/ComponentRegistry.h"
 #include "rabbet/serialize/ParentRef.h"
 #include "rabbet/serialize/PrefabAsset.h"
@@ -124,12 +125,7 @@ bool savePrefabToFile(Scene& scene, const ComponentRegistry& registry, Entity so
     if (!scene.alive(source)) {
         return false;
     }
-    std::ofstream out(path);
-    if (!out) {
-        return false;
-    }
-    out << entityToPrefabJson(scene, registry, source).dump(2) << '\n';
-    return static_cast<bool>(out);
+    return writeFileAtomically(path, entityToPrefabJson(scene, registry, source).dump(2) + "\n");
 }
 
 AssetHandle<PrefabAsset> loadPrefabAsset(AssetManager& assets, const std::filesystem::path& path) {

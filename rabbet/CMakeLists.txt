@@ -30,6 +30,7 @@ target_sources(rabbet
         render/ImageLoader.cpp
         render/ModelLoader.cpp
         util/Log.cpp
+        serialize/AtomicWrite.cpp
         serialize/ComponentRegistry.cpp
         serialize/BuiltinComponents.cpp
         serialize/SceneSerializer.cpp

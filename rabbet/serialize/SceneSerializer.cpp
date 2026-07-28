@@ -9,6 +9,7 @@
 
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/scene/Hierarchy.h"
+#include "rabbet/serialize/AtomicWrite.h"
 #include "rabbet/serialize/ComponentRegistry.h"
 #include "rabbet/serialize/ParentRef.h"
 #include "rabbet/util/Log.h"
@@ -154,12 +155,7 @@ void SceneSerializer::fromJson(const nlohmann::json& doc, Scene& scene,
 
 bool SceneSerializer::saveToFile(Scene& scene, const ComponentRegistry& registry,
                                  const std::filesystem::path& path) {
-    std::ofstream out(path);
-    if (!out) {
-        return false;
-    }
-    out << toJson(scene, registry).dump(2) << '\n';
-    return static_cast<bool>(out);
+    return writeFileAtomically(path, toJson(scene, registry).dump(2) + "\n");
 }
 
 bool SceneSerializer::loadFromFile(Scene& scene, const ComponentRegistry& registry,
