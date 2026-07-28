@@ -3,6 +3,7 @@
 #include "editor/ComponentDrawers.h"
 #include "editor/Icons.h"
 #include "editor/Palette.h"
+#include "editor/Toasts.h"
 #include "editor/panels/AssetsPanel.h"
 #include "editor/panels/ConsolePanel.h"
 #include "editor/panels/HierarchyPanel.h"
@@ -139,7 +140,7 @@ Editor::Editor(rb::Window& window, rb::RenderDevice& device)
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     // Keep ImGui's layout file in a dedicated workspace dir (absolute path) so it never litters
-    // the launch directory — uses a dedicated workspace. ImGui keeps the pointer, so the
+    // the launch directory; it uses a dedicated workspace. ImGui keeps the pointer, so the
     // path string must outlive the context (static).
     std::filesystem::create_directories(RB_EDITOR_WORKSPACE);
     static const std::string iniPath =
@@ -157,6 +158,7 @@ Editor::Editor(rb::Window& window, rb::RenderDevice& device)
     ImGui_ImplOpenGL3_Init("#version 410");
 
     m_context.thumbnails = &m_thumbnails;
+    m_context.toasts = &m_toasts;
 
     m_panels.add<HierarchyPanel>(m_context);
     m_panels.add<ViewportPanel>(m_context);
@@ -192,7 +194,7 @@ void Editor::buildDefaultScene() {
     rb::AssetDatabase& database = m_runtime.addResource<rb::AssetDatabase>();
     rb::Lighting& lighting = m_runtime.addResource<rb::Lighting>();
     lighting.ambient = glm::vec3(0.32f, 0.34f, 0.40f);
-    m_runtime.addResource<rb::DebugDraw>(rb::DebugDraw{false}); // collider wireframes off — clean scene
+    m_runtime.addResource<rb::DebugDraw>(rb::DebugDraw{false}); // collider wireframes off, clean scene
 
     // ScriptSystem (Play phase) runs before TransformSystem so a script's transform edits
     // are baked into world matrices the same frame; its resolve system (Always) keeps the
@@ -238,7 +240,7 @@ void Editor::buildDefaultScene() {
 
     rb::Scene& scene = m_runtime.scene();
 
-    // A single hero asset on the skybox — the wooden crate, a real PBR model (Poly Haven, CC0)
+    // A single hero asset on the skybox: the wooden crate, a real PBR model (Poly Haven, CC0)
     // loaded through the asset pipeline (assimp -> AssetManager) and referenced by uuid via
     // ModelRenderer. The default scene is kept deliberately uncluttered for a clean first launch.
     const rb::AssetHandle<rb::ModelAsset> crate = rb::loadModelAsset(
@@ -528,6 +530,7 @@ void Editor::newScene() {
     m_context.selected = rb::Entity{};
     m_context.scenePath.clear(); // no home yet; the next Save asks for one
     rb::log::info("editor: new (empty) scene");
+    m_toasts.push(ToastKind::Info, "New scene");
 }
 
 void Editor::saveScene() {
@@ -535,10 +538,13 @@ void Editor::saveScene() {
         saveSceneAs();
         return;
     }
+    const std::string name = std::filesystem::path(m_context.scenePath).filename().string();
     if (rb::SceneSerializer::saveToFile(m_runtime.scene(), m_registry, m_context.scenePath)) {
         rb::log::info("editor: saved scene to '{}'", m_context.scenePath);
+        m_toasts.push(ToastKind::Success, "Saved " + name);
     } else {
         rb::log::error("editor: failed to save scene to '{}'", m_context.scenePath);
+        m_toasts.push(ToastKind::Error, "Save failed: " + name);
     }
 }
 
@@ -559,15 +565,19 @@ void Editor::saveSceneAs() {
     }
     if (result != NFD_OKAY) {
         rb::log::error("editor: save dialog failed: {}", NFD_GetError());
+        m_toasts.push(ToastKind::Error, "Save dialog failed");
         return;
     }
     const std::string chosen(picked);
     NFD_FreePathU8(picked);
+    const std::string name = std::filesystem::path(chosen).filename().string();
     if (rb::SceneSerializer::saveToFile(m_runtime.scene(), m_registry, chosen)) {
         m_context.scenePath = chosen; // adopt only a path that proved writable
         rb::log::info("editor: saved scene to '{}'", chosen);
+        m_toasts.push(ToastKind::Success, "Saved " + name);
     } else {
         rb::log::error("editor: failed to save scene to '{}'", chosen);
+        m_toasts.push(ToastKind::Error, "Save failed: " + name);
     }
 }
 
@@ -584,6 +594,7 @@ void Editor::openScene() {
     }
     if (result != NFD_OKAY) {
         rb::log::error("editor: open dialog failed: {}", NFD_GetError());
+        m_toasts.push(ToastKind::Error, "Open dialog failed");
         return;
     }
     const std::string chosen(picked);
@@ -591,12 +602,15 @@ void Editor::openScene() {
     // The same serializer gate world.load_scene rides: the scene is cleared only once
     // the document proves to be a scene, so a refused file leaves the live scene and
     // the tracked path exactly as they were (the serializer logs why it refused).
+    const std::string name = std::filesystem::path(chosen).filename().string();
     if (rb::SceneSerializer::loadFromFile(m_runtime.scene(), m_registry, chosen)) {
         m_context.scenePath = chosen;
         m_context.selected = rb::Entity{};
         rb::log::info("editor: loaded scene from '{}'", chosen);
+        m_toasts.push(ToastKind::Success, "Opened " + name);
     } else {
         rb::log::error("editor: could not load '{}'", chosen);
+        m_toasts.push(ToastKind::Error, "Could not open " + name);
     }
 }
 
@@ -670,6 +684,8 @@ void Editor::run() {
 
         const float dt = clock.tick();
         m_camera.update(input, dt, m_cameraActive);
+        m_toasts.tick(dt);
+        m_toasts.draw();
 
         // Gate Play-phase systems: run them while playing and not paused, or for a
         // single Step. Always systems (render) tick regardless.

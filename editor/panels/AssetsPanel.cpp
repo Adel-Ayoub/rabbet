@@ -5,6 +5,7 @@
 #include "editor/Icons.h"
 #include "editor/Palette.h"
 #include "editor/ThumbnailRenderer.h"
+#include "editor/Toasts.h"
 #include "editor/Widgets.h"
 
 #include "rabbet/assets/AssetDatabase.h"
@@ -130,8 +131,14 @@ void AssetsPanel::onImGui() {
                 // not whichever path was tracked before the swap.
                 m_context.scenePath = selected->path.string();
                 rb::log::info("assets: loaded scene '{}'", selected->name);
+                if (m_context.toasts != nullptr) {
+                    m_context.toasts->push(ToastKind::Success, "Opened " + selected->name);
+                }
             } else {
                 rb::log::error("assets: failed to load scene '{}'", selected->path.string());
+                if (m_context.toasts != nullptr) {
+                    m_context.toasts->push(ToastKind::Error, "Could not open " + selected->name);
+                }
             }
         }
         ImGui::EndDisabled();

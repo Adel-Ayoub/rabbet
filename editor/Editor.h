@@ -14,6 +14,7 @@
 #include "editor/LogBuffer.h"
 #include "editor/PanelManager.h"
 #include "editor/ThumbnailRenderer.h"
+#include "editor/Toasts.h"
 
 namespace rb {
 class Window;
@@ -63,6 +64,7 @@ private:
     bool m_framebufferHdr = false; // the scene FBO is RGBA16F while a post-process is active
     rb::PostProcessor m_postProcessor;          // HDR -> LDR chain, run when post-processing is on
     ThumbnailRenderer m_thumbnails;             // offscreen asset previews for the Assets panel
+    Toasts m_toasts;                            // transient overlay notifications
     rb::RenderSystem* m_renderSystem = nullptr; // owned by m_runtime; used for picking
     bool m_cameraActive = false;
     bool m_nfdReady = false; // NFD_Init succeeded; the dialog actions no-op with an error when false

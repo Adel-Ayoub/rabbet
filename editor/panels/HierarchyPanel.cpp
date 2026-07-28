@@ -4,6 +4,7 @@
 #include "editor/EditorContext.h"
 #include "editor/Icons.h"
 #include "editor/Palette.h"
+#include "editor/Toasts.h"
 
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
@@ -125,8 +126,16 @@ void createPrefab(EditorContext& context, rb::Entity e) {
     if (rb::savePrefabToFile(scene, context.registry, e, path)) {
         database->scan(database->root(), assets);
         rb::log::info("prefab: saved '{}'", path.string());
+        if (context.toasts != nullptr) {
+            context.toasts->push(ToastKind::Success,
+                                 "Prefab created: " + path.filename().string());
+        }
     } else {
         rb::log::error("prefab: failed to save prefab '{}'", path.string());
+        if (context.toasts != nullptr) {
+            context.toasts->push(ToastKind::Error,
+                                 "Prefab failed: " + path.filename().string());
+        }
     }
 }
 

@@ -13,6 +13,7 @@ class ComponentRegistry;
 namespace rb::editor {
 
 class ThumbnailRenderer;
+class Toasts;
 
 // Shared editor state handed to every panel. Holds the engine runtime and the
 // component registry, the current selection, and the viewport handshake the
@@ -28,6 +29,7 @@ struct EditorContext {
     std::string scenePath{};
 
     ThumbnailRenderer* thumbnails = nullptr; // asset preview cache (set by Editor)
+    Toasts* toasts = nullptr;                // overlay notifications (set by Editor)
 
     unsigned int viewportTexture = 0; // colour texture to display (set by Editor)
     int viewportWidth = 1;            // desired render size (set by ViewportPanel)

@@ -58,6 +58,7 @@ add_executable(forge
     EditorCamera.cpp
     ComponentDrawers.cpp
     ThumbnailRenderer.cpp
+    Toasts.cpp
     AssetAssign.cpp
     Widgets.cpp
     panels/ConsolePanel.cpp
