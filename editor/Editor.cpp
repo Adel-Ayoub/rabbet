@@ -34,6 +34,8 @@
 #include "rabbet/render/RenderDevice.h"
 #include "rabbet/render/RenderSystem.h"
 #include "rabbet/render/RenderView.h"
+#include "rabbet/scene/CameraShake.h"
+#include "rabbet/scene/CameraShakeSystem.h"
 #include "rabbet/scene/CameraView.h"
 #include "rabbet/render/EnvironmentLighting.h"
 #include "rabbet/render/Skybox.h"
@@ -203,6 +205,9 @@ void Editor::buildDefaultScene() {
     m_runtime.addSystem<rb::AudioAssetResolveSystem>();
     m_runtime.addSystem<rb::MaterialAssetResolveSystem>();
     m_runtime.addSystem<rb::PrefabAssetResolveSystem>();
+    // Before ScriptSystem: a shake fired this tick must not be decayed until it has
+    // been drawn once at full strength.
+    m_runtime.addSystem<rb::CameraShakeSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&m_context.registry);
     m_runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::AudioSystem, rb::SystemPhase::Play>();
@@ -498,6 +503,9 @@ void Editor::renderScene(int width, int height, float dt) {
         if (const std::optional<rb::RenderView> gameView =
                 rb::activeCameraView(m_runtime.scene(), viewport.aspect())) {
             renderView = *gameView;
+            if (rb::CameraShake* shake = m_runtime.tryResource<rb::CameraShake>()) {
+                rb::applyCameraShake(renderView, *shake);
+            }
         }
     }
     m_runtime.resource<rb::RenderView>() = renderView;

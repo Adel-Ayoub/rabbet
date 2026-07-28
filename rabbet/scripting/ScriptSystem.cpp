@@ -1,6 +1,7 @@
 #include "rabbet/scripting/ScriptSystem.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <optional>
 #include <string>
@@ -23,6 +24,7 @@
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/PhysicsControl.h"
 #include "rabbet/platform/Input.h"
+#include "rabbet/scene/CameraShake.h"
 #include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/NameIndex.h"
@@ -218,7 +220,7 @@ void mergeDeclaredFields(std::vector<ScriptField>& fields, const sol::object& de
             field.text = value.as<std::string>();
             break;
         default:
-            return; // unsupported field type — skip it
+            return; // unsupported field type, skip it
         }
         for (const ScriptField& existing : fields) {
             if (existing.name == field.name && existing.type == field.type) {
@@ -315,6 +317,23 @@ struct ScriptSystem::Impl {
         // last write to a variable.
         worldTable.set_function("load_scene", [this](const std::string& name) {
             pendingLoadScene = name;
+        });
+        // Immediate, unlike spawn/destroy: a resource write mutates no pool, so it is
+        // safe mid-loop. No-op without the resource, like the physics bridge.
+        worldTable.set_function("shake", [this](double amplitude, double duration) {
+            if (runtime == nullptr || !runtime->hasResource<CameraShake>()) {
+                return;
+            }
+            // A NaN or inf here would poison the view matrix, for the whole session in
+            // the inf-duration case. Clamp in double space; the float cast of an
+            // out-of-range double is undefined.
+            if (!std::isfinite(amplitude) || !std::isfinite(duration)) {
+                return;
+            }
+            CameraShake& shake = runtime->resource<CameraShake>();
+            shake.amplitude = static_cast<float>(std::clamp(amplitude, 0.0, 5.0));
+            shake.duration = static_cast<float>(std::clamp(duration, 0.0, 10.0));
+            shake.remaining = shake.duration;
         });
 
         sol::table inputTable = lua.create_named_table("input");
@@ -530,6 +549,10 @@ struct ScriptSystem::Impl {
         instances.clear();
         nameIndex.clear();
         nameIndexRebuilt = false;
+        // The swap ends the old scene's kick; the incoming scene starts steady.
+        if (rt.hasResource<CameraShake>()) {
+            rt.resource<CameraShake>() = CameraShake{};
+        }
     }
 
     void applySpawns(Runtime& rt) {

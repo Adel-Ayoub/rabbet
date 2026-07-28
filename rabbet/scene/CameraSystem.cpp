@@ -3,6 +3,7 @@
 #include "rabbet/core/Runtime.h"
 #include "rabbet/render/RenderView.h"
 #include "rabbet/render/Viewport.h"
+#include "rabbet/scene/CameraShake.h"
 #include "rabbet/scene/CameraView.h"
 
 #include <optional>
@@ -21,6 +22,9 @@ void CameraSystem::onUpdate(Runtime& runtime, float) {
 
     if (const std::optional<RenderView> view = activeCameraView(runtime.scene(), aspect)) {
         runtime.resource<RenderView>() = *view;
+        if (CameraShake* shake = runtime.tryResource<CameraShake>()) {
+            applyCameraShake(runtime.resource<RenderView>(), *shake);
+        }
     }
 }
 

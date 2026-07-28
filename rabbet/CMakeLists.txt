@@ -24,6 +24,8 @@ target_sources(rabbet
         render/RenderSystem.cpp
         render/SkyboxComponent.cpp
         render/SkyboxSystem.cpp
+        scene/CameraShake.cpp
+        scene/CameraShakeSystem.cpp
         scene/CameraSystem.cpp
         scene/CameraView.cpp
         scene/LightSystem.cpp

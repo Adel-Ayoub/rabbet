@@ -3,6 +3,8 @@
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
 #include "rabbet/physics/PhysicsControl.h"
+#include "rabbet/scene/CameraShake.h"
+#include "rabbet/scene/CameraShakeSystem.h"
 #include "rabbet/scene/Hierarchy.h"
 #include "rabbet/scene/Name.h"
 #include "rabbet/scene/Transform.h"
@@ -705,6 +707,100 @@ void spawnVolumeSustainsScriptedWisps() {
 
 } // namespace
 
+// world.shake writes the resource immediately, the shake system decays it to zero,
+// and Stop clears it so a session edge never leaks a wobble into the editor view.
+void worldShakeDrivesAndDecays() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = addScript(assets,
+                                  "fired = false\n"
+                                  "function on_update(self, dt)\n"
+                                  "  if not fired then\n"
+                                  "    fired = true\n"
+                                  "    world.shake(0.5, 0.4)\n"
+                                  "  end\n"
+                                  "end\n");
+    runtime.addSystem<rb::ScriptAssetResolveSystem>();
+    // Decay before scripts, the editor's order: a fresh shake survives its first tick.
+    runtime.addSystem<rb::CameraShakeSystem, rb::SystemPhase::Play>();
+    runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
+    scriptedEntity(runtime, id);
+    runtime.start();
+
+    runtime.beginPlay();
+    runtime.setPlaying(true);
+    runtime.tick(0.1f);
+    CHECK(runtime.hasResource<rb::CameraShake>());
+    rb::CameraShake& shake = runtime.resource<rb::CameraShake>();
+    CHECK(approx(shake.amplitude, 0.5f));
+    // Decay runs before the script loop, so the fired peak survives its first tick.
+    CHECK(approx(shake.remaining, 0.4f));
+    runtime.tick(0.1f);
+    CHECK(approx(shake.remaining, 0.3f)); // the exact rate, not merely "goes down"
+    CHECK(approx(shake.time, 0.1f));
+
+    // The offset really moves a live view, and a spent shake is the identity.
+    rb::RenderView live;
+    rb::applyCameraShake(live, shake);
+    CHECK(live.view != glm::mat4(1.0f));
+    CHECK(live.projection == glm::mat4(1.0f));
+    for (int i = 0; i < 10; ++i) {
+        runtime.tick(0.1f);
+    }
+    CHECK(approx(shake.remaining, 0.0f));
+    CHECK(approx(shake.time, 0.0f)); // idle resets the phase for the next shake
+    rb::RenderView spent;
+    rb::applyCameraShake(spent, shake);
+    CHECK(spent.view == glm::mat4(1.0f));
+
+    runtime.setPlaying(false);
+    runtime.endPlay();
+    CHECK(approx(runtime.resource<rb::CameraShake>().amplitude, 0.0f));
+}
+
+// The binding refuses non-finite input and clamps runaway values, so a script bug
+// can never poison the view matrix for the session.
+void worldShakeRefusesGarbage() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = addScript(assets,
+                                  "step = 0\n"
+                                  "function on_update(self, dt)\n"
+                                  "  step = step + 1\n"
+                                  "  if step == 1 then world.shake(0/0, 0.4) end\n"
+                                  "  if step == 2 then world.shake(0.5, math.huge) end\n"
+                                  "  if step == 3 then world.shake(1e30, 1e30) end\n"
+                                  "end\n");
+    runtime.addSystem<rb::ScriptAssetResolveSystem>();
+    runtime.addSystem<rb::CameraShakeSystem, rb::SystemPhase::Play>();
+    runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
+    scriptedEntity(runtime, id);
+    runtime.start();
+    runtime.beginPlay();
+    runtime.setPlaying(true);
+
+    runtime.tick(0.1f); // NaN amplitude: refused outright
+    rb::CameraShake& shake = runtime.resource<rb::CameraShake>();
+    CHECK(approx(shake.amplitude, 0.0f));
+    CHECK(approx(shake.remaining, 0.0f));
+
+    runtime.tick(0.1f); // inf duration: refused outright
+    CHECK(approx(shake.remaining, 0.0f));
+
+    runtime.tick(0.1f); // huge but finite: clamped, then decays normally
+    CHECK(approx(shake.amplitude, 5.0f));
+    CHECK(approx(shake.remaining, 10.0f));
+    rb::RenderView view;
+    rb::applyCameraShake(view, shake);
+    bool finite = true;
+    for (int c = 0; c < 4; ++c) {
+        for (int r = 0; r < 4; ++r) {
+            finite = finite && std::isfinite(view.view[c][r]);
+        }
+    }
+    CHECK(finite);
+}
+
 int main() {
     playGatesAndUpdatesMove();
     onStartRunsOnce();
@@ -724,5 +820,7 @@ int main() {
     worldLoadSceneSwitchesAndStopRestores();
     worldLoadSceneLastRequestWinsAndUnknownIsSafe();
     spawnVolumeSustainsScriptedWisps();
+    worldShakeDrivesAndDecays();
+    worldShakeRefusesGarbage();
     return rbtest::summary("script");
 }

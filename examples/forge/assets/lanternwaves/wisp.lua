@@ -26,6 +26,7 @@ function on_update(self, dt)
     if flame ~= nil then
       local fx, fy, fz = flame:position()
       world.spawn("flame_pop", fx, fy, fz)
+      world.shake(1.0, 0.5)
       world.destroy(flame)
     end
     world.destroy(self)
