@@ -138,6 +138,10 @@ void ViewportPanel::drawGizmo(const ImVec2& imageMin, const ImVec2& imageSize) {
     if (toggle(icon::kMagnet, m_snap, "Snap")) {
         m_snap = !m_snap;
     }
+    ImGui::SameLine(0.0f, 12.0f);
+    if (toggle(icon::kGrid, m_context.showGrid, "Ground grid")) {
+        m_context.showGrid = !m_context.showGrid;
+    }
 
     if (rb::DebugDraw* debug = m_context.runtime.tryResource<rb::DebugDraw>()) {
         ImGui::SameLine(0.0f, 12.0f);

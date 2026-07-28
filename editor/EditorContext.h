@@ -31,6 +31,8 @@ struct EditorContext {
     ThumbnailRenderer* thumbnails = nullptr; // asset preview cache (set by Editor)
     Toasts* toasts = nullptr;                // overlay notifications (set by Editor)
 
+    bool showGrid = true; // viewport ground grid, toggled in the viewport toolbar
+
     unsigned int viewportTexture = 0; // colour texture to display (set by Editor)
     int viewportWidth = 1;            // desired render size (set by ViewportPanel)
     int viewportHeight = 1;

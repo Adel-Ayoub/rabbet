@@ -513,6 +513,10 @@ void Editor::renderScene(int width, int height, float dt) {
     m_device.setClearColor(glm::vec4(0.30f, 0.37f, 0.47f, 1.0f)); // fallback sky tint
     m_device.clear();
     m_runtime.tick(dt);
+    if (m_context.showGrid && !m_runtime.inPlaySession()) {
+        m_grid.draw(renderView.view, renderView.projection, renderView.position,
+                    rb::activePostProcess(m_runtime.scene()) != nullptr);
+    }
     rb::gl::Framebuffer::unbind();
 
     // Scripts inside that tick can spawn or destroy entities, which reallocates or
@@ -643,6 +647,7 @@ void Editor::run() {
     m_runtime.start();
     m_postProcessor.init(); // compile the post shaders now that a GL context is current
     m_thumbnails.init();    // compile the preview shader + build preview geometry
+    m_grid.init();          // compile the ground grid shader
 
     rb::FrameClock clock;
     while (!m_window.shouldClose()) {

@@ -57,6 +57,7 @@ add_executable(forge
     LogBuffer.cpp
     EditorCamera.cpp
     ComponentDrawers.cpp
+    GridRenderer.cpp
     ThumbnailRenderer.cpp
     Toasts.cpp
     AssetAssign.cpp

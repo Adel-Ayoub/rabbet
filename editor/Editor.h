@@ -11,6 +11,7 @@
 
 #include "editor/EditorCamera.h"
 #include "editor/EditorContext.h"
+#include "editor/GridRenderer.h"
 #include "editor/LogBuffer.h"
 #include "editor/PanelManager.h"
 #include "editor/ThumbnailRenderer.h"
@@ -65,6 +66,7 @@ private:
     rb::PostProcessor m_postProcessor;          // HDR -> LDR chain, run when post-processing is on
     ThumbnailRenderer m_thumbnails;             // offscreen asset previews for the Assets panel
     Toasts m_toasts;                            // transient overlay notifications
+    GridRenderer m_grid;                        // editor viewport ground grid
     rb::RenderSystem* m_renderSystem = nullptr; // owned by m_runtime; used for picking
     bool m_cameraActive = false;
     bool m_nfdReady = false; // NFD_Init succeeded; the dialog actions no-op with an error when false
