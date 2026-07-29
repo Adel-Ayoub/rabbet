@@ -48,6 +48,15 @@
       ],
       "coneAngle": 85.0,
       "speedJitter": 0.55,
+      "shape": "Sphere",
+      "shapeRadius": 0.3,
+      "shapeExtents": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "shapeThickness": 0.0,
+      "emitOutward": true,
       "gravity": [
         0.0,
         -2.2,

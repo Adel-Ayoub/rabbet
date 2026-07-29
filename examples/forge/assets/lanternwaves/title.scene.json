@@ -296,6 +296,15 @@
           ],
           "coneAngle": 70.0,
           "speedJitter": 0.6,
+          "shape": "Box",
+          "shapeRadius": 0.5,
+          "shapeExtents": [
+            4.5,
+            1.8,
+            3.0
+          ],
+          "shapeThickness": 1.0,
+          "emitOutward": false,
           "gravity": [
             0.0,
             0.06,

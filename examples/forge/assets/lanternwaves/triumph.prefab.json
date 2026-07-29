@@ -63,6 +63,15 @@
       ],
       "coneAngle": 26.0,
       "speedJitter": 0.4,
+      "shape": "Ring",
+      "shapeRadius": 1.1,
+      "shapeExtents": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "shapeThickness": 0.35,
+      "emitOutward": false,
       "gravity": [
         0.0,
         -1.1,

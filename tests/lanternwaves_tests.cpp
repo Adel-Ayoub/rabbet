@@ -4,6 +4,7 @@
 #include "rabbet/core/Uuid.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/particle/ParticleSystem.h"
 #include "rabbet/physics/PhysicsSystem.h"
 #include "rabbet/render/ModelLoader.h"
@@ -287,6 +288,11 @@ void wavesSpawnNestedWispsThatCloseIn() {
           scene.get<rb::Name>(grandchildren.front()).value == "Wisp Light");
     CHECK(scene.tryGet<rb::PrefabInstance>(wisp) != nullptr);
 
+    // The trail emits from a real volume; a typo'd shape string would degrade to Point silently.
+    const rb::ParticleEmitter* trail = scene.tryGet<rb::ParticleEmitter>(core);
+    CHECK(trail != nullptr);
+    CHECK(trail != nullptr && trail->shape == rb::ParticleEmissionShape::Sphere);
+
     // It arrives out on the authored ring and walks itself in toward the lantern.
     const glm::vec3 start = scene.get<rb::Transform>(wisp).position;
     const float startFlat = glm::length(glm::vec2(start.x - lamp.x, start.z - lamp.z));
@@ -400,7 +406,14 @@ void caughtWispsBurstAndCleanUp() {
     scene.get<rb::Transform>(wisp).position = scene.get<rb::Transform>(player).position;
     demo.tick(2); // the wisp notices the ball, destroys itself and queues the burst
     CHECK(!scene.alive(wisp));
-    CHECK(!entitiesNamed(scene, "WispPop").empty()); // the burst prefab spawned
+    const std::vector<rb::Entity> pops = entitiesNamed(scene, "WispPop");
+    CHECK(!pops.empty()); // the burst prefab spawned
+
+    // The pop bursts outward from a shell, not a point in a cone.
+    const rb::ParticleEmitter* burst =
+        pops.empty() ? nullptr : scene.tryGet<rb::ParticleEmitter>(pops.front());
+    CHECK(burst != nullptr && burst->shape == rb::ParticleEmissionShape::Sphere);
+    CHECK(burst != nullptr && burst->emitOutward);
 
     // Now leave it alone. The burst's own script has to retire it; nothing else will,
     // and the session is still mid-arena so no scene swap can mask a leak.
@@ -426,7 +439,12 @@ void titleAttractsIntoTheArena() {
     CHECK(link != nullptr);
     CHECK(link != nullptr && link->handle.valid());
     CHECK(rb::parentOf(scene, firstNamed(scene, "Head")) == lamp);
-    CHECK(require(scene, firstNamed(scene, "Drift")));
+    const rb::Entity drift = firstNamed(scene, "Drift");
+    CHECK(require(scene, drift));
+
+    // The motes fill a box volume over the clearing rather than streaming from one point.
+    const rb::ParticleEmitter* motes = scene.tryGet<rb::ParticleEmitter>(drift);
+    CHECK(motes != nullptr && motes->shape == rb::ParticleEmissionShape::Box);
 
     demo.play();
     demo.tick(360); // 6 s: still short of the attract delay
