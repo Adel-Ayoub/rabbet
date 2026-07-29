@@ -253,6 +253,23 @@ void drawParticleEmitter(rb::Scene& scene, rb::Entity e) {
     ui::dragFloat("Lifetime", &p.lifetime, 0.05f, 0.01f, 600.0f);
     ui::dragFloat("Lifetime Jitter", &p.lifetimeJitter, 0.05f, 0.0f, 600.0f);
 
+    ImGui::SeparatorText("Shape");
+    enumCombo("Emission Shape", p.shape);
+    if (p.shape == rb::ParticleEmissionShape::Sphere ||
+        p.shape == rb::ParticleEmissionShape::Ring) {
+        ui::dragFloat("Radius", &p.shapeRadius, 0.05f, 0.0f, 100.0f);
+        ui::dragFloat("Thickness", &p.shapeThickness, 0.01f, 0.0f, 1.0f);
+        ImGui::SetItemTooltip("Emissive fraction of the radius: 1 fills the volume, 0 is the "
+                              "surface only.");
+    } else if (p.shape == rb::ParticleEmissionShape::Box) {
+        ui::dragFloat3("Extents", &p.shapeExtents.x, 0.05f, 0.0f, 100.0f);
+    }
+    if (p.shape != rb::ParticleEmissionShape::Point) {
+        ui::checkbox("Emit Outward", &p.emitOutward);
+        ImGui::SetItemTooltip("Births fly away from the centre at Velocity's speed instead of "
+                              "along its direction.");
+    }
+
     ImGui::SeparatorText("Motion");
     ui::dragFloat3("Velocity", &p.velocity.x, 0.05f);
     ui::dragFloat("Cone Angle", &p.coneAngle, 0.5f, 0.0f, 89.9f);

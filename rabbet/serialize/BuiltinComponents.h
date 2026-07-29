@@ -275,6 +275,15 @@ NLOHMANN_JSON_SERIALIZE_ENUM(ParticleBlendMode, {
                                                     {ParticleBlendMode::Alpha, "Alpha"},
                                                 })
 
+// Point first: an unrecognised shape string degrades to the point source instead of throwing.
+NLOHMANN_JSON_SERIALIZE_ENUM(ParticleEmissionShape,
+                             {
+                                 {ParticleEmissionShape::Point, "Point"},
+                                 {ParticleEmissionShape::Sphere, "Sphere"},
+                                 {ParticleEmissionShape::Box, "Box"},
+                                 {ParticleEmissionShape::Ring, "Ring"},
+                             })
+
 inline void to_json(nlohmann::json& j, const ParticleEmitter& e) {
     j = nlohmann::json{{"emissionRate", e.emissionRate},
                        {"maxParticles", e.maxParticles},
@@ -287,6 +296,11 @@ inline void to_json(nlohmann::json& j, const ParticleEmitter& e) {
                        {"velocity", e.velocity},
                        {"coneAngle", e.coneAngle},
                        {"speedJitter", e.speedJitter},
+                       {"shape", e.shape},
+                       {"shapeRadius", e.shapeRadius},
+                       {"shapeExtents", e.shapeExtents},
+                       {"shapeThickness", e.shapeThickness},
+                       {"emitOutward", e.emitOutward},
                        {"gravity", e.gravity},
                        {"blendMode", e.blendMode},
                        {"looping", e.looping},
@@ -308,6 +322,11 @@ inline void from_json(const nlohmann::json& j, ParticleEmitter& e) {
     e.velocity = j.value("velocity", e.velocity);
     e.coneAngle = j.value("coneAngle", e.coneAngle);
     e.speedJitter = j.value("speedJitter", e.speedJitter);
+    e.shape = j.value("shape", e.shape);
+    e.shapeRadius = j.value("shapeRadius", e.shapeRadius);
+    e.shapeExtents = j.value("shapeExtents", e.shapeExtents);
+    e.shapeThickness = j.value("shapeThickness", e.shapeThickness);
+    e.emitOutward = j.value("emitOutward", e.emitOutward);
     e.gravity = j.value("gravity", e.gravity);
     e.blendMode = j.value("blendMode", e.blendMode);
     e.looping = j.value("looping", e.looping);

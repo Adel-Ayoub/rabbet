@@ -16,6 +16,12 @@ struct TextureAsset;
 // soft, opaque-ish puffs (smoke, dust).
 enum class ParticleBlendMode { Additive, Alpha };
 
+// The volume new particles are born in, expressed in the emitter's local space and carried by the
+// entity's rotation and world position exactly like the cone. Point is the original single-point
+// source; Sphere and Box give trails and bursts body; Ring is a circle band in the local ground
+// (XZ) plane, tilted by rotating the entity.
+enum class ParticleEmissionShape { Point, Sphere, Box, Ring };
+
 // A CPU-simulated particle emitter. Plain, serializable data: the live particle pool lives in the
 // ParticleSystem keyed by entity, never in the component, so this stays cheap to copy and save.
 // Particles spawn at the entity's Transform position, are aimed by its rotation, and integrate in
@@ -32,6 +38,11 @@ struct ParticleEmitter {
     glm::vec3 velocity{0.0f, 1.6f, 0.0f}; // mean initial velocity, in the emitter's local space
     float coneAngle = 18.0f;              // emission spread half-angle around `velocity`, degrees
     float speedJitter = 0.25f;            // fractional speed variance, sampled in [1-j, 1+j]
+    ParticleEmissionShape shape = ParticleEmissionShape::Point;
+    float shapeRadius = 0.5f;      // sphere / ring outer radius, world units
+    glm::vec3 shapeExtents{0.5f};  // box half-extents, world units
+    float shapeThickness = 1.0f;   // emissive fraction of the radius: 1 = solid, 0 = surface only
+    bool emitOutward = false;      // aim each birth away from the shape's centre, not along velocity
     glm::vec3 gravity{0.0f, -1.2f, 0.0f}; // constant acceleration applied each step
     ParticleBlendMode blendMode = ParticleBlendMode::Additive;
     bool looping = true;
