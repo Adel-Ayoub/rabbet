@@ -20,10 +20,14 @@ public:
     void onImGui() override;
 
 private:
+    enum class CreateKind { None, Script, Material, Scene };
+
     rb::Uuid m_selected;
     std::filesystem::path m_folder; // current folder, relative to the database root ("" = root)
     bool m_grid = true;             // grid of thumbnails vs. a compact list
     char m_search[64] = {};         // non-empty switches to a flat filtered view
+    CreateKind m_createKind = CreateKind::None; // pending New Asset choice for the name modal
+    char m_createName[64] = {};
 };
 
 } // namespace rb::editor

@@ -14,6 +14,7 @@
 #include "rabbet/assets/AssetType.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/serialize/AssetCreate.h"
 #include "rabbet/serialize/SceneSerializer.h"
 #include "rabbet/util/Log.h"
 
@@ -323,6 +324,77 @@ void AssetsPanel::onImGui() {
     };
 
     ImGui::BeginChild("##assetContents", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
+
+    // Right-click empty space to author a new asset in the current folder. Gated out of play
+    // sessions like every other mutation, and out of search results, where the target folder
+    // is not the one on screen; NoOpenOverItems keeps tile clicks for the tiles.
+    if (!m_context.runtime.inPlaySession() && !searching &&
+        ImGui::BeginPopupContextWindow("##assetCreate", ImGuiPopupFlags_MouseButtonRight |
+                                                            ImGuiPopupFlags_NoOpenOverItems)) {
+        const bool wantScript = ImGui::MenuItem("New Script");
+        const bool wantMaterial = ImGui::MenuItem("New Material");
+        const bool wantScene = ImGui::MenuItem("New Scene");
+        ImGui::EndPopup();
+        if (wantScript || wantMaterial || wantScene) {
+            m_createKind = wantScript ? CreateKind::Script
+                           : wantMaterial ? CreateKind::Material
+                                          : CreateKind::Scene;
+            m_createName[0] = '\0';
+            ImGui::OpenPopup("Create Asset");
+        }
+    }
+
+    if (ImGui::BeginPopupModal("Create Asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        const char* hint = m_createKind == CreateKind::Script     ? "Script name"
+                           : m_createKind == CreateKind::Material ? "Material name"
+                                                                  : "Scene name";
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+        }
+        const bool submitted = ImGui::InputTextWithHint("##createName", hint, m_createName,
+                                                        sizeof(m_createName),
+                                                        ImGuiInputTextFlags_EnterReturnsTrue);
+        // The play gate closes a modal that was open when Play started, so a session can
+        // never create files or rescan the catalogue mid-play.
+        const bool confirmed =
+            (ImGui::Button("Create") || submitted) && !m_context.runtime.inPlaySession();
+        ImGui::SameLine();
+        const bool cancelled = ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+                               m_context.runtime.inPlaySession();
+        if (confirmed) {
+            const std::filesystem::path dir = database->root() / m_folder;
+            std::filesystem::path created;
+            if (m_createKind == CreateKind::Script) {
+                created = rb::createScriptAsset(dir, m_createName);
+            } else if (m_createKind == CreateKind::Material) {
+                created = rb::createMaterialAsset(dir, m_createName);
+            } else {
+                created = rb::createSceneAsset(dir, m_createName, m_context.registry);
+            }
+            if (!created.empty()) {
+                database->scan(database->root(), assets);
+                if (const rb::AssetDatabase::Record* made = database->findByPath(created)) {
+                    m_selected = made->id;
+                }
+                rb::log::info("assets: created '{}'", created.string());
+                if (m_context.toasts != nullptr) {
+                    m_context.toasts->push(ToastKind::Success,
+                                           "Created: " + created.filename().string());
+                }
+            } else {
+                rb::log::error("assets: failed to create asset in '{}'", dir.string());
+                if (m_context.toasts != nullptr) {
+                    m_context.toasts->push(ToastKind::Error, "Create failed");
+                }
+            }
+        }
+        if (confirmed || cancelled) {
+            m_createKind = CreateKind::None;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
     const float cell = kTile + ImGui::GetStyle().ItemSpacing.x;
     const int columns = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cell));
     int column = 0;
