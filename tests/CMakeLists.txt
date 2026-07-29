@@ -44,6 +44,7 @@ set(RABBET_TEST_SUITES
     assets_render
     assets_scene_file
     assets_resolve
+    asset_create
     orbhunt
     lanternwaves)
 

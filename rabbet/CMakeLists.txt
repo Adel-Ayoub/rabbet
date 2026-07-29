@@ -32,6 +32,7 @@ target_sources(rabbet
         render/ImageLoader.cpp
         render/ModelLoader.cpp
         util/Log.cpp
+        serialize/AssetCreate.cpp
         serialize/AtomicWrite.cpp
         serialize/ComponentRegistry.cpp
         serialize/BuiltinComponents.cpp
@@ -125,6 +126,7 @@ target_sources(rabbet
             scene/Name.h
             serialize/JsonGlm.h
             serialize/ComponentRegistry.h
+            serialize/AssetCreate.h
             serialize/BuiltinComponents.h
             serialize/SceneSerializer.h
             serialize/PrefabAsset.h
