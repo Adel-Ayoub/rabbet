@@ -23,6 +23,7 @@
 #include "rabbet/physics/SphereCollider.h"
 #include "rabbet/render/PostProcess.h"
 #include "rabbet/render/SkyboxComponent.h"
+#include "rabbet/render/WaterComponent.h"
 #include "rabbet/scripting/ScriptComponent.h"
 #include "rabbet/scripting/ScriptField.h"
 #include "rabbet/serialize/PrefabInstance.h"
@@ -420,6 +421,34 @@ inline void from_json(const nlohmann::json& j, SkyboxComponent& s) {
             s.faces[i] = parseUuid(face.get<std::string>(), "SkyboxComponent: malformed face");
         }
     }
+}
+
+inline void to_json(nlohmann::json& j, const WaterComponent& w) {
+    j = nlohmann::json{{"enabled", w.enabled},
+                       {"extent", w.extent},
+                       {"deepColor", w.deepColor},
+                       {"shallowColor", w.shallowColor},
+                       {"waveTileScale", w.waveTileScale},
+                       {"waveStrength", w.waveStrength},
+                       {"waveSpeed", w.waveSpeed},
+                       {"smoothness", w.smoothness}};
+}
+inline void from_json(const nlohmann::json& j, WaterComponent& w) {
+    // Tolerant reads like the emitter: a MISSING field falls back to its default, so a partial or
+    // pre-water document loads cleanly. A field of the wrong JSON type still throws, and the
+    // serializer then drops the whole component with a warning - the house-wide behaviour.
+    w.enabled = j.value("enabled", w.enabled);
+    w.extent = j.value("extent", w.extent);
+    w.deepColor = j.value("deepColor", w.deepColor);
+    w.shallowColor = j.value("shallowColor", w.shallowColor);
+    w.waveTileScale = j.value("waveTileScale", w.waveTileScale);
+    w.waveStrength = j.value("waveStrength", w.waveStrength);
+    w.waveSpeed = j.value("waveSpeed", w.waveSpeed);
+    w.smoothness = j.value("smoothness", w.smoothness);
+    // A hand-edited 1e40 arrives as inf, which to_json would then dump as `null` and the next
+    // load would refuse, silently losing the component. Sanitizing here keeps a document that
+    // loaded once loadable forever.
+    sanitizeWater(w);
 }
 
 inline void to_json(nlohmann::json& j, const TerrainComponent& t) {

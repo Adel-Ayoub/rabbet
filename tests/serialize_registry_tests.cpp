@@ -23,7 +23,7 @@ static void builtinsExposeEditorHooks() {
         "PointLight",    "SpotLight",       "ModelRenderer",   "MaterialComponent",
         "Primitive",     "ScriptComponent", "RigidBody",       "BoxCollider",
         "SphereCollider", "SoundEmitter",   "PrefabInstance",  "ParticleEmitter",
-        "PostProcess",    "TerrainComponent", "SkyboxComponent"};
+        "PostProcess",    "TerrainComponent", "SkyboxComponent", "WaterComponent"};
     for (const std::string_view name : names) {
         const rb::ComponentRegistry::Entry* entry = registry.find(name);
         CHECK(entry != nullptr);
@@ -35,7 +35,7 @@ static void builtinsExposeEditorHooks() {
         CHECK(entry->remove != nullptr);
         CHECK(entry->drawInspector == nullptr);
     }
-    CHECK(registry.entries().size() == 19u);
+    CHECK(registry.entries().size() == 20u);
 }
 
 // addDefault attaches a default-constructed component; it is idempotent.

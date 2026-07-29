@@ -24,6 +24,7 @@ void registerBuiltinComponents(ComponentRegistry& registry) {
     registry.add<PostProcess>("PostProcess");
     registry.add<TerrainComponent>("TerrainComponent");
     registry.add<SkyboxComponent>("SkyboxComponent");
+    registry.add<WaterComponent>("WaterComponent");
 }
 
 } // namespace rb

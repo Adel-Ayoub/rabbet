@@ -29,7 +29,7 @@ public:
     void onUpdate(Runtime& runtime, float dt) override;
 
     // Renders entity indices to an offscreen integer buffer and reads back the entity
-    // under (x, y) — viewport pixel coordinates with y measured from the top. Returns
+    // under (x, y), viewport pixel coordinates with y measured from the top. Returns
     // an invalid entity when the pixel is empty. Drawn on demand (e.g. on a click).
     [[nodiscard]] Entity pick(Runtime& runtime, int x, int y);
 
@@ -64,6 +64,7 @@ private:
     std::optional<gl::Shader> m_flat; // unlit single-colour, for collider wireframes
     std::optional<gl::Shader> m_particle; // billboard sprites for the transparent particle pass
     std::optional<gl::Shader> m_terrain;  // lit splat-blended heightfield terrain
+    std::optional<gl::Shader> m_water;    // procedurally-waved fresnel water surface
     std::optional<gl::DepthMap> m_shadowMap;
     std::optional<gl::PickBuffer> m_pickBuffer;
     std::optional<gl::Mesh> m_missingMesh;
@@ -84,6 +85,10 @@ private:
     // A neutral grey bound to every unassigned terrain layer/splat unit so the samplers stay
     // complete (some drivers validate every sampler per draw, even unused ones).
     std::optional<gl::Texture> m_terrainFallback;
+    std::optional<gl::Mesh> m_waterMesh; // one unit XZ quad shared by every water surface
+    // Unwrapped in double so that each surface can wrap (time * its own speed) onto a whole wave
+    // cycle; wrapping this accumulator instead would pop for every speed but 1.
+    double m_waterTime = 0.0;
     std::unordered_map<Entity, TerrainMeshCache> m_terrainMeshes;
 };
 

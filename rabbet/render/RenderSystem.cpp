@@ -43,6 +43,8 @@
 #include <vector>
 
 #include "rabbet/particle/ParticleRenderData.h"
+#include "rabbet/render/Skybox.h"
+#include "rabbet/render/WaterComponent.h"
 #include "rabbet/terrain/TerrainRenderData.h"
 
 namespace rb {
@@ -358,6 +360,19 @@ void RenderSystem::onStart(Runtime& runtime) {
     if (!m_terrain) {
         log::error("render system: failed to build the terrain shader");
     }
+    m_water = gl::Shader::fromSource(builtinWaterVertexSource(), builtinWaterFragmentSource());
+    if (!m_water) {
+        log::error("render system: failed to build the water shader");
+    }
+    MeshData waterQuad;
+    waterQuad.vertices = {
+        {{-1.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+        {{1.0f, 0.0f, -1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+        {{-1.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 1.0f}},
+    };
+    waterQuad.indices = {0, 1, 2, 0, 2, 3};
+    m_waterMesh = gl::Mesh::create(waterQuad);
     m_terrainFallback = gl::Texture::solid(128, 128, 128); // neutral grey for unassigned layers
     m_particleStream = gl::ParticleStream::create();
     m_particleTexture = buildSoftParticleTexture();
@@ -371,7 +386,10 @@ void RenderSystem::onStart(Runtime& runtime) {
     m_fallbackCubemap = gl::Cubemap::empty(1); // keeps the environment sampler complete when off
 }
 
-void RenderSystem::onUpdate(Runtime& runtime, float) {
+void RenderSystem::onUpdate(Runtime& runtime, float dt) {
+    // Clamped like the particle step: a blocking dialog or a scene load hands back a multi-second
+    // frame, which would otherwise snap every wave to a new phase.
+    m_waterTime += static_cast<double>(std::min(std::max(dt, 0.0f), 0.1f));
     if (!runtime.hasResource<RenderView>()) {
         return;
     }
@@ -791,6 +809,93 @@ void RenderSystem::onUpdate(Runtime& runtime, float) {
         }
     } else if (!m_terrainMeshes.empty()) {
         m_terrainMeshes.clear();
+    }
+
+    // Water pass: procedurally-waved fresnel surfaces, one shared unit quad per component.
+    // Transparent like the particles (depth-tested, writes off, over-blend) and drawn before
+    // them so sparks stay visible above the surface. Runs only when a scene has an enabled
+    // component, so every other scene is byte-identical to before this phase.
+    if (m_water && m_waterMesh && scene.count<WaterComponent>() > 0) {
+        // Every octave completes a whole number of cycles over this span, so wrapping (time *
+        // speed) onto it is seamless for any authored speed, not just the default.
+        constexpr double kWavePeriod = 8.0 * 3.14159265358979323846;
+        const Skybox* sky = runtime.tryResource<Skybox>();
+        constexpr unsigned int kWaterSkyUnit = 8; // past the terrain's reserved 0..7 set
+        bool passOpen = false;
+        GLboolean wasBlend = GL_FALSE;
+        GLboolean wasCull = GL_FALSE;
+        GLboolean depthWrite = GL_TRUE;
+        GLint blendSrcRgb = GL_ONE;
+        GLint blendDstRgb = GL_ZERO;
+        GLint blendSrcAlpha = GL_ONE;
+        GLint blendDstAlpha = GL_ZERO;
+        GLint activeUnit = GL_TEXTURE0;
+
+        scene.each<WaterComponent, WorldMatrix>([&](Entity, WaterComponent& w, WorldMatrix& world) {
+            if (!w.enabled) {
+                return;
+            }
+            if (!passOpen) {
+                // Opened lazily on the first surface actually drawn, so a scene whose water is
+                // all disabled touches no GL state at all.
+                passOpen = true;
+                wasBlend = glIsEnabled(GL_BLEND);
+                wasCull = glIsEnabled(GL_CULL_FACE);
+                glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
+                glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
+                glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
+                glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcAlpha);
+                glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstAlpha);
+                glGetIntegerv(GL_ACTIVE_TEXTURE, &activeUnit);
+
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glDepthMask(GL_FALSE);
+                glDisable(GL_CULL_FACE); // the surface reads from below as well
+
+                m_water->bind();
+                uploadLights(*m_water, viewProjection, view.position, lighting, environment,
+                             hdrOutput);
+                m_water->setInt("uSkybox", static_cast<int>(kWaterSkyUnit));
+                m_water->setInt("uHasSkybox", sky != nullptr ? 1 : 0);
+                // Bound either way: an incomplete samplerCube can cost the whole draw on drivers
+                // that validate every sampler, which is why the fallback exists.
+                if (sky != nullptr) {
+                    sky->cubemap.bind(kWaterSkyUnit);
+                } else if (m_fallbackCubemap) {
+                    m_fallbackCubemap->bind(kWaterSkyUnit);
+                }
+            }
+
+            WaterComponent safe = w;
+            sanitizeWater(safe);
+            const float phase =
+                static_cast<float>(std::fmod(m_waterTime * static_cast<double>(safe.waveSpeed),
+                                             kWavePeriod));
+            m_water->setMat4("uModel", waterSurfaceModel(world.value, safe.extent));
+            m_water->setFloat("uTime", phase);
+            m_water->setVec2("uExtent", safe.extent);
+            m_water->setFloat("uWaveTileScale", safe.waveTileScale);
+            m_water->setFloat("uWaveStrength", safe.waveStrength);
+            m_water->setFloat("uSmoothness", safe.smoothness);
+            m_water->setVec4("uDeepColor", safe.deepColor);
+            m_water->setVec4("uShallowColor", safe.shallowColor);
+            m_waterMesh->draw();
+        });
+
+        if (passOpen) {
+            glActiveTexture(static_cast<GLenum>(activeUnit));
+            glDepthMask(depthWrite);
+            glBlendFuncSeparate(static_cast<GLenum>(blendSrcRgb), static_cast<GLenum>(blendDstRgb),
+                                static_cast<GLenum>(blendSrcAlpha),
+                                static_cast<GLenum>(blendDstAlpha));
+            if (wasCull == GL_TRUE) {
+                glEnable(GL_CULL_FACE);
+            }
+            if (wasBlend == GL_FALSE) {
+                glDisable(GL_BLEND);
+            }
+        }
     }
 
     // Transparent particle pass: camera-facing billboards drawn after the opaque + material passes,

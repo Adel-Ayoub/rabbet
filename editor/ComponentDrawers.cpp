@@ -15,6 +15,7 @@
 #include "rabbet/particle/ParticleEmitter.h"
 #include "rabbet/render/PostProcess.h"
 #include "rabbet/render/SkyboxComponent.h"
+#include "rabbet/render/WaterComponent.h"
 #include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/RigidBody.h"
 #include "rabbet/physics/SphereCollider.h"
@@ -301,6 +302,25 @@ void drawParticleEmitter(rb::Scene& scene, rb::Entity e) {
     }
 }
 
+void drawWater(rb::Scene& scene, rb::Entity e) {
+    rb::WaterComponent& w = scene.get<rb::WaterComponent>(e);
+    ui::checkbox("Enabled", &w.enabled);
+    ui::dragFloat2("Extent", &w.extent.x, 0.25f, 0.01f, 5000.0f);
+    ImGui::SetItemTooltip("Half-size of the surface; the entity's position sets the water level.");
+
+    ImGui::SeparatorText("Waves");
+    ui::dragFloat("Tile Scale", &w.waveTileScale, 0.01f, 0.0f, 10.0f);
+    ui::dragFloat("Strength", &w.waveStrength, 0.01f, 0.0f, 4.0f);
+    ui::dragFloat("Speed", &w.waveSpeed, 0.01f, 0.0f, 10.0f);
+    ui::dragFloat("Smoothness", &w.smoothness, 0.01f, 0.0f, 1.0f);
+
+    ImGui::SeparatorText("Colour");
+    constexpr ImGuiColorEditFlags waterFlags =
+        ImGuiColorEditFlags_Float | ImGuiColorEditFlags_AlphaPreviewHalf;
+    ui::colorEdit4("Deep", &w.deepColor.x, waterFlags);
+    ui::colorEdit4("Shallow", &w.shallowColor.x, waterFlags);
+}
+
 // Post-processing settings for the scene (a single enabled instance drives the editor's view).
 void drawPostProcess(rb::Scene& scene, rb::Entity e) {
     rb::PostProcess& p = scene.get<rb::PostProcess>(e);
@@ -472,6 +492,7 @@ void registerComponentDrawers(rb::ComponentRegistry& registry) {
     registry.setDrawer("SphereCollider", &drawSphereCollider);
     registry.setDrawer("SoundEmitter", &drawSoundEmitter);
     registry.setDrawer("ParticleEmitter", &drawParticleEmitter);
+    registry.setDrawer("WaterComponent", &drawWater);
     registry.setDrawer("PostProcess", &drawPostProcess);
 }
 

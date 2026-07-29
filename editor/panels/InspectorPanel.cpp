@@ -72,6 +72,9 @@ const char* componentGlyph(const std::string& name) {
     if (name == "SkyboxComponent") {
         return icon::kSun;
     }
+    if (name == "WaterComponent") {
+        return icon::kGlobe;
+    }
     if (name == "PrefabInstance") {
         return icon::kLink;
     }

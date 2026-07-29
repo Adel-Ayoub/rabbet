@@ -29,6 +29,11 @@ inline constexpr Uuid kDefaultMaterial{0xB1117D00'00000001ULL, 0x000000000000005
 [[nodiscard]] const std::string& builtinTerrainVertexSource();
 [[nodiscard]] const std::string& builtinTerrainFragmentSource();
 
+// The built-in water shader: a procedurally-waved quad with fresnel skybox reflection, compiled
+// by its own render pass like the terrain shader.
+[[nodiscard]] const std::string& builtinWaterVertexSource();
+[[nodiscard]] const std::string& builtinWaterFragmentSource();
+
 // Registers the built-in PBR and Phong shaders, plus a default PBR material (no overrides) that
 // binds the PBR shader, into the AssetManager under the fixed uuids above. Idempotent: a second
 // call is a no-op. Lets a MaterialComponent reference the defaults without any asset file.

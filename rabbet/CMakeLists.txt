@@ -24,6 +24,7 @@ target_sources(rabbet
         render/RenderSystem.cpp
         render/SkyboxComponent.cpp
         render/SkyboxSystem.cpp
+        render/WaterComponent.cpp
         scene/CameraShake.cpp
         scene/CameraShakeSystem.cpp
         scene/CameraSystem.cpp
@@ -111,6 +112,7 @@ target_sources(rabbet
             render/Skybox.h
             render/SkyboxComponent.h
             render/SkyboxSystem.h
+            render/WaterComponent.h
             scene/Camera.h
             scene/CameraSystem.h
             scene/CameraView.h

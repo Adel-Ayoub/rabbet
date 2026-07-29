@@ -9,12 +9,15 @@
 #include "rabbet/serialize/SceneSerializer.h"
 #include "tests/Test.h"
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <system_error>
 
 namespace {
+
+bool approx(float a, float b, float eps = 1.0e-4f) { return std::fabs(a - b) <= eps; }
 
 rb::ComponentRegistry makeRegistry() {
     rb::ComponentRegistry registry;
@@ -52,7 +55,7 @@ rb::Entity firstNamed(rb::Scene& scene, const std::string& name) {
 
 static void registryExposesBuiltins() {
     const rb::ComponentRegistry registry = makeRegistry();
-    CHECK(registry.entries().size() == 19u);
+    CHECK(registry.entries().size() == 20u);
     CHECK(registry.find("Transform") != nullptr);
     CHECK(registry.find("SkyboxComponent") != nullptr);
     CHECK(registry.find("Camera") != nullptr);
@@ -496,6 +499,99 @@ static void malformedParentIsSkipped() {
     CHECK(dUnderE != eUnderD);
 }
 
+// Water round-trips every authored field; a document missing fields keeps their defaults, and a
+// non-finite value is sanitized at load so saving it again cannot destroy the component.
+static void waterRoundTrips() {
+    const rb::ComponentRegistry registry = makeRegistry();
+
+    rb::Scene source;
+    const rb::Entity e = source.create();
+    rb::WaterComponent authored;
+    authored.enabled = false;
+    authored.extent = glm::vec2(12.5f, 40.0f);
+    authored.deepColor = glm::vec4(0.01f, 0.02f, 0.03f, 0.9f);
+    authored.shallowColor = glm::vec4(0.4f, 0.5f, 0.6f, 0.3f);
+    authored.waveTileScale = 0.77f;
+    authored.waveStrength = 1.25f;
+    authored.waveSpeed = 2.5f;
+    authored.smoothness = 0.42f;
+    source.add<rb::WaterComponent>(e, authored);
+
+    const nlohmann::json doc = rb::SceneSerializer::toJson(source, registry);
+    rb::Scene loaded;
+    rb::SceneSerializer::fromJson(doc, loaded, registry);
+    CHECK(loaded.count<rb::WaterComponent>() == 1u);
+    loaded.each<rb::WaterComponent>([&](rb::Entity, rb::WaterComponent& w) {
+        CHECK(w.enabled == false);
+        CHECK(approx(w.extent.x, 12.5f));
+        CHECK(approx(w.extent.y, 40.0f));
+        CHECK(approx(w.deepColor.a, 0.9f));
+        CHECK(approx(w.shallowColor.r, 0.4f));
+        CHECK(approx(w.waveTileScale, 0.77f));
+        CHECK(approx(w.waveStrength, 1.25f));
+        CHECK(approx(w.waveSpeed, 2.5f));
+        CHECK(approx(w.smoothness, 0.42f));
+    });
+
+    // Only the named field is overridden; everything absent keeps its default. Pinning the whole
+    // default set matters because these are what Add Component hands the author.
+    const rb::WaterComponent partial =
+        nlohmann::json::parse(R"({"waveSpeed": 3.0})").get<rb::WaterComponent>();
+    CHECK(partial.enabled == true);
+    CHECK(approx(partial.waveSpeed, 3.0f));
+    CHECK(approx(partial.waveTileScale, 0.35f));
+    CHECK(approx(partial.waveStrength, 0.5f));
+    CHECK(approx(partial.smoothness, 0.9f));
+    CHECK(approx(partial.extent.x, 30.0f));
+    CHECK(approx(partial.extent.y, 30.0f));
+    CHECK(approx(partial.deepColor.r, 0.05f));
+    CHECK(approx(partial.deepColor.a, 0.85f));
+    CHECK(approx(partial.shallowColor.b, 0.35f));
+    CHECK(approx(partial.shallowColor.a, 0.55f));
+
+    rb::Scene tolerant;
+    const nlohmann::json empty = nlohmann::json::parse(R"({
+      "version": 1,
+      "entities": [ { "id": 0, "components": { "WaterComponent": {} } } ]
+    })");
+    rb::SceneSerializer::fromJson(empty, tolerant, registry); // must not throw
+    CHECK(tolerant.count<rb::WaterComponent>() == 1u);
+    tolerant.each<rb::WaterComponent>([&](rb::Entity, rb::WaterComponent& w) {
+        CHECK(w.enabled == true); // an empty object is defaults, not zeroes
+        CHECK(approx(w.extent.x, 30.0f));
+        CHECK(approx(w.waveSpeed, 1.0f));
+        CHECK(approx(w.smoothness, 0.9f));
+    });
+
+    // A hand-edited magnitude that overflows to inf is clamped at load, so the document it saves
+    // is loadable again. Before the guard this round-tripped as JSON null and dropped the
+    // component entirely on the next load.
+    const rb::WaterComponent huge =
+        nlohmann::json::parse(R"({"extent": [1e40, 30.0], "waveTileScale": 1e39})")
+            .get<rb::WaterComponent>();
+    CHECK(std::isfinite(huge.extent.x));
+    CHECK(std::isfinite(huge.waveTileScale));
+    rb::Scene reload;
+    rb::Scene wide;
+    wide.add<rb::WaterComponent>(wide.create(), huge);
+    rb::SceneSerializer::fromJson(
+        nlohmann::json::parse(rb::SceneSerializer::toJson(wide, registry).dump()), reload,
+        registry);
+    CHECK(reload.count<rb::WaterComponent>() == 1u); // survives a real text round trip
+
+    // A field of the wrong JSON type is NOT tolerated: parsing throws inside the registry hook,
+    // the serializer logs and skips that component, and the rest of the entity still loads.
+    rb::Scene mistyped;
+    const nlohmann::json bad = nlohmann::json::parse(R"({
+      "version": 1,
+      "entities": [ { "id": 0, "components": { "Name": { "value": "lake" },
+                                               "WaterComponent": { "enabled": 1 } } } ]
+    })");
+    rb::SceneSerializer::fromJson(bad, mistyped, registry); // must not throw
+    CHECK(mistyped.count<rb::Name>() == 1u);
+    CHECK(mistyped.count<rb::WaterComponent>() == 0u);
+}
+
 // A scene carries its own sky as six texture refs. Order is load-bearing (it is GL cubemap
 // face order), so the round trip has to preserve it exactly. A short list or a non-string
 // entry degrades to unset faces; a malformed uuid STRING throws inside the registry hook,
@@ -644,6 +740,7 @@ int main() {
     parentedSaveLoadSaveIsIdempotent();
     childRecordBeforeParentRecordResolves();
     malformedParentIsSkipped();
+    waterRoundTrips();
     skyboxFacesRoundTrip();
     staleParentIsNotSaved();
     unsetAssetRefsSurviveRoundTrip();
