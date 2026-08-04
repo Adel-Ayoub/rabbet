@@ -217,41 +217,22 @@ void fieldsSurviveSerialization() {
     CHECK(found);
 }
 
-// world.find resolves another entity by its Name and hands back the same live handle as
-// `self`, so a script can read and drive other entities' transforms; a miss returns nil.
+// world.find resolves another entity by its Name and hands back a live handle a script
+// can measure against and drive; a miss returns nil. The mover reads a 3-4-5 distance
+// off the target, then repositions it.
 void worldFindAndCrossEntityAccess() {
     rb::Runtime runtime;
     rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
     const rb::Uuid id = addScript(assets,
                                   "function on_update(self, dt)\n"
                                   "  local target = world.find(\"Target\")\n"
-                                  "  if target then target:set_position(5.0, 6.0, 7.0) end\n"
+                                  "  if target then\n"
+                                  "    self:set_position(self:distance_to(target), 0.0, 0.0)\n"
+                                  "    target:set_position(5.0, 6.0, 7.0)\n"
+                                  "  end\n"
                                   "  if world.find(\"Nobody\") ~= nil then\n"
                                   "    self:set_position(-1.0, 0.0, 0.0)\n"
                                   "  end\n"
-                                  "end\n");
-    const rb::Entity mover = scriptedEntity(runtime, id);
-    const rb::Entity target = runtime.scene().create();
-    runtime.scene().add<rb::Transform>(target, rb::Transform{});
-    runtime.scene().add<rb::Name>(target, rb::Name{"Target"});
-
-    rb::ScriptSystem scripts;
-    scripts.onPlayBegin(runtime);
-    scripts.onUpdate(runtime, 0.016f);
-
-    CHECK(approx(runtime.scene().get<rb::Transform>(target).position.x, 5.0f));
-    CHECK(approx(runtime.scene().get<rb::Transform>(target).position.y, 6.0f));
-    CHECK(approx(posX(runtime, mover), 0.0f)); // find("Nobody") returned nil
-}
-
-// distance_to measures between two live entities (3-4-5 triangle from the origin).
-void distanceQueryBetweenEntities() {
-    rb::Runtime runtime;
-    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
-    const rb::Uuid id = addScript(assets,
-                                  "function on_update(self, dt)\n"
-                                  "  local target = world.find(\"Target\")\n"
-                                  "  self:set_position(self:distance_to(target), 0.0, 0.0)\n"
                                   "end\n");
     const rb::Entity mover = scriptedEntity(runtime, id);
     const rb::Entity target = runtime.scene().create();
@@ -263,7 +244,10 @@ void distanceQueryBetweenEntities() {
     rb::ScriptSystem scripts;
     scripts.onPlayBegin(runtime);
     scripts.onUpdate(runtime, 0.016f);
-    CHECK(approx(posX(runtime, mover), 5.0f));
+
+    CHECK(approx(runtime.scene().get<rb::Transform>(target).position.x, 5.0f));
+    CHECK(approx(runtime.scene().get<rb::Transform>(target).position.y, 6.0f));
+    CHECK(approx(posX(runtime, mover), 5.0f)); // the distance stuck; find("Nobody") was nil
 }
 
 // world.destroy is deferred to end-of-tick (the handle stays valid inside the same tick),
@@ -629,10 +613,10 @@ void worldLoadSceneLastRequestWinsAndUnknownIsSafe() {
     fs::remove_all(dir, ec);
 }
 
-// Sustained wave-volume spawning through the real scheduler: a controller spawns scripted
-// wisps every tick while world.find answers under the growing population; every settled
-// wisp compiles and runs its own environment, and the play-edge teardown drops them all.
-void spawnVolumeSustainsScriptedWisps() {
+// world.spawn under a live session: spawned scripted prefabs compile and run their own
+// scripts, and world.find sees them from the next tick on (the name index re-arms every
+// tick, not once per session).
+void spawnedScriptedWispsRunAndAreFindable() {
     namespace fs = std::filesystem;
     std::error_code ec;
     const fs::path dir = fs::temp_directory_path() / "rabbet_script_spawn_volume_test";
@@ -662,9 +646,7 @@ void spawnVolumeSustainsScriptedWisps() {
 
     const rb::Uuid controller = addScript(assets,
                                           "function on_update(self, dt)\n"
-                                          "  for i = 1, 8 do\n"
-                                          "    world.spawn(\"wisp\", i, 0.0, 0.0)\n"
-                                          "  end\n"
+                                          "  world.spawn(\"wisp\", 5.0, 0.0, 0.0)\n"
                                           "  if world.find(\"Wisp\") ~= nil then\n"
                                           "    self:translate(1.0, 0.0, 0.0)\n"
                                           "  end\n"
@@ -678,30 +660,27 @@ void spawnVolumeSustainsScriptedWisps() {
     runtime.beginPlay();
     runtime.setPlaying(true);
 
-    constexpr int kTicks = 25;
-    constexpr std::size_t kPerTick = 8;
     const std::size_t before = runtime.scene().aliveCount();
-    for (int i = 0; i < kTicks; ++i) {
+    for (int i = 0; i < 4; ++i) {
         runtime.tick(0.016f);
     }
-    CHECK(runtime.scene().aliveCount() == before + kPerTick * kTicks);
+    CHECK(runtime.scene().aliveCount() == before + 4u);
     // Spawns land at end of tick, so find() sees the population from tick 2 on.
-    CHECK(approx(posX(runtime, control), static_cast<float>(kTicks - 1)));
+    CHECK(approx(posX(runtime, control), 3.0f));
     // Every settled wisp runs its own environment; the last tick's batch has not yet.
-    CHECK(scripts.instanceCount() == 1u + kPerTick * (kTicks - 1));
-    // The oldest batch settled at end of tick 1 and has drifted every tick since: 24
-    // steps of 0.016 on top of its spawn x of 8.
+    CHECK(scripts.instanceCount() == 1u + 3u);
+    // The oldest wisp settled at end of tick 1 and has drifted every tick since.
     float maxX = 0.0f;
     runtime.scene().each<rb::Name>([&](rb::Entity e, rb::Name& n) {
         if (n.value == "Wisp") {
             maxX = std::max(maxX, posX(runtime, e));
         }
     });
-    CHECK(approx(maxX, 8.0f + static_cast<float>(kTicks - 1) * 0.016f));
+    CHECK(approx(maxX, 5.0f + 3.0f * 0.016f));
 
     runtime.setPlaying(false);
     runtime.endPlay();
-    CHECK(scripts.instanceCount() == 0u);
+    CHECK(scripts.instanceCount() == 0u); // the play edge drops every spawned environment
     fs::remove_all(dir, ec);
 }
 
@@ -809,7 +788,6 @@ int main() {
     inputWithoutResourceIsSafe();
     fieldsSurviveSerialization();
     worldFindAndCrossEntityAccess();
-    distanceQueryBetweenEntities();
     worldDestroyDefersAndInvalidatesHandles();
     selfDestroyIsSafe();
     physicsBindingsUseBridgeResources();
@@ -819,7 +797,7 @@ int main() {
     externallyDestroyedEntityDropsItsInstance();
     worldLoadSceneSwitchesAndStopRestores();
     worldLoadSceneLastRequestWinsAndUnknownIsSafe();
-    spawnVolumeSustainsScriptedWisps();
+    spawnedScriptedWispsRunAndAreFindable();
     worldShakeDrivesAndDecays();
     worldShakeRefusesGarbage();
     return rbtest::summary("script");

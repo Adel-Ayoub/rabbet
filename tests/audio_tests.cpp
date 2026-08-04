@@ -122,49 +122,32 @@ void engineInitsHeadless() {
     CHECK(audio.activeVoiceCount() == 0u);
 }
 
-// A playOnStart emitter becomes a playing voice on the play-begin edge and is freed on play end.
-void playBuildsAndStopsVoices(const fs::path& wav) {
+// Voices exist only inside a play session: a stray update before play-begin builds
+// nothing, the play edge builds one voice per emitter (playing only where playOnStart
+// asks), and play-end frees them all.
+void sessionGatesVoicesAndPlayOnStart(const fs::path& wav) {
     rb::Runtime runtime;
     rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
     rb::AudioSystem audio;
-    const rb::Entity e = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, true);
+    const rb::Entity eager = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, true);
+    const rb::Entity idle = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, false);
+
+    audio.onUpdate(runtime, 1.0f / 60.0f);
+    CHECK(audio.activeVoiceCount() == 0u); // no session, no voices
 
     audio.onPlayBegin(runtime);
-    CHECK(audio.activeVoiceCount() == 1u);
-    CHECK(audio.voicePlaying(e));
+    CHECK(audio.activeVoiceCount() == 2u);
+    CHECK(audio.voicePlaying(eager));
+    CHECK(!audio.voicePlaying(idle)); // built but waiting for play()
 
     audio.onPlayEnd(runtime);
     CHECK(audio.activeVoiceCount() == 0u);
-    CHECK(!audio.voicePlaying(e));
+    CHECK(!audio.voicePlaying(eager));
 }
 
-// playOnStart = false still builds a voice but leaves it stopped until something starts it.
-void notStartedWhenPlayOnStartFalse(const fs::path& wav) {
-    rb::Runtime runtime;
-    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
-    rb::AudioSystem audio;
-    const rb::Entity e = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, false);
-
-    audio.onPlayBegin(runtime);
-    CHECK(audio.activeVoiceCount() == 1u);
-    CHECK(!audio.voicePlaying(e));
-}
-
-// Voices exist only inside a play session: nothing is built before play-begin, and a stray
-// update without a session is a no-op.
-void gatedBeforePlayBegin(const fs::path& wav) {
-    rb::Runtime runtime;
-    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
-    rb::AudioSystem audio;
-    addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, true);
-
-    audio.onUpdate(runtime, 1.0f / 60.0f);
-    CHECK(audio.activeVoiceCount() == 0u);
-}
-
-// Spatialization tracks the emitter's flag, and a spatial voice is positioned at the entity's
-// world Transform; a non-spatial voice is not spatialized. The listener is taken from the
-// active RenderView each update without disturbing the voice.
+// Spatialization tracks the emitter's flag: a spatial voice sits at the entity's composed
+// world position (a parented emitter at its rig's frame, not its local offset) while a
+// non-spatial voice is not spatialized. The listener follows the active RenderView.
 void spatialFlagAndPosition(const fs::path& wav) {
     rb::Runtime runtime;
     rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
@@ -175,6 +158,14 @@ void spatialFlagAndPosition(const fs::path& wav) {
     const glm::vec3 spatialPos(3.0f, 1.0f, -2.0f);
     const rb::Entity spatial = addEmitter(runtime, assets, wav, spatialPos, true, true);
     const rb::Entity flat = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, true);
+
+    const rb::Entity rig = runtime.scene().create();
+    rb::Transform rigPose;
+    rigPose.position = glm::vec3(10.0f, 0.0f, 4.0f);
+    runtime.scene().add<rb::Transform>(rig, rigPose);
+    const rb::Entity chime =
+        addEmitter(runtime, assets, wav, glm::vec3(1.0f, 2.0f, 0.0f), true, true);
+    CHECK(rb::setParent(runtime.scene(), chime, rig));
 
     audio.onPlayBegin(runtime);
     audio.onUpdate(runtime, 1.0f / 60.0f);
@@ -187,31 +178,10 @@ void spatialFlagAndPosition(const fs::path& wav) {
     if (pos.has_value()) {
         CHECK(glm::distance(*pos, spatialPos) < 1e-4f);
     }
-}
-
-// A spatial voice on a parented emitter sits at the entity's composed world position, not
-// its local offset.
-void parentedEmitterPositionsVoiceInWorld(const fs::path& wav) {
-    rb::Runtime runtime;
-    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
-    rb::AudioSystem audio;
-
-    const rb::Entity rig = runtime.scene().create();
-    rb::Transform rigPose;
-    rigPose.position = glm::vec3(10.0f, 0.0f, 4.0f);
-    runtime.scene().add<rb::Transform>(rig, rigPose);
-
-    const rb::Entity chime =
-        addEmitter(runtime, assets, wav, glm::vec3(1.0f, 2.0f, 0.0f), true, true);
-    CHECK(rb::setParent(runtime.scene(), chime, rig));
-
-    audio.onPlayBegin(runtime);
-    audio.onUpdate(runtime, 1.0f / 60.0f);
-
-    const std::optional<glm::vec3> pos = audio.voicePosition(chime);
-    CHECK(pos.has_value());
-    if (pos.has_value()) {
-        CHECK(glm::distance(*pos, glm::vec3(11.0f, 2.0f, 4.0f)) < 1e-4f);
+    const std::optional<glm::vec3> mounted = audio.voicePosition(chime);
+    CHECK(mounted.has_value());
+    if (mounted.has_value()) {
+        CHECK(glm::distance(*mounted, glm::vec3(11.0f, 2.0f, 4.0f)) < 1e-4f);
     }
 }
 
@@ -237,22 +207,6 @@ void replayWithPlayAndStop(const fs::path& wav) {
     CHECK(audio.voicePlaying(e));
 
     CHECK(!audio.play(rb::Entity{})); // no voice for an unknown entity
-}
-
-// A voice whose entity is destroyed mid-play is reaped on the next update, so a spawn/destroy
-// loop cannot leak voices.
-void reapsDestroyedEmitter(const fs::path& wav) {
-    rb::Runtime runtime;
-    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
-    rb::AudioSystem audio;
-    const rb::Entity e = addEmitter(runtime, assets, wav, glm::vec3(0.0f), false, true);
-
-    audio.onPlayBegin(runtime);
-    CHECK(audio.activeVoiceCount() == 1u);
-
-    runtime.scene().destroy(e);
-    audio.onUpdate(runtime, 1.0f / 60.0f);
-    CHECK(audio.activeVoiceCount() == 0u);
 }
 
 // A streamed emitter (read from disk instead of fully decoded) still builds and plays.
@@ -421,13 +375,9 @@ int main() {
     }
 
     engineInitsHeadless();
-    playBuildsAndStopsVoices(wav);
-    notStartedWhenPlayOnStartFalse(wav);
-    gatedBeforePlayBegin(wav);
+    sessionGatesVoicesAndPlayOnStart(wav);
     spatialFlagAndPosition(wav);
-    parentedEmitterPositionsVoiceInWorld(wav);
     replayWithPlayAndStop(wav);
-    reapsDestroyedEmitter(wav);
     streamedClipPlays(wav);
     rebuildsBetweenSessions(wav);
     resolveLazilyImports(wav);

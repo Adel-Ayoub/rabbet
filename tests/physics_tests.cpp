@@ -66,31 +66,20 @@ void dynamicFallsAndLands() {
     CHECK(endY < 1.4f);    // settled near the floor top
 }
 
-// A static body is never moved by the simulation.
-void staticStaysPut() {
+// A static body is never moved, and a gravity-exempt dynamic one floats in place.
+void unforcedBodiesStayPut() {
     rb::Runtime runtime;
     rb::PhysicsSystem physics;
-    const rb::Entity e = makeBox(runtime, glm::vec3(0.0f, 3.0f, 0.0f), rb::BodyType::Static);
+    const rb::Entity anchor = makeBox(runtime, glm::vec3(0.0f, 3.0f, 0.0f), rb::BodyType::Static);
+    const rb::Entity floater =
+        makeBox(runtime, glm::vec3(3.0f, 3.0f, 0.0f), rb::BodyType::Dynamic, false);
 
     physics.onPlayBegin(runtime);
     for (int i = 0; i < 60; ++i) {
         physics.onUpdate(runtime, kStep);
     }
-    CHECK(posY(runtime, e) == 3.0f);
-}
-
-// gravity = false: a dynamic body floats in place.
-void noGravityFloats() {
-    rb::Runtime runtime;
-    rb::PhysicsSystem physics;
-    const rb::Entity e =
-        makeBox(runtime, glm::vec3(0.0f, 3.0f, 0.0f), rb::BodyType::Dynamic, false);
-
-    physics.onPlayBegin(runtime);
-    for (int i = 0; i < 60; ++i) {
-        physics.onUpdate(runtime, kStep);
-    }
-    CHECK(std::fabs(posY(runtime, e) - 3.0f) < 0.05f);
+    CHECK(posY(runtime, anchor) == 3.0f);
+    CHECK(std::fabs(posY(runtime, floater) - 3.0f) < 0.05f);
 }
 
 // onPlayEnd tears the world down; a fresh onPlayBegin rebuilds bodies from the current
@@ -137,24 +126,30 @@ void accumulatorGatesAndCaps() {
     CHECK(dropped < 1.0f);
 }
 
-// A queued SetVelocity command drives the body that tick, the queue drains, the stepped
-// velocity is published in PhysicsState, and onPlayEnd clears the bridge.
-void velocityCommandDrivesBodyAndPublishes() {
+// Queued SetVelocity and Impulse commands drive their bodies that tick, the queue drains,
+// the stepped velocity is published in PhysicsState, and onPlayEnd clears the bridge.
+void commandsDriveBodiesAndPublish() {
     rb::Runtime runtime;
     rb::PhysicsSystem physics;
     const rb::Entity box =
         makeBox(runtime, glm::vec3(0.0f, 5.0f, 0.0f), rb::BodyType::Dynamic, false);
+    const rb::Entity kicked = makeBox(runtime, glm::vec3(0.0f), rb::BodyType::Dynamic, false);
     physics.onPlayBegin(runtime);
 
     rb::PhysicsCommands& commands = runtime.resource<rb::PhysicsCommands>();
     commands.queue.push_back(
         {box, rb::PhysicsCommands::Op::SetVelocity, glm::vec3(5.0f, 0.0f, 0.0f)});
+    commands.queue.push_back(
+        {kicked, rb::PhysicsCommands::Op::Impulse, glm::vec3(0.0f, 0.0f, 3.0f)});
     for (int i = 0; i < 60; ++i) {
         physics.onUpdate(runtime, kStep);
     }
     const float x = runtime.scene().get<rb::Transform>(box).position.x;
     CHECK(x > 4.0f); // ~5 m/s for ~1 s (minus Jolt's default damping)
     CHECK(x < 6.0f);
+    const float z = runtime.scene().get<rb::Transform>(kicked).position.z;
+    CHECK(z > 1.5f); // the 3 kg*m/s impulse on 1 kg read back as ~3 m/s of drift
+    CHECK(z < 3.5f);
     CHECK(commands.queue.empty()); // drained by the first update
 
     const rb::PhysicsState& state = runtime.resource<rb::PhysicsState>();
@@ -165,22 +160,6 @@ void velocityCommandDrivesBodyAndPublishes() {
     }
     physics.onPlayEnd(runtime);
     CHECK(runtime.resource<rb::PhysicsState>().linearVelocity.empty());
-}
-
-// An impulse on a 1 kg floating body reads back as velocity of the impulse magnitude.
-void impulseAcceleratesBody() {
-    rb::Runtime runtime;
-    rb::PhysicsSystem physics;
-    const rb::Entity box = makeBox(runtime, glm::vec3(0.0f), rb::BodyType::Dynamic, false);
-    physics.onPlayBegin(runtime);
-    runtime.resource<rb::PhysicsCommands>().queue.push_back(
-        {box, rb::PhysicsCommands::Op::Impulse, glm::vec3(0.0f, 0.0f, 3.0f)});
-    for (int i = 0; i < 30; ++i) {
-        physics.onUpdate(runtime, kStep);
-    }
-    const float z = runtime.scene().get<rb::Transform>(box).position.z;
-    CHECK(z > 1.0f); // ~3 m/s for ~0.5 s
-    CHECK(z < 2.0f);
 }
 
 // End to end through the real scheduler, ordered as the editor registers it (ScriptSystem
@@ -401,7 +380,8 @@ void warnedEntityGainsBodyOnceFixed() {
 }
 
 // A terrain parented under a moved group collides where it renders: the body takes the
-// composed world pose, not the raw local Transform.
+// composed world pose, not the raw local Transform. This is the terrain body's own call
+// site, separate from the rigid-body path the parented-ball test covers.
 void parentedTerrainCollidesAtWorldPose() {
     rb::Runtime runtime;
     const rb::Entity group = runtime.scene().create();
@@ -543,12 +523,10 @@ void sceneSwapMidPlayRebuildsTheWorld() {
 
 int main() {
     dynamicFallsAndLands();
-    staticStaysPut();
-    noGravityFloats();
+    unforcedBodiesStayPut();
     rebuildsBetweenSessions();
     accumulatorGatesAndCaps();
-    velocityCommandDrivesBodyAndPublishes();
-    impulseAcceleratesBody();
+    commandsDriveBodiesAndPublish();
     scriptDrivesPhysicsBody();
     terrainCollidesAsStaticGround();
     parentedBodySimulatesInWorldWritesLocal();
@@ -557,8 +535,8 @@ int main() {
     kinematicFollowsAuthoredTransform();
     kinematicRestsAfterMotion();
     warnedEntityGainsBodyOnceFixed();
-    terrainRebuildSwapsTheBody();
     parentedTerrainCollidesAtWorldPose();
+    terrainRebuildSwapsTheBody();
     sceneSwapMidPlayRebuildsTheWorld();
     return rbtest::summary("physics");
 }
