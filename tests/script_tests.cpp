@@ -1,8 +1,12 @@
 #include "rabbet/assets/AssetDatabase.h"
 #include "rabbet/assets/AssetManager.h"
+#include "rabbet/core/Clock.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/physics/BoxCollider.h"
 #include "rabbet/physics/PhysicsControl.h"
+#include "rabbet/physics/PhysicsSystem.h"
+#include "rabbet/physics/RigidBody.h"
 #include "rabbet/scene/CameraShake.h"
 #include "rabbet/scene/CameraShakeSystem.h"
 #include "rabbet/scene/Hierarchy.h"
@@ -780,6 +784,46 @@ void worldShakeRefusesGarbage() {
     CHECK(finite);
 }
 
+// on_late_update is the documented late half of the tick: it runs after the physics
+// step's Transform write-back, where on_update runs before the step. Probe: both hooks
+// stamp x through set_position. The early stamp is overwritten by the same tick's
+// write-back on a dynamic body; the late stamp survives to the end of the tick. A late
+// pass wrongly ordered before physics would lose both stamps.
+void lateUpdateReadsThePostStepPose() {
+    rb::Runtime runtime;
+    rb::AssetManager& assets = runtime.addResource<rb::AssetManager>();
+    const rb::Uuid id = addScript(assets,
+                                  "function on_update(self, dt)\n"
+                                  "  local x, y, z = self:position()\n"
+                                  "  self:set_position(999.0, y, z)\n"
+                                  "end\n"
+                                  "function on_late_update(self, dt)\n"
+                                  "  local x, y, z = self:position()\n"
+                                  "  self:set_position(42.0, y, z)\n"
+                                  "end\n");
+
+    const rb::Entity ball = scriptedEntity(runtime, id);
+    runtime.scene().get<rb::Transform>(ball).position.y = 5.0f;
+    runtime.scene().add<rb::RigidBody>(ball, rb::RigidBody{rb::BodyType::Dynamic});
+    runtime.scene().add<rb::BoxCollider>(ball,
+                                         rb::BoxCollider{glm::vec3(0.5f), glm::vec3(0.0f)});
+
+    rb::ScriptSystem& scripts = runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>();
+    runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
+    runtime.addSystem<rb::ScriptLateSystem, rb::SystemPhase::Play>(scripts);
+    runtime.start();
+    runtime.beginPlay();
+    runtime.setPlaying(true);
+    for (int i = 0; i < 10; ++i) {
+        runtime.tick(rb::kFixedDelta);
+    }
+    const rb::Transform& transform = runtime.scene().get<rb::Transform>(ball);
+    CHECK(approx(transform.position.x, 42.0f)); // the late stamp outlived the write-back
+    CHECK(transform.position.y < 5.0f);         // the body fell: a step ran between hooks
+    runtime.setPlaying(false);
+    runtime.endPlay();
+}
+
 int main() {
     playGatesAndUpdatesMove();
     onStartRunsOnce();
@@ -798,6 +842,7 @@ int main() {
     worldLoadSceneSwitchesAndStopRestores();
     worldLoadSceneLastRequestWinsAndUnknownIsSafe();
     spawnedScriptedWispsRunAndAreFindable();
+    lateUpdateReadsThePostStepPose();
     worldShakeDrivesAndDecays();
     worldShakeRefusesGarbage();
     return rbtest::summary("script");

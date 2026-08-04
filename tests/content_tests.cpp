@@ -92,8 +92,10 @@ void orbHuntPlaysEndToEnd() {
 
     runtime.addSystem<rb::ScriptAssetResolveSystem>();
     runtime.addSystem<rb::TerrainSystem>();
-    runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&registry);
+    rb::ScriptSystem& scripts =
+        runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&registry);
     runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
+    runtime.addSystem<rb::ScriptLateSystem, rb::SystemPhase::Play>(scripts);
     runtime.start();
 
     runtime.tick(0.1f);
@@ -200,8 +202,10 @@ struct Demo {
         // catalogued asset instead of merely being well-formed hex.
         runtime.addSystem<rb::PrefabAssetResolveSystem>();
         runtime.addSystem<rb::TerrainSystem>();
-        runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&registry);
+        rb::ScriptSystem& scripts =
+            runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&registry);
         runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
+        runtime.addSystem<rb::ScriptLateSystem, rb::SystemPhase::Play>(scripts);
         runtime.addSystem<rb::TransformSystem>();
         runtime.addSystem<rb::ParticleSystem>(); // the content's emitters actually simulate
         runtime.start();

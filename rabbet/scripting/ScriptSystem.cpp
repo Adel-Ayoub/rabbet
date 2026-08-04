@@ -240,13 +240,18 @@ struct ScriptSystem::Impl {
         sol::environment env;
         sol::protected_function onStart;
         sol::protected_function onUpdate;
+        sol::protected_function onLateUpdate;
         sol::object self;
         Uuid script;
         std::uint32_t revision = 0;
-        bool compiled = false;    // a compile was attempted for (script, revision)
-        bool ok = false;          // the attempt produced runnable hooks
-        bool started = false;     // on_start has run this play session
-        bool errorLogged = false; // a runtime error was already reported (throttle)
+        bool compiled = false; // a compile was attempted for (script, revision)
+        bool ok = false;       // the attempt produced runnable hooks
+        bool started = false;  // on_start has run this play session
+        // One throttle per hook, reset on recompile: an early-hook error must not
+        // swallow the first report from the late hook, or the other way round.
+        bool errorLoggedStart = false;
+        bool errorLoggedUpdate = false;
+        bool errorLoggedLate = false;
     };
 
     struct PendingSpawn {
@@ -377,7 +382,9 @@ struct ScriptSystem::Impl {
                  ScriptComponent& component) {
         instance.ok = false;
         instance.started = false;
-        instance.errorLogged = false;
+        instance.errorLoggedStart = false;
+        instance.errorLoggedUpdate = false;
+        instance.errorLoggedLate = false;
         const std::string chunkName = "@" + asset.path.string();
 
         sol::environment env(lua, sol::create, lua.globals());
@@ -401,19 +408,21 @@ struct ScriptSystem::Impl {
         instance.self = sol::make_object(lua, ScriptEntity{&rt, entity});
         instance.onStart = instance.env["on_start"];
         instance.onUpdate = instance.env["on_update"];
+        instance.onLateUpdate = instance.env["on_late_update"];
         instance.ok = true;
     }
 
-    void invoke(Instance& instance, sol::protected_function& fn, const char* hook, float dt) {
+    void invoke(Instance& instance, sol::protected_function& fn, const char* hook, float dt,
+                bool& errorLogged) {
         if (!fn.valid()) {
             return;
         }
         sol::protected_function_result result =
             (dt < 0.0f) ? fn(instance.self) : fn(instance.self, static_cast<double>(dt));
-        if (!result.valid() && !instance.errorLogged) {
+        if (!result.valid() && !errorLogged) {
             const sol::error err = result;
             log::error("script: {} error: {}", hook, err.what());
-            instance.errorLogged = true; // throttle: report once until the script recompiles
+            errorLogged = true; // throttle: report once until the script recompiles
         }
     }
 
@@ -454,26 +463,16 @@ struct ScriptSystem::Impl {
             }
             syncFields(instance, component);
             if (!instance.started) {
-                invoke(instance, instance.onStart, "on_start", -1.0f);
+                invoke(instance, instance.onStart, "on_start", -1.0f, instance.errorLoggedStart);
                 instance.started = true;
             }
-            invoke(instance, instance.onUpdate, "on_update", dt);
+            invoke(instance, instance.onUpdate, "on_update", dt, instance.errorLoggedUpdate);
         });
 
         // Apply the tick's world.spawn / world.destroy queues now that the component
         // iteration is over.
         applySpawns(rt);
-        for (const Entity e : pendingDestroy) {
-            // The whole subtree goes, mirroring the editor's delete: destroying a spawned
-            // multi-entity prefab must not leak its children as orphans whose local pose
-            // gets reinterpreted as a world pose.
-            for (const Entity member : collectSubtree(scene, e)) {
-                instances.erase(member);
-                scene.destroy(member);
-            }
-            instances.erase(e); // a handle already dead when the queue drains still drops its instance
-        }
-        pendingDestroy.clear();
+        applyDestroys(scene);
 
         // Reap instances whose entity died outside the queue (editor delete during play,
         // a parent's cascade), mirroring the audio/particle reaps; the environments would
@@ -489,6 +488,57 @@ struct ScriptSystem::Impl {
         // The swap is the tick's last deferred apply: spawns and destroys queued alongside
         // it land in the outgoing scene and are replaced with it.
         applyLoadScene(rt);
+    }
+
+    // The tick's late half, driven by ScriptLateSystem after the physics step so a hook
+    // here reads the poses the step just wrote. Compilation and on_start belong to the
+    // early pass: an entity first scripted mid-tick waits for its first full tick. The
+    // deferred queues drain again on the way out; they only hold what a late hook queued.
+    void late(Runtime& rt, float dt) {
+        AssetManager* assets = rt.tryResource<AssetManager>();
+        if (assets == nullptr) {
+            return;
+        }
+        constexpr float kMaxStep = 0.1f;
+        dt = std::min(dt, kMaxStep);
+        input = rt.tryResource<Input>();
+        runtime = &rt;
+        nameIndexRebuilt = false; // the early drain may have spawned or destroyed entities
+        Scene& scene = rt.scene();
+
+        scene.each<ScriptComponent>([&](Entity entity, ScriptComponent& component) {
+            // The same gate as the early pass: a slot cleared mid-play must silence this
+            // hook too, or its leftover instance keeps steering the world with no script
+            // on the component.
+            if (!component.handle.valid() ||
+                assets->get<ScriptAsset>(component.handle) == nullptr) {
+                return;
+            }
+            auto it = instances.find(entity);
+            if (it == instances.end() || !it->second.ok || !it->second.started) {
+                return;
+            }
+            invoke(it->second, it->second.onLateUpdate, "on_late_update", dt,
+                   it->second.errorLoggedLate);
+        });
+
+        applySpawns(rt);
+        applyDestroys(scene);
+        applyLoadScene(rt);
+    }
+
+    void applyDestroys(Scene& scene) {
+        for (const Entity e : pendingDestroy) {
+            // The whole subtree goes, mirroring the editor's delete: destroying a spawned
+            // multi-entity prefab must not leak its children as orphans whose local pose
+            // gets reinterpreted as a world pose.
+            for (const Entity member : collectSubtree(scene, e)) {
+                instances.erase(member);
+                scene.destroy(member);
+            }
+            instances.erase(e); // a handle already dead when the queue drains still drops its instance
+        }
+        pendingDestroy.clear();
     }
 
     void warnSpawn(const std::string& prefab, const char* why) {
@@ -614,6 +664,12 @@ ScriptSystem::ScriptSystem(const ComponentRegistry* registry)
 ScriptSystem::~ScriptSystem() = default;
 
 void ScriptSystem::onUpdate(Runtime& runtime, float dt) { m_impl->update(runtime, dt); }
+
+void ScriptSystem::lateUpdate(Runtime& runtime, float dt) { m_impl->late(runtime, dt); }
+
+void ScriptLateSystem::onUpdate(Runtime& runtime, float dt) {
+    m_scripts->lateUpdate(runtime, dt);
+}
 
 std::size_t ScriptSystem::instanceCount() const { return m_impl->instances.size(); }
 

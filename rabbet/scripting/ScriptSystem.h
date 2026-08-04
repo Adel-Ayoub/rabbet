@@ -27,6 +27,10 @@ void introspectScriptFields(const std::string& source, std::vector<ScriptField>&
 // spawning, and queues a scene switch (load_scene), all applied at end-of-tick so the
 // component pool is never mutated while scripts iterate. sol2 and Lua live entirely behind
 // the impl, so this header, and the rest of the engine and editor, never includes them.
+// The third hook, on_late_update, is driven by ScriptLateSystem after the physics step:
+// a script that tracks a body (a follow camera) reads the pose the step just wrote there,
+// where on_update still reads last tick's. world.* calls made from the late hook follow
+// the same deferral rules and are applied when the late pass ends.
 class ScriptSystem final : public System {
 public:
     // The registry powers world.spawn and world.load_scene (component loading through the
@@ -44,6 +48,10 @@ public:
     void onPlayBegin(Runtime& runtime) override;
     void onPlayEnd(Runtime& runtime) override;
 
+    // The tick's late half: on_late_update over the instances the early pass compiled.
+    // ScriptLateSystem calls this; hosts never do directly.
+    void lateUpdate(Runtime& runtime, float dt);
+
     // Live compiled-instance count. An observation seam: instances are reaped when their
     // entity dies, and leaks here are invisible from gameplay-facing state.
     [[nodiscard]] std::size_t instanceCount() const;
@@ -51,6 +59,19 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;
+};
+
+// Dispatches on_late_update. Register it after PhysicsSystem in the host's Play set. It
+// holds a plain pointer to the paired ScriptSystem and touches it only inside onUpdate,
+// while both systems are alive inside the same runtime.
+class ScriptLateSystem final : public System {
+public:
+    explicit ScriptLateSystem(ScriptSystem& scripts) : m_scripts(&scripts) {}
+
+    void onUpdate(Runtime& runtime, float dt) override;
+
+private:
+    ScriptSystem* m_scripts;
 };
 
 } // namespace rb

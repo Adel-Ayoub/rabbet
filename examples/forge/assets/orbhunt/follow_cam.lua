@@ -1,6 +1,6 @@
 fields = { height = 6.0, back = 9.0 }
 
-function on_update(self, dt)
+function on_late_update(self, dt)
   local player = world.find("Player")
   if player == nil then return end
   local x, y, z = player:position()

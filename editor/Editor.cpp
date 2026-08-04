@@ -36,6 +36,7 @@
 #include "rabbet/render/RenderView.h"
 #include "rabbet/scene/CameraShake.h"
 #include "rabbet/scene/CameraShakeSystem.h"
+#include "rabbet/scene/CameraSystem.h"
 #include "rabbet/scene/CameraView.h"
 #include "rabbet/render/EnvironmentLighting.h"
 #include "rabbet/render/Skybox.h"
@@ -208,8 +209,16 @@ void Editor::buildDefaultScene() {
     // Before ScriptSystem: a shake fired this tick must not be decayed until it has
     // been drawn once at full strength.
     m_runtime.addSystem<rb::CameraShakeSystem, rb::SystemPhase::Play>();
-    m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&m_context.registry);
+    rb::ScriptSystem& scripts =
+        m_runtime.addSystem<rb::ScriptSystem, rb::SystemPhase::Play>(&m_context.registry);
     m_runtime.addSystem<rb::PhysicsSystem, rb::SystemPhase::Play>();
+    // Order matters through here: late scripts read the poses the step just wrote, the
+    // camera refresh then rebuilds the play RenderView from wherever those scripts put
+    // the camera, and audio spatialises against that view. The view renderScene() stores
+    // before the tick is a frame stale by the time RenderSystem draws, so without the
+    // in-tick refresh a follow camera trails its target by one step on screen.
+    m_runtime.addSystem<rb::ScriptLateSystem, rb::SystemPhase::Play>(scripts);
+    m_runtime.addSystem<rb::CameraSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::AudioSystem, rb::SystemPhase::Play>();
     m_runtime.addSystem<rb::TransformSystem>();
     m_runtime.addSystem<rb::LightSystem>();
@@ -521,6 +530,9 @@ void Editor::renderScene(int width, int height, float dt) {
     m_device.setClearColor(glm::vec4(0.30f, 0.37f, 0.47f, 1.0f)); // fallback sky tint
     m_device.clear();
     m_runtime.tick(dt);
+    // The tick's camera refresh may have rebuilt the play view; the gizmo overlay must
+    // draw through the same matrices as the frame or it trails the image by one step.
+    m_context.renderView = m_runtime.resource<rb::RenderView>();
     if (m_context.showGrid && !m_runtime.inPlaySession()) {
         m_grid.draw(renderView.view, renderView.projection, renderView.position,
                     rb::activePostProcess(m_runtime.scene()) != nullptr);
