@@ -17,6 +17,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Declared before third_party so the nfd target (editor-only) can gate on it there.
 option(RABBET_BUILD_EDITOR "Build the ImGui editor" ON)
+option(RABBET_VULKAN "Build the Vulkan backend and triangle example" OFF)
 
 # nfd's macOS backend is Objective-C; the language has to be enabled at the top level
 # (a subdirectory enable_language leaves the generator without OBJC compile rules).
@@ -194,6 +195,10 @@ if(TARGET Jolt)
 endif()
 
 find_package(OpenGL REQUIRED)
+
+if(RABBET_VULKAN)
+    find_package(Vulkan 1.3.240 REQUIRED COMPONENTS glslc)
+endif()
 
 option(RABBET_BUILD_TESTS "Build the unit test suite" ON)
 

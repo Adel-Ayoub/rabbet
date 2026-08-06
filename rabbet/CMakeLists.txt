@@ -215,3 +215,33 @@ target_link_libraries(rabbet
 target_compile_features(rabbet PUBLIC cxx_std_20)
 
 rb_target_warnings(rabbet)
+
+if(RABBET_VULKAN)
+    add_library(rabbet_vulkan STATIC
+        render/vulkan/Instance.cpp
+        render/vulkan/Device.cpp
+        render/vulkan/Swapchain.cpp
+        render/vulkan/FrameLoop.cpp)
+    add_library(Rabbet::Vulkan ALIAS rabbet_vulkan)
+
+    target_sources(rabbet_vulkan
+        PUBLIC
+            FILE_SET rb_vulkan_headers TYPE HEADERS
+            BASE_DIRS "${PROJECT_SOURCE_DIR}"
+            FILES
+                render/vulkan/Instance.h
+                render/vulkan/Device.h
+                render/vulkan/Swapchain.h
+                render/vulkan/FrameLoop.h)
+
+    target_include_directories(rabbet_vulkan PUBLIC
+        "${PROJECT_SOURCE_DIR}")
+
+    target_link_libraries(rabbet_vulkan
+        PUBLIC
+            Vulkan::Vulkan
+            glfw)
+
+    target_compile_features(rabbet_vulkan PUBLIC cxx_std_20)
+    rb_target_warnings(rabbet_vulkan)
+endif()
