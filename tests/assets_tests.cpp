@@ -28,7 +28,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -128,8 +127,8 @@ static void corruptSidecarIsNotOverwritten() {
     (void)rb::assetmeta::loadOrCreate(asset, rb::AssetType::Model);
 
     std::ifstream in(sidecar);
-    const std::string contents((std::istreambuf_iterator<char>(in)),
-                               std::istreambuf_iterator<char>());
+    std::string contents;
+    std::getline(in, contents, '\0');
     CHECK(contents.find("not valid json") != std::string::npos);
 
     std::filesystem::remove(sidecar, ec);

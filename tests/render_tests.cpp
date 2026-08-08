@@ -640,7 +640,11 @@ static void materialSaveLoadFileRoundTrip() {
         assets.add<rb::MaterialAsset>(std::move(mat), rb::Uuid::generate());
 
     CHECK(rb::saveMaterialAsset(assets, handle));
-    CHECK(assets.get<rb::MaterialAsset>(handle)->dirty == false); // save clears dirty
+    const rb::MaterialAsset* saved = assets.get<rb::MaterialAsset>(handle);
+    CHECK(saved != nullptr);
+    if (saved != nullptr) {
+        CHECK(!saved->dirty);
+    }
 
     rb::AssetManager other; // fresh manager avoids the path cache
     rb::MaterialAsset* loaded = other.get<rb::MaterialAsset>(rb::loadMaterialAsset(other, path));

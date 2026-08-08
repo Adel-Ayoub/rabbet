@@ -108,7 +108,7 @@ chooseCompositeAlpha(VkCompositeAlphaFlagsKHR supported) {
         VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
     };
     for (const VkCompositeAlphaFlagBitsKHR candidate : candidates) {
-        if ((supported & candidate) != 0U) {
+        if ((supported & static_cast<VkCompositeAlphaFlagsKHR>(candidate)) != 0U) {
             return candidate;
         }
     }

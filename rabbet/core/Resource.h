@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdlib>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -55,6 +56,9 @@ public:
     [[nodiscard]] T& get() noexcept {
         T* ptr = tryGet<T>();
         assert(ptr != nullptr && "resource has not been registered");
+        if (ptr == nullptr) {
+            std::abort();
+        }
         return *ptr;
     }
 

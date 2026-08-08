@@ -73,10 +73,10 @@ FetchContent_Declare(
 set(GLM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLM_BUILD_LIBRARY OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glm)
-if(TARGET glm)
-    get_target_property(_glm_includes glm INTERFACE_INCLUDE_DIRECTORIES)
+if(TARGET glm-header-only)
+    get_target_property(_glm_includes glm-header-only INTERFACE_INCLUDE_DIRECTORIES)
     if(_glm_includes)
-        set_target_properties(glm PROPERTIES
+        set_target_properties(glm-header-only PROPERTIES
             INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_glm_includes}")
     endif()
 endif()

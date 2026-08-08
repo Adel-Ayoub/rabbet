@@ -353,7 +353,7 @@ struct ScriptSystem::Impl {
     }
 
     void syncFields(Instance& instance, const ScriptComponent& component) {
-        sol::object existing = instance.env["fields"];
+        sol::object existing = instance.env.get<sol::object>("fields");
         sol::table table;
         if (existing.is<sol::table>()) {
             table = existing.as<sol::table>();
@@ -394,7 +394,7 @@ struct ScriptSystem::Impl {
             log::error("script: parse error in '{}': {}", asset.path.string(), err.what());
             return;
         }
-        sol::protected_function chunk = loaded;
+        sol::protected_function chunk = loaded.get<sol::protected_function>();
         sol::set_environment(env, chunk);
         const sol::protected_function_result ran = chunk();
         if (!ran.valid()) {
@@ -403,12 +403,12 @@ struct ScriptSystem::Impl {
             return;
         }
 
-        mergeDeclaredFields(component.fields, env["fields"]);
+        mergeDeclaredFields(component.fields, env.get<sol::object>("fields"));
         instance.env = std::move(env);
         instance.self = sol::make_object(lua, ScriptEntity{&rt, entity});
-        instance.onStart = instance.env["on_start"];
-        instance.onUpdate = instance.env["on_update"];
-        instance.onLateUpdate = instance.env["on_late_update"];
+        instance.onStart = instance.env.get<sol::protected_function>("on_start");
+        instance.onUpdate = instance.env.get<sol::protected_function>("on_update");
+        instance.onLateUpdate = instance.env.get<sol::protected_function>("on_late_update");
         instance.ok = true;
     }
 
@@ -705,12 +705,12 @@ void introspectScriptFields(const std::string& source, std::vector<ScriptField>&
     if (!loaded.valid()) {
         return; // a script that won't parse keeps whatever fields it already had
     }
-    sol::protected_function chunk = loaded;
+    sol::protected_function chunk = loaded.get<sol::protected_function>();
     sol::set_environment(env, chunk);
     if (!chunk().valid()) {
         return;
     }
-    mergeDeclaredFields(fields, env["fields"]);
+    mergeDeclaredFields(fields, env.get<sol::object>("fields"));
 }
 
 } // namespace rb
