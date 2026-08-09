@@ -1,11 +1,18 @@
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 
 struct GLFWwindow;
 
 namespace rb {
+
+namespace gl {
+class Device;
+}
+
+enum class WindowClientApi { OpenGL, None };
 
 struct WindowConfig {
     int width = 1280;
@@ -14,6 +21,7 @@ struct WindowConfig {
     bool vsync = true;
     bool resizable = true;
     bool fullscreen = false; // borderless, sized to the primary monitor
+    WindowClientApi clientApi = WindowClientApi::OpenGL;
 };
 
 class Window {
@@ -28,19 +36,22 @@ public:
 
     [[nodiscard]] bool shouldClose() const noexcept;
     void requestClose() const noexcept;
-    void swapBuffers() const noexcept;
     void pollEvents() const noexcept;
     void setCursorCaptured(bool captured) const noexcept;
 
     [[nodiscard]] int width() const noexcept;
     [[nodiscard]] int height() const noexcept;
-    [[nodiscard]] GLFWwindow* handle() const noexcept { return m_handle; }
+    [[nodiscard]] WindowClientApi clientApi() const noexcept { return m_clientApi; }
+    [[nodiscard]] GLFWwindow* handle() const noexcept { return m_handle.get(); }
 
 private:
-    explicit Window(GLFWwindow* handle) noexcept;
+    friend class gl::Device;
+
+    Window(std::shared_ptr<GLFWwindow> handle, WindowClientApi clientApi) noexcept;
     void destroy() noexcept;
 
-    GLFWwindow* m_handle = nullptr;
+    std::shared_ptr<GLFWwindow> m_handle;
+    WindowClientApi m_clientApi = WindowClientApi::OpenGL;
 };
 
 } // namespace rb

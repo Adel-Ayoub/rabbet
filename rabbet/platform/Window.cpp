@@ -19,8 +19,15 @@ void onGlfwError(int code, const char* description) {
     log::error("GLFW error {}: {}", code, description);
 }
 
-void onFramebufferResize(GLFWwindow*, int width, int height) {
+void onFramebufferResize(GLFWwindow* window, int width, int height) {
+    GLFWwindow* previous = glfwGetCurrentContext();
+    if (previous != window) {
+        glfwMakeContextCurrent(window);
+    }
     glViewport(0, 0, width, height);
+    if (previous != window) {
+        glfwMakeContextCurrent(previous);
+    }
 }
 
 } // namespace
@@ -34,10 +41,16 @@ std::optional<Window> Window::create(const WindowConfig& config) {
         }
     }
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+    glfwDefaultWindowHints();
+    if (config.clientApi == WindowClientApi::OpenGL) {
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+    } else {
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    }
     glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GLFW_TRUE : GLFW_FALSE);
 
     int width = config.width;
@@ -62,43 +75,60 @@ std::optional<Window> Window::create(const WindowConfig& config) {
         return std::nullopt;
     }
 
-    glfwMakeContextCurrent(handle);
+    if (config.clientApi == WindowClientApi::OpenGL) {
+        glfwMakeContextCurrent(handle);
 
-    if (gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)) == 0) {
-        log::error("failed to load OpenGL function pointers");
-        glfwDestroyWindow(handle);
-        if (g_liveWindows == 0) {
-            glfwTerminate();
+        if (gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)) == 0) {
+            log::error("failed to load OpenGL function pointers");
+            glfwDestroyWindow(handle);
+            if (g_liveWindows == 0) {
+                glfwTerminate();
+            }
+            return std::nullopt;
         }
-        return std::nullopt;
+
+        glfwSwapInterval(config.vsync ? 1 : 0);
+        glfwSetFramebufferSizeCallback(handle, onFramebufferResize);
     }
 
     if (config.fullscreen) {
         glfwSetWindowPos(handle, 0, 0);
     }
 
-    glfwSwapInterval(config.vsync ? 1 : 0);
-    glfwSetFramebufferSizeCallback(handle, onFramebufferResize);
-
     int fbWidth = 0;
     int fbHeight = 0;
     glfwGetFramebufferSize(handle, &fbWidth, &fbHeight);
-    glViewport(0, 0, fbWidth, fbHeight);
+    if (config.clientApi == WindowClientApi::OpenGL) {
+        glViewport(0, 0, fbWidth, fbHeight);
+    }
 
     ++g_liveWindows;
-    log::info("window created ({}x{}), OpenGL {}", fbWidth, fbHeight,
-              reinterpret_cast<const char*>(glGetString(GL_VERSION)));
-    return Window(handle);
+    std::shared_ptr<GLFWwindow> ownedHandle(handle, [](GLFWwindow* window) {
+        glfwDestroyWindow(window);
+        if (--g_liveWindows == 0) {
+            glfwTerminate();
+        }
+    });
+    if (config.clientApi == WindowClientApi::OpenGL) {
+        log::info("window created ({}x{}), OpenGL {}", fbWidth, fbHeight,
+                  reinterpret_cast<const char*>(glGetString(GL_VERSION)));
+    } else {
+        log::info("window created ({}x{}), no client API", fbWidth, fbHeight);
+    }
+    return Window(std::move(ownedHandle), config.clientApi);
 }
 
-Window::Window(GLFWwindow* handle) noexcept : m_handle(handle) {}
+Window::Window(std::shared_ptr<GLFWwindow> handle, WindowClientApi clientApi) noexcept
+    : m_handle(std::move(handle)), m_clientApi(clientApi) {}
 
-Window::Window(Window&& other) noexcept : m_handle(std::exchange(other.m_handle, nullptr)) {}
+Window::Window(Window&& other) noexcept
+    : m_handle(std::move(other.m_handle)), m_clientApi(other.m_clientApi) {}
 
 Window& Window::operator=(Window&& other) noexcept {
     if (this != &other) {
         destroy();
-        m_handle = std::exchange(other.m_handle, nullptr);
+        m_handle = std::move(other.m_handle);
+        m_clientApi = other.m_clientApi;
     }
     return *this;
 }
@@ -108,26 +138,15 @@ Window::~Window() {
 }
 
 void Window::destroy() noexcept {
-    if (m_handle == nullptr) {
-        return;
-    }
-    glfwDestroyWindow(m_handle);
-    m_handle = nullptr;
-    if (--g_liveWindows == 0) {
-        glfwTerminate();
-    }
+    m_handle.reset();
 }
 
 bool Window::shouldClose() const noexcept {
-    return glfwWindowShouldClose(m_handle) != 0;
+    return glfwWindowShouldClose(m_handle.get()) != 0;
 }
 
 void Window::requestClose() const noexcept {
-    glfwSetWindowShouldClose(m_handle, GLFW_TRUE);
-}
-
-void Window::swapBuffers() const noexcept {
-    glfwSwapBuffers(m_handle);
+    glfwSetWindowShouldClose(m_handle.get(), GLFW_TRUE);
 }
 
 void Window::pollEvents() const noexcept {
@@ -135,20 +154,21 @@ void Window::pollEvents() const noexcept {
 }
 
 void Window::setCursorCaptured(bool captured) const noexcept {
-    glfwSetInputMode(m_handle, GLFW_CURSOR, captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+    glfwSetInputMode(m_handle.get(), GLFW_CURSOR,
+                     captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
 }
 
 int Window::width() const noexcept {
     int w = 0;
     int h = 0;
-    glfwGetFramebufferSize(m_handle, &w, &h);
+    glfwGetFramebufferSize(m_handle.get(), &w, &h);
     return w;
 }
 
 int Window::height() const noexcept {
     int w = 0;
     int h = 0;
-    glfwGetFramebufferSize(m_handle, &w, &h);
+    glfwGetFramebufferSize(m_handle.get(), &w, &h);
     return h;
 }
 

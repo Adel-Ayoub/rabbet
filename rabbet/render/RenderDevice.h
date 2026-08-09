@@ -1,11 +1,17 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string_view>
 
 #include <glm/glm.hpp>
 
 namespace rb {
+
+class Window;
+enum class WindowClientApi;
+
+enum class RendererBackend { Auto, OpenGL, Vulkan };
 
 class RenderDevice {
 public:
@@ -21,10 +27,16 @@ public:
     virtual void clear() = 0;
     virtual void setDepthTest(bool enabled) = 0;
     virtual void setCullFace(bool enabled) = 0;
+    virtual void present() = 0;
 
     [[nodiscard]] virtual std::string_view backendName() const = 0;
 };
 
-[[nodiscard]] std::unique_ptr<RenderDevice> createRenderDevice();
+[[nodiscard]] std::optional<RendererBackend>
+rendererBackendFromName(std::string_view name) noexcept;
+[[nodiscard]] RendererBackend resolveRendererBackend(RendererBackend backend) noexcept;
+[[nodiscard]] WindowClientApi windowClientApiForRenderer(RendererBackend backend) noexcept;
+[[nodiscard]] std::unique_ptr<RenderDevice> createRenderDevice(RendererBackend backend,
+                                                               Window& window);
 
 } // namespace rb

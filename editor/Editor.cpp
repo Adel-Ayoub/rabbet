@@ -736,7 +736,7 @@ void Editor::run() {
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        m_window.swapBuffers();
+        m_device.present();
     }
 
     m_runtime.stop();

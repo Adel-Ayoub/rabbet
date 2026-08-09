@@ -1,6 +1,7 @@
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/core/Runtime.h"
 #include "rabbet/ecs/Scene.h"
+#include "rabbet/platform/Window.h"
 #include "rabbet/render/Geometry.h"
 #include "rabbet/render/ImageLoader.h"
 #include "rabbet/render/MaterialAsset.h"
@@ -9,6 +10,7 @@
 #include "rabbet/render/MaterialImport.h"
 #include "rabbet/render/ModelLoader.h"
 #include "rabbet/render/PostProcess.h"
+#include "rabbet/render/RenderDevice.h"
 #include "rabbet/render/ShaderAsset.h"
 #include "rabbet/render/ShaderImport.h"
 #include "rabbet/render/ShaderUniform.h"
@@ -81,11 +83,22 @@ static void sphereVerticesLieOnRadius() {
     CHECK(onSurface);
 }
 
+static void rendererSelectionContract() {
+    CHECK(rb::rendererBackendFromName("auto") == rb::RendererBackend::Auto);
+    CHECK(rb::rendererBackendFromName("opengl") == rb::RendererBackend::OpenGL);
+    CHECK(rb::rendererBackendFromName("vulkan") == rb::RendererBackend::Vulkan);
+    CHECK(!rb::rendererBackendFromName("metal").has_value());
+    CHECK(rb::resolveRendererBackend(rb::RendererBackend::Auto) == rb::RendererBackend::OpenGL);
+    CHECK(rb::windowClientApiForRenderer(rb::RendererBackend::Auto) == rb::WindowClientApi::OpenGL);
+    CHECK(rb::windowClientApiForRenderer(rb::RendererBackend::Vulkan) == rb::WindowClientApi::None);
+}
+
 void renderGeometrySuite() {
     primitiveCounts();
     cubeIndicesAreInRange();
     quadIsUnitCentered();
     sphereVerticesLieOnRadius();
+    rendererSelectionContract();
 }
 
 namespace {

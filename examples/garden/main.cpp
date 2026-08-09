@@ -108,7 +108,11 @@ int main() {
     }
     window->setCursorCaptured(true);
 
-    auto device = rb::createRenderDevice();
+    auto device = rb::createRenderDevice(rb::RendererBackend::Auto, *window);
+    if (!device) {
+        rb::log::error("garden could not create the render device");
+        return 1;
+    }
     device->setDepthTest(true);
 
     rb::Runtime runtime;
@@ -135,7 +139,7 @@ int main() {
 
         runtime.tick(clock.tick());
 
-        window->swapBuffers();
+        device->present();
     }
 
     runtime.stop();

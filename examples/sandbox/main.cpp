@@ -212,7 +212,11 @@ int main() {
         return 1;
     }
 
-    auto device = rb::createRenderDevice();
+    auto device = rb::createRenderDevice(rb::RendererBackend::Auto, *window);
+    if (!device) {
+        rb::log::error("sandbox could not create the render device");
+        return 1;
+    }
     rb::log::info("render backend: {}", device->backendName());
     device->setDepthTest(true);
 
@@ -240,7 +244,7 @@ int main() {
 
         runtime.tick(clock.tick());
 
-        window->swapBuffers();
+        device->present();
     }
 
     runtime.stop();
