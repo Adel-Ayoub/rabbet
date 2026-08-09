@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 
 #include <nlohmann/json.hpp>
@@ -71,9 +72,10 @@ private:
     bool m_cameraActive = false;
     bool m_nfdReady = false; // NFD_Init succeeded; the dialog actions no-op with an error when false
 
-    // Play mode: a snapshot is taken on Play and reloaded on Stop, so gameplay edits
-    // never touch the authored scene. Pause freezes Play systems; Step runs one frame.
+    // Starting a session records the authored scene and its selected entity. Stopping
+    // discards runtime changes, while Pause and Step only control system updates.
     nlohmann::json m_snapshot;
+    std::optional<std::size_t> m_snapshotSelectionIndex;
     bool m_playSession = false;
     bool m_paused = false;
     bool m_step = false;

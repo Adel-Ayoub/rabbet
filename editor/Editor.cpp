@@ -639,7 +639,15 @@ void Editor::openScene() {
 }
 
 void Editor::startPlay() {
-    // Snapshot the authored scene; gameplay edits during play are discarded on Stop.
+    // Both the scene and selected entity return to this authored state when Play stops.
+    const auto entities = m_runtime.scene().entities();
+    m_snapshotSelectionIndex.reset();
+    for (std::size_t i = 0; i < entities.size(); ++i) {
+        if (entities[i] == m_context.selected) {
+            m_snapshotSelectionIndex = i;
+            break;
+        }
+    }
     m_snapshot = rb::SceneSerializer::toJson(m_runtime.scene(), m_registry);
     m_runtime.beginPlay(); // fire onPlayBegin (scripts reset for a fresh session)
     m_playSession = true;
@@ -656,7 +664,13 @@ void Editor::stopPlay() {
     m_runtime.endPlay(); // fire onPlayEnd while entities still exist (scripts tear down)
     m_runtime.scene().clear();
     rb::SceneSerializer::fromJson(m_snapshot, m_runtime.scene(), m_registry);
-    m_context.selected = rb::Entity{};
+    const auto entities = m_runtime.scene().entities();
+    if (m_snapshotSelectionIndex.has_value() && *m_snapshotSelectionIndex < entities.size()) {
+        m_context.selected = entities[*m_snapshotSelectionIndex];
+    } else {
+        m_context.selected = rb::Entity{};
+    }
+    m_snapshotSelectionIndex.reset();
     rb::log::info("editor: stop (scene restored)");
 }
 
