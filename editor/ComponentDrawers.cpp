@@ -550,15 +550,29 @@ void drawMaterialInspector(EditorContext& context, rb::Entity e) {
         return;
     }
     rb::ShaderAsset* shader = assets->get<rb::ShaderAsset>(material->shaderHandle);
+    const std::string shaderStatus = material->shader.toString().substr(0, 8) + "  " +
+                                     (shader != nullptr ? "resolved" : "unresolved");
+    const std::string reloadLabel = std::string(icon::kRotateCcw) + "  Reload";
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float rowStartX = ImGui::GetCursorPosX();
+    const float rowWidth = ImGui::GetContentRegionAvail().x;
+    const float reloadWidth =
+        ImGui::CalcTextSize(reloadLabel.c_str()).x + 2.0f * style.FramePadding.x;
+    const bool reloadFitsInline =
+        ImGui::CalcTextSize(shaderStatus.c_str()).x + style.ItemSpacing.x + reloadWidth <= rowWidth;
+    const float reloadX = rowStartX + std::max(0.0f, rowWidth - reloadWidth);
+
     ImGui::AlignTextToFramePadding();
-    ImGui::TextDisabled("%s  %s", material->shader.toString().substr(0, 8).c_str(),
-                        shader != nullptr ? "resolved" : "unresolved");
+    ImGui::TextDisabled("%s", shaderStatus.c_str());
 
     const bool hasFile = shader != nullptr && !shader->path.empty();
-    ImGui::SameLine(ui::labelColumnWidth());
+    if (reloadFitsInline) {
+        ImGui::SameLine(reloadX);
+    } else {
+        ImGui::SetCursorPosX(reloadX);
+    }
     ImGui::BeginDisabled(!hasFile);
-    if (ImGui::SmallButton((std::string(icon::kRotateCcw) + "  Reload").c_str()) &&
-        shader != nullptr) {
+    if (ImGui::SmallButton(reloadLabel.c_str()) && shader != nullptr) {
         shader->sourceTimestamp = 0; // force the resolve poll to re-read + recompile
     }
     ImGui::EndDisabled();
