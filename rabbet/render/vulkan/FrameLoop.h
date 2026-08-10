@@ -18,7 +18,14 @@ enum class FrameResult {
     rendered,
     idle,
     needsRecreate,
+    deviceLost,
     fatal,
+};
+
+enum class DeviceLossSite {
+    none,
+    submit,
+    present,
 };
 
 enum class SwapchainRecreateResult {
@@ -37,11 +44,18 @@ public:
     FrameLoop& operator=(const FrameLoop&) = delete;
     ~FrameLoop();
 
+    // After a fatal or deviceLost result every later call returns that result again
+    // without touching the device.
     [[nodiscard]] FrameResult draw(const Swapchain& swapchain);
     [[nodiscard]] SwapchainRecreateResult recreateSwapchain(Swapchain& swapchain,
                                                             VkExtent2D extent);
     [[nodiscard]] bool waitIdle() noexcept;
     [[nodiscard]] std::uint64_t frameCount() const noexcept;
+
+    // The next draw reaching the named site behaves as if the device were lost there,
+    // after its real work completed, so teardown still finds a healthy device.
+    void simulateDeviceLoss(DeviceLossSite site) noexcept;
+    [[nodiscard]] bool deviceLost() const noexcept;
 
 private:
     static constexpr std::size_t frameSlotCount = 2;
@@ -56,6 +70,7 @@ private:
               std::uint32_t queueFamily, std::span<const std::uint32_t> vertexCode,
               std::span<const std::uint32_t> fragmentCode);
 
+    [[nodiscard]] FrameResult drawFrame(const Swapchain& swapchain);
     [[nodiscard]] bool createFrameResources();
     [[nodiscard]] bool rebuild(const Swapchain& swapchain);
     [[nodiscard]] bool createPipeline(VkFormat format, VkPipelineLayout& layout,
@@ -66,6 +81,8 @@ private:
     [[nodiscard]] bool recordCommands(VkCommandBuffer commandBuffer, const Swapchain& swapchain,
                                       std::uint32_t imageIndex) const;
     [[nodiscard]] bool waitForPresentations() noexcept;
+    void reportDeviceLoss(const char* site) noexcept;
+    void consumeAcquiredImage(VkSemaphore imageAvailable) noexcept;
     void destroy() noexcept;
 
     VkDevice m_device{VK_NULL_HANDLE};
@@ -84,6 +101,9 @@ private:
     VkPipeline m_pipeline{VK_NULL_HANDLE};
     std::size_t m_currentFrame{0};
     std::uint64_t m_frameCount{0};
+    DeviceLossSite m_simulatedLoss{DeviceLossSite::none};
+    bool m_deviceLost{false};
+    bool m_fatal{false};
 };
 
 }

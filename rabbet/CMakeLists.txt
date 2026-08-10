@@ -221,7 +221,17 @@ if(RABBET_VULKAN)
         render/vulkan/Instance.cpp
         render/vulkan/Device.cpp
         render/vulkan/Swapchain.cpp
-        render/vulkan/FrameLoop.cpp)
+        render/vulkan/FrameLoop.cpp
+        render/vulkan/Allocator.cpp
+        render/vulkan/Buffer.cpp
+        render/vulkan/Image.cpp
+        render/vulkan/Sampler.cpp
+        render/vulkan/Descriptors.cpp
+        render/vulkan/Barriers.cpp
+        render/vulkan/Pipeline.cpp
+        render/vulkan/PipelineCache.cpp
+        render/vulkan/RetireQueue.cpp
+        render/vulkan/Readback.cpp)
     add_library(Rabbet::Vulkan ALIAS rabbet_vulkan)
 
     target_sources(rabbet_vulkan
@@ -232,7 +242,17 @@ if(RABBET_VULKAN)
                 render/vulkan/Instance.h
                 render/vulkan/Device.h
                 render/vulkan/Swapchain.h
-                render/vulkan/FrameLoop.h)
+                render/vulkan/FrameLoop.h
+                render/vulkan/Allocator.h
+                render/vulkan/Buffer.h
+                render/vulkan/Image.h
+                render/vulkan/Sampler.h
+                render/vulkan/Descriptors.h
+                render/vulkan/Barriers.h
+                render/vulkan/Pipeline.h
+                render/vulkan/PipelineCache.h
+                render/vulkan/RetireQueue.h
+                render/vulkan/Readback.h)
 
     target_include_directories(rabbet_vulkan PUBLIC
         "${PROJECT_SOURCE_DIR}")

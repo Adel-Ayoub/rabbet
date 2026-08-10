@@ -1,3 +1,4 @@
+#include "examples/vulkan_triangle/ObjectsPass.h"
 #include "rabbet/render/vulkan/Device.h"
 #include "rabbet/render/vulkan/FrameLoop.h"
 #include "rabbet/render/vulkan/Instance.h"
@@ -10,7 +11,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <fstream>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -41,6 +42,13 @@ struct TriangleMetrics {
     std::uint64_t minimizeWaits{0};
     double recreateTotalMilliseconds{0.0};
     double recreateMaximumMilliseconds{0.0};
+    bool objectsPassed{false};
+    bool deviceLost{false};
+};
+
+struct ProbeOptions {
+    bool objectsOnly{false};
+    rb::vulkan::DeviceLossSite forceLoss{rb::vulkan::DeviceLossSite::none};
 };
 
 void onGlfwError(int code, const char* description) {
@@ -53,28 +61,6 @@ void onFramebufferResize(GLFWwindow* window, int, int) {
         state->resizePending = true;
         ++state->resizeEvents;
     }
-}
-
-std::vector<std::uint32_t> loadSpirv(const std::string& path) {
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
-    if (!file) {
-        std::cerr << "Failed to open SPIR-V file " << path << '\n';
-        return {};
-    }
-    const std::streamsize size = static_cast<std::streamsize>(file.tellg());
-    if (size <= 0 || size % static_cast<std::streamsize>(sizeof(std::uint32_t)) != 0) {
-        std::cerr << "SPIR-V file has an invalid size " << path << '\n';
-        return {};
-    }
-
-    std::vector<std::uint32_t> code(
-        static_cast<std::size_t>(size / static_cast<std::streamsize>(sizeof(std::uint32_t))));
-    file.seekg(0);
-    if (!file.read(reinterpret_cast<char*>(code.data()), size)) {
-        std::cerr << "Failed to read SPIR-V file " << path << '\n';
-        return {};
-    }
-    return code;
 }
 
 bool framebufferExtent(GLFWwindow* window, VkExtent2D& extent) {
@@ -134,7 +120,7 @@ bool recreateSwapchain(GLFWwindow* window, rb::vulkan::Swapchain& swapchain,
 }
 
 int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation,
-                TriangleMetrics& metrics) {
+                TriangleMetrics& metrics, const ProbeOptions& options) {
     glfwSetErrorCallback(onGlfwError);
     glfwInitVulkanLoader(vkGetInstanceProcAddr);
     GlfwSession glfw;
@@ -150,6 +136,9 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    if (options.objectsOnly) {
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    }
     using Window = std::unique_ptr<GLFWwindow, decltype(&glfwDestroyWindow)>;
     Window window(glfwCreateWindow(960, 600, "Rabbet Vulkan Triangle", nullptr, nullptr),
                   glfwDestroyWindow);
@@ -171,6 +160,14 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
         return EXIT_FAILURE;
     }
 
+    const ObjectsPassPaths objectsPaths{RB_VULKAN_OBJECTS_VERTEX_SPV,
+                                        RB_VULKAN_OBJECTS_FRAGMENT_SPV,
+                                        RB_VULKAN_TRIANGLE_CACHE};
+    metrics.objectsPassed = runObjectsPass(*device, objectsPaths);
+    if (!metrics.objectsPassed || options.objectsOnly) {
+        return metrics.objectsPassed ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
     VkExtent2D initialExtent{};
     bool waitedForInitialRestore = false;
     while (!framebufferExtent(window.get(), initialExtent)) {
@@ -188,8 +185,8 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
         return EXIT_FAILURE;
     }
 
-    const auto vertexCode = loadSpirv(RB_VULKAN_TRIANGLE_VERTEX_SPV);
-    const auto fragmentCode = loadSpirv(RB_VULKAN_TRIANGLE_FRAGMENT_SPV);
+    const auto vertexCode = loadSpirvFile(RB_VULKAN_TRIANGLE_VERTEX_SPV);
+    const auto fragmentCode = loadSpirvFile(RB_VULKAN_TRIANGLE_FRAGMENT_SPV);
     auto frameLoop = rb::vulkan::FrameLoop::create(*device, *swapchain, vertexCode, fragmentCode);
     if (!frameLoop) {
         return EXIT_FAILURE;
@@ -206,6 +203,7 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
               << " uniform_alignment=" << limits.uniformBufferOffsetAlignment << '\n';
 
     int result = EXIT_SUCCESS;
+    bool lossArmed = false;
     while (glfwWindowShouldClose(window.get()) != GLFW_TRUE) {
         glfwPollEvents();
         if (glfwWindowShouldClose(window.get()) == GLFW_TRUE) {
@@ -221,7 +219,18 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
             continue;
         }
 
+        if (options.forceLoss != rb::vulkan::DeviceLossSite::none && !lossArmed &&
+            frameLoop->frameCount() >= 20U) {
+            frameLoop->simulateDeviceLoss(options.forceLoss);
+            lossArmed = true;
+        }
+
         const rb::vulkan::FrameResult frameResult = frameLoop->draw(*swapchain);
+        if (frameResult == rb::vulkan::FrameResult::deviceLost) {
+            metrics.deviceLost = true;
+            result = EXIT_FAILURE;
+            break;
+        }
         if (frameResult == rb::vulkan::FrameResult::fatal) {
             result = EXIT_FAILURE;
             break;
@@ -243,10 +252,30 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
 
 }
 
-int main() {
+int main(int argc, char** argv) {
+    ProbeOptions options;
+    for (int index = 1; index < argc; ++index) {
+        const char* argument = argv[index];
+        if (std::strcmp(argument, "--objects-only") == 0) {
+            options.objectsOnly = true;
+        } else if (std::strcmp(argument, "--force-device-loss=submit") == 0) {
+            options.forceLoss = rb::vulkan::DeviceLossSite::submit;
+        } else if (std::strcmp(argument, "--force-device-loss=present") == 0) {
+            options.forceLoss = rb::vulkan::DeviceLossSite::present;
+        } else {
+            std::cerr << "usage vulkan_triangle [--objects-only]"
+                         " [--force-device-loss=submit|present]\n";
+            return EXIT_FAILURE;
+        }
+    }
+    if (options.objectsOnly && options.forceLoss != rb::vulkan::DeviceLossSite::none) {
+        std::cerr << "--force-device-loss needs the window loop and excludes --objects-only\n";
+        return EXIT_FAILURE;
+    }
+
     auto validation = std::make_shared<rb::vulkan::ValidationCounter>();
     TriangleMetrics metrics;
-    int result = runTriangle(validation, metrics);
+    int result = runTriangle(validation, metrics, options);
     if (validation->errors() != 0U) {
         result = EXIT_FAILURE;
     }
@@ -257,6 +286,8 @@ int main() {
               << " minimize_waits=" << metrics.minimizeWaits
               << " recreate_total_ms=" << metrics.recreateTotalMilliseconds
               << " recreate_max_ms=" << metrics.recreateMaximumMilliseconds
+              << " objects=" << (metrics.objectsPassed ? "pass" : "fail")
+              << " device_lost=" << (metrics.deviceLost ? 1 : 0)
               << " validation_total=" << validation->total()
               << " validation_verbose=" << validation->verbose()
               << " validation_info=" << validation->info()

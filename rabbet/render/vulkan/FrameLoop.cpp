@@ -322,7 +322,8 @@ bool FrameLoop::waitForPresentations() noexcept {
             continue;
         }
         const VkFence fence = m_presentFences[index];
-        if (vkWaitForFences(m_device, 1, &fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+        if (vkWaitForFences(m_device, 1, &fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS &&
+            !m_deviceLost) {
             std::fprintf(stderr, "Vulkan presentation fence wait failed\n");
             return false;
         }
@@ -332,11 +333,38 @@ bool FrameLoop::waitForPresentations() noexcept {
 }
 
 bool FrameLoop::waitIdle() noexcept {
-    if (vkDeviceWaitIdle(m_device) != VK_SUCCESS) {
+    if (vkDeviceWaitIdle(m_device) != VK_SUCCESS && !m_deviceLost) {
         std::fprintf(stderr, "Vulkan device idle wait failed\n");
         return false;
     }
     return waitForPresentations();
+}
+
+void FrameLoop::simulateDeviceLoss(DeviceLossSite site) noexcept {
+    m_simulatedLoss = site;
+}
+
+bool FrameLoop::deviceLost() const noexcept {
+    return m_deviceLost;
+}
+
+void FrameLoop::reportDeviceLoss(const char* site) noexcept {
+    if (!m_deviceLost) {
+        std::fprintf(stderr, "Vulkan device lost during %s, tearing down\n", site);
+        m_deviceLost = true;
+    }
+}
+
+void FrameLoop::consumeAcquiredImage(VkSemaphore imageAvailable) noexcept {
+    VkSemaphoreSubmitInfo waitInfo{};
+    waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    waitInfo.semaphore = imageAvailable;
+    waitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    VkSubmitInfo2 submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submitInfo.waitSemaphoreInfoCount = 1;
+    submitInfo.pWaitSemaphoreInfos = &waitInfo;
+    static_cast<void>(vkQueueSubmit2(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE));
 }
 
 bool FrameLoop::recordCommands(VkCommandBuffer commandBuffer, const Swapchain& swapchain,
@@ -361,7 +389,9 @@ bool FrameLoop::recordCommands(VkCommandBuffer commandBuffer, const Swapchain& s
 
     VkImageMemoryBarrier2 toColor{};
     toColor.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    toColor.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+    // The first scope must cover the acquire semaphore's wait stage so the transition
+    // chains after the presentation engine releases the image.
+    toColor.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     toColor.srcAccessMask = VK_ACCESS_2_NONE;
     toColor.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
@@ -435,6 +465,20 @@ bool FrameLoop::recordCommands(VkCommandBuffer commandBuffer, const Swapchain& s
 }
 
 FrameResult FrameLoop::draw(const Swapchain& swapchain) {
+    if (m_deviceLost) {
+        return FrameResult::deviceLost;
+    }
+    if (m_fatal) {
+        return FrameResult::fatal;
+    }
+    const FrameResult result = drawFrame(swapchain);
+    if (result == FrameResult::fatal) {
+        m_fatal = true;
+    }
+    return result;
+}
+
+FrameResult FrameLoop::drawFrame(const Swapchain& swapchain) {
     FrameSlot& frame = m_frames[m_currentFrame];
     if (vkWaitForFences(m_device, 1, &frame.fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
         std::fprintf(stderr, "Vulkan frame fence wait failed\n");
@@ -452,11 +496,31 @@ FrameResult FrameLoop::draw(const Swapchain& swapchain) {
     if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR) {
         return FrameResult::needsRecreate;
     }
+    if (acquireResult == VK_ERROR_DEVICE_LOST) {
+        reportDeviceLoss("image acquisition");
+        return FrameResult::deviceLost;
+    }
     if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR) {
         std::fprintf(stderr, "Vulkan image acquisition failed with result %d\n",
                      static_cast<int>(acquireResult));
         return FrameResult::fatal;
     }
+
+    // A successful acquisition leaves a pending signal on the semaphore, so a frame that
+    // bails before submitting must still wait it once before the semaphore can die.
+    struct AcquireGuard {
+        FrameLoop* loop;
+        VkSemaphore semaphore;
+        bool consumed{false};
+
+        ~AcquireGuard() {
+            if (!consumed) {
+                loop->consumeAcquiredImage(semaphore);
+            }
+        }
+    };
+    AcquireGuard acquireGuard{this, frame.imageAvailable};
+
     if (static_cast<std::size_t>(imageIndex) >= m_imageFences.size() ||
         static_cast<std::size_t>(imageIndex) >= m_renderFinished.size() ||
         static_cast<std::size_t>(imageIndex) >= m_presentFences.size() ||
@@ -500,7 +564,7 @@ FrameResult FrameLoop::draw(const Swapchain& swapchain) {
     VkSemaphoreSubmitInfo signalInfo{};
     signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
     signalInfo.semaphore = m_renderFinished[imageIndex];
-    signalInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+    signalInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     VkSubmitInfo2 submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
     submitInfo.waitSemaphoreInfoCount = 1;
@@ -509,13 +573,24 @@ FrameResult FrameLoop::draw(const Swapchain& swapchain) {
     submitInfo.pCommandBufferInfos = &commandInfo;
     submitInfo.signalSemaphoreInfoCount = 1;
     submitInfo.pSignalSemaphoreInfos = &signalInfo;
-    const VkResult submitResult = vkQueueSubmit2(m_graphicsQueue, 1, &submitInfo, frame.fence);
+    VkResult submitResult = vkQueueSubmit2(m_graphicsQueue, 1, &submitInfo, frame.fence);
+    if (submitResult == VK_SUCCESS) {
+        m_imageFences[imageIndex] = frame.fence;
+        acquireGuard.consumed = true;
+    }
+    if (m_simulatedLoss == DeviceLossSite::submit) {
+        m_simulatedLoss = DeviceLossSite::none;
+        submitResult = VK_ERROR_DEVICE_LOST;
+    }
+    if (submitResult == VK_ERROR_DEVICE_LOST) {
+        reportDeviceLoss("queue submission");
+        return FrameResult::deviceLost;
+    }
     if (submitResult != VK_SUCCESS) {
         std::fprintf(stderr, "Vulkan queue submission failed with result %d\n",
                      static_cast<int>(submitResult));
         return FrameResult::fatal;
     }
-    m_imageFences[imageIndex] = frame.fence;
 
     const VkSwapchainKHR swapchainHandle = swapchain.handle();
     VkSwapchainPresentFenceInfoEXT presentFenceInfo{};
@@ -530,7 +605,7 @@ FrameResult FrameLoop::draw(const Swapchain& swapchain) {
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &swapchainHandle;
     presentInfo.pImageIndices = &imageIndex;
-    const VkResult presentResult = vkQueuePresentKHR(m_presentQueue, &presentInfo);
+    VkResult presentResult = vkQueuePresentKHR(m_presentQueue, &presentInfo);
     if (presentResult == VK_SUCCESS || presentResult == VK_SUBOPTIMAL_KHR ||
         presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_ERROR_SURFACE_LOST_KHR) {
         m_presentPending[imageIndex] = 1U;
@@ -539,6 +614,14 @@ FrameResult FrameLoop::draw(const Swapchain& swapchain) {
     m_currentFrame = (m_currentFrame + 1U) % m_frames.size();
     if (presentResult == VK_SUCCESS || presentResult == VK_SUBOPTIMAL_KHR) {
         ++m_frameCount;
+    }
+    if (m_simulatedLoss == DeviceLossSite::present) {
+        m_simulatedLoss = DeviceLossSite::none;
+        presentResult = VK_ERROR_DEVICE_LOST;
+    }
+    if (presentResult == VK_ERROR_DEVICE_LOST) {
+        reportDeviceLoss("presentation");
+        return FrameResult::deviceLost;
     }
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR ||
         acquireResult == VK_SUBOPTIMAL_KHR) {
