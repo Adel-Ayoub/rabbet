@@ -3,6 +3,7 @@
 #include "rabbet/render/Geometry.h"
 #include "rabbet/render/gl/Mesh.h"
 #include "rabbet/render/gl/Shader.h"
+#include "rabbet/render/shaders/GlShaderSources.h"
 #include "rabbet/util/Log.h"
 
 #include <glad/glad.h>
@@ -13,52 +14,14 @@
 #include <utility>
 
 namespace rb {
-namespace {
-
-constexpr const char* kConvolveVertex = R"(#version 410 core
-layout(location = 0) in vec3 aPosition;
-uniform mat4 uView;
-uniform mat4 uProjection;
-out vec3 vDir;
-void main() {
-    vDir = aPosition;
-    gl_Position = uProjection * uView * vec4(aPosition, 1.0);
-}
-)";
-
-// Cosine-weighted hemisphere integral around the fragment direction: the diffuse irradiance a
-// surface with that normal receives from the environment. `up` flips near the poles to avoid a
-// degenerate tangent basis.
-constexpr const char* kConvolveFragment = R"(#version 410 core
-in vec3 vDir;
-out vec4 FragColor;
-uniform samplerCube uEnvironment;
-const float PI = 3.14159265359;
-void main() {
-    vec3 N = normalize(vDir);
-    vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-    vec3 right = normalize(cross(up, N));
-    up = normalize(cross(N, right));
-    vec3 irradiance = vec3(0.0);
-    float samples = 0.0;
-    const float delta = 0.025;
-    for (float phi = 0.0; phi < 2.0 * PI; phi += delta) {
-        for (float theta = 0.0; theta < 0.5 * PI; theta += delta) {
-            vec3 tangent = vec3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
-            vec3 sampleDir = tangent.x * right + tangent.y * up + tangent.z * N;
-            irradiance += texture(uEnvironment, sampleDir).rgb * cos(theta) * sin(theta);
-            samples += 1.0;
-        }
-    }
-    FragColor = vec4(PI * irradiance / samples, 1.0);
-}
-)";
-
-} // namespace
 
 EnvironmentLight buildEnvironmentLight(const gl::Cubemap& environment, int size) {
     gl::Cubemap irradiance = gl::Cubemap::empty(size);
-    std::optional<gl::Shader> shader = gl::Shader::fromSource(kConvolveVertex, kConvolveFragment);
+    // The convolve fragment integrates a cosine weighted hemisphere around each
+    // fragment's interpolated direction to get diffuse irradiance, and flips its
+    // tangent basis up vector near the poles where the default up would degenerate.
+    std::optional<gl::Shader> shader =
+        gl::Shader::fromSource(shaders::kConvolveVertex, shaders::kConvolveFragment);
     if (!shader) {
         log::error("environment lighting: failed to build the irradiance convolution shader");
         return EnvironmentLight{std::move(irradiance), 1.0f, false};

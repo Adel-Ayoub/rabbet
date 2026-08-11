@@ -1,5 +1,6 @@
 #include "editor/ThumbnailRenderer.h"
 
+#include "editor/shaders/GlShaderSources.h"
 #include "rabbet/assets/AssetManager.h"
 #include "rabbet/render/Geometry.h"
 #include "rabbet/render/MaterialAsset.h"
@@ -23,42 +24,6 @@
 namespace rb::editor {
 namespace {
 
-constexpr const char* kThumbVert = R"(#version 410 core
-layout(location = 0) in vec3 aPosition;
-layout(location = 1) in vec3 aNormal;
-layout(location = 2) in vec2 aUv;
-uniform mat4 uModel;
-uniform mat3 uNormalMatrix;
-uniform mat4 uViewProjection;
-out vec3 vNormal;
-out vec2 vUv;
-void main() {
-    vNormal = uNormalMatrix * aNormal;
-    vUv = aUv;
-    gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);
-}
-)";
-
-constexpr const char* kThumbFrag = R"(#version 410 core
-in vec3 vNormal;
-in vec2 vUv;
-uniform sampler2D uAlbedoTex;
-uniform vec3 uBaseColor;
-uniform int uHasTexture;
-out vec4 FragColor;
-void main() {
-    vec3 albedo = uBaseColor;
-    if (uHasTexture == 1) {
-        albedo *= texture(uAlbedoTex, vUv).rgb;
-    }
-    vec3 n = normalize(vNormal);
-    vec3 l = normalize(vec3(0.45, 0.8, 0.55));
-    float diff = max(dot(n, l), 0.0);
-    vec3 lit = albedo * (0.30 + 0.85 * diff);
-    FragColor = vec4(pow(lit, vec3(1.0 / 2.2)), 1.0); // display-encode for the LDR ImGui pass
-}
-)";
-
 // A representative base colour for a material preview: the first colour-like uniform override, or a
 // neutral grey when the material has none (e.g. the built-in default).
 glm::vec3 materialColor(const MaterialAsset& material) {
@@ -76,7 +41,7 @@ glm::vec3 materialColor(const MaterialAsset& material) {
 
 void ThumbnailRenderer::init() {
     m_fbo = gl::Framebuffer::create(kSize, kSize, false);
-    m_shader = gl::Shader::fromSource(kThumbVert, kThumbFrag);
+    m_shader = gl::Shader::fromSource(shaders::kThumbVert, shaders::kThumbFrag);
     if (!m_shader.has_value()) {
         rb::log::error("thumbnails: preview shader failed to compile");
     }

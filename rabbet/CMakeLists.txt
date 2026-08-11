@@ -194,8 +194,69 @@ target_sources(rabbet
             scene/Parent.h
             scene/Hierarchy.h)
 
+set(rabbet_shader_dir "${CMAKE_CURRENT_SOURCE_DIR}/render/shaders")
+set(rabbet_gl_shader_header
+    "${CMAKE_BINARY_DIR}/generated/rabbet/render/shaders/GlShaderSources.h")
+set(rabbet_gl_shader_entries
+    kLitVertex=lit.vert
+    kPhongFragment=phong.frag
+    kPbrFragment=pbr.frag
+    kTerrainVertex=terrain.vert
+    kTerrainFragment=terrain.frag
+    kWaterVertex=water.vert
+    kWaterFragment=water.frag
+    kDepthVertex=depth.vert
+    kDepthFragment=depth.frag
+    kPickVertex=pick.vert
+    kPickFragment=pick.frag
+    kFlatVertex=flat.vert
+    kFlatFragment=flat.frag
+    kParticleVertex=particle.vert
+    kParticleFragment=particle.frag
+    kFullscreenVertex=fullscreen.vert
+    kPrefilterFragment=prefilter.frag
+    kDownsampleFragment=downsample.frag
+    kUpsampleFragment=upsample.frag
+    kCompositeFragment=composite.frag
+    kFxaaFragment=fxaa.frag
+    kSkyboxVertex=skybox.vert
+    kSkyboxFragment=skybox.frag
+    kConvolveVertex=convolve.vert
+    kConvolveFragment=convolve.frag)
+string(JOIN "," rabbet_gl_shader_manifest ${rabbet_gl_shader_entries})
+set(rabbet_gl_shader_files)
+foreach(rabbet_gl_shader_entry IN LISTS rabbet_gl_shader_entries)
+    string(REGEX REPLACE "^[^=]+=" "" rabbet_gl_shader_file "${rabbet_gl_shader_entry}")
+    list(APPEND rabbet_gl_shader_files "${rabbet_shader_dir}/${rabbet_gl_shader_file}")
+endforeach()
+list(APPEND rabbet_gl_shader_files
+    "${rabbet_shader_dir}/light_uniforms.glsl"
+    "${rabbet_shader_dir}/shadow_functions.glsl"
+    "${rabbet_shader_dir}/pbr_functions.glsl")
+
+add_custom_command(
+    OUTPUT "${rabbet_gl_shader_header}"
+    COMMAND ${CMAKE_COMMAND}
+        "-DSHADER_DIR=${rabbet_shader_dir}"
+        "-DOUTPUT=${rabbet_gl_shader_header}"
+        "-DNAMESPACE=rb::shaders"
+        "-DMANIFEST=${rabbet_gl_shader_manifest}"
+        "-DDEPFILE=${rabbet_gl_shader_header}.d"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+    DEPENDS
+        ${rabbet_gl_shader_files}
+        "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+        "${CMAKE_CURRENT_LIST_FILE}"
+    DEPFILE "${rabbet_gl_shader_header}.d"
+    COMMENT "Composing the OpenGL shader header"
+    VERBATIM)
+
+target_sources(rabbet PRIVATE "${rabbet_gl_shader_header}")
+
 target_include_directories(rabbet PUBLIC
     "${PROJECT_SOURCE_DIR}")
+target_include_directories(rabbet PRIVATE
+    "${CMAKE_BINARY_DIR}/generated")
 
 target_link_libraries(rabbet
     PUBLIC

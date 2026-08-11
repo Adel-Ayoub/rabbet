@@ -14,6 +14,7 @@
 #include "rabbet/render/ShaderUniform.h"
 #include "rabbet/render/Shadow.h"
 #include "rabbet/render/Viewport.h"
+#include "rabbet/render/shaders/GlShaderSources.h"
 #include "rabbet/render/gl/Mesh.h"
 #include "rabbet/render/Geometry.h"
 #include "rabbet/render/ModelAsset.h"
@@ -55,81 +56,6 @@ constexpr std::size_t kMaxPointLights = 8;
 constexpr std::size_t kMaxSpotLights = 4;
 constexpr int kShadowMapSize = 2048;
 constexpr unsigned int kShadowTextureUnit = 1;
-
-constexpr const char* kDepthVertex = R"(#version 410 core
-layout(location = 0) in vec3 aPosition;
-uniform mat4 uModel;
-uniform mat4 uLightSpace;
-void main() {
-    gl_Position = uLightSpace * uModel * vec4(aPosition, 1.0);
-}
-)";
-
-constexpr const char* kDepthFragment = R"(#version 410 core
-void main() {}
-)";
-
-constexpr const char* kPickVertex = R"(#version 410 core
-layout(location = 0) in vec3 aPosition;
-uniform mat4 uModel;
-uniform mat4 uViewProjection;
-void main() {
-    gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);
-}
-)";
-
-constexpr const char* kPickFragment = R"(#version 410 core
-uniform int uEntityId;
-layout(location = 0) out int oEntityId;
-void main() {
-    oEntityId = uEntityId;
-}
-)";
-
-constexpr const char* kFlatVertex = R"(#version 410 core
-layout(location = 0) in vec3 aPosition;
-uniform mat4 uModel;
-uniform mat4 uViewProjection;
-void main() {
-    gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);
-}
-)";
-
-constexpr const char* kFlatFragment = R"(#version 410 core
-out vec4 FragColor;
-uniform vec3 uColor;
-void main() {
-    FragColor = vec4(uColor, 1.0);
-}
-)";
-
-// Billboard particles: the CPU expands each particle into a camera-facing quad in world space, so
-// the vertex shader is just a transform. The fragment modulates the sprite by the per-particle
-// life tint; the blend mode (additive / alpha) is set by the render pass, not the shader.
-constexpr const char* kParticleVertex = R"(#version 410 core
-layout(location = 0) in vec3 aPosition;
-layout(location = 1) in vec2 aUv;
-layout(location = 2) in vec4 aColor;
-uniform mat4 uViewProjection;
-out vec2 vUv;
-out vec4 vColor;
-void main() {
-    vUv = aUv;
-    vColor = aColor;
-    gl_Position = uViewProjection * vec4(aPosition, 1.0);
-}
-)";
-
-constexpr const char* kParticleFragment = R"(#version 410 core
-in vec2 vUv;
-in vec4 vColor;
-out vec4 FragColor;
-uniform sampler2D uTexture;
-void main() {
-    vec4 texel = texture(uTexture, vUv);
-    FragColor = vec4(texel.rgb * vColor.rgb, texel.a * vColor.a);
-}
-)";
 
 glm::mat3 normalMatrix(const glm::mat4& model) {
     return glm::transpose(glm::inverse(glm::mat3(model)));
@@ -340,19 +266,22 @@ void RenderSystem::onStart(Runtime& runtime) {
     if (!m_pbr) {
         log::error("render system: failed to build the PBR shader");
     }
-    m_depth = gl::Shader::fromSource(kDepthVertex, kDepthFragment);
+    m_depth = gl::Shader::fromSource(shaders::kDepthVertex, shaders::kDepthFragment);
     if (!m_depth) {
         log::error("render system: failed to build the depth shader");
     }
-    m_pick = gl::Shader::fromSource(kPickVertex, kPickFragment);
+    m_pick = gl::Shader::fromSource(shaders::kPickVertex, shaders::kPickFragment);
     if (!m_pick) {
         log::error("render system: failed to build the pick shader");
     }
-    m_flat = gl::Shader::fromSource(kFlatVertex, kFlatFragment);
+    m_flat = gl::Shader::fromSource(shaders::kFlatVertex, shaders::kFlatFragment);
     if (!m_flat) {
         log::error("render system: failed to build the flat shader");
     }
-    m_particle = gl::Shader::fromSource(kParticleVertex, kParticleFragment);
+    // The CPU expands every particle into a camera facing quad before upload, so the
+    // particle vertex stage is a bare transform, and the blend mode belongs to the
+    // render pass rather than the fragment shader.
+    m_particle = gl::Shader::fromSource(shaders::kParticleVertex, shaders::kParticleFragment);
     if (!m_particle) {
         log::error("render system: failed to build the particle shader");
     }

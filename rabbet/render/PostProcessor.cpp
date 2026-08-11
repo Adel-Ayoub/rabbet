@@ -1,6 +1,7 @@
 #include "rabbet/render/PostProcessor.h"
 
 #include "rabbet/render/PostProcess.h"
+#include "rabbet/render/shaders/GlShaderSources.h"
 #include "rabbet/util/Log.h"
 
 #include <glad/glad.h>
@@ -10,170 +11,6 @@
 
 namespace rb {
 namespace {
-
-// One vertex shader for every pass: a single oversized triangle generated from gl_VertexID, so no
-// VBO is needed. vUv covers [0,1] across the screen.
-constexpr const char* kFullscreenVertex = R"(#version 410 core
-out vec2 vUv;
-void main() {
-    vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
-    vUv = p;
-    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
-}
-)";
-
-// Soft-knee bright-pass: keeps only the part of each pixel above the threshold, easing in over a
-// knee so the bloom doesn't pop on hard edges.
-constexpr const char* kPrefilterFragment = R"(#version 410 core
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uScene;
-uniform float uThreshold;
-uniform float uKnee;
-void main() {
-    vec3 c = texture(uScene, vUv).rgb;
-    float brightness = max(c.r, max(c.g, c.b));
-    float knee = uThreshold * uKnee + 1e-5;
-    float soft = clamp(brightness - uThreshold + knee, 0.0, 2.0 * knee);
-    soft = soft * soft / (4.0 * knee + 1e-5);
-    float contribution = max(soft, brightness - uThreshold) / max(brightness, 1e-5);
-    FragColor = vec4(c * contribution, 1.0);
-}
-)";
-
-// 13-tap downsample (Jimenez / "Next Generation Post Processing in Call of Duty: Advanced Warfare")
-// — a stable, firefly-resistant box of weighted taps.
-constexpr const char* kDownsampleFragment = R"(#version 410 core
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uSource;
-uniform vec2 uTexel;
-void main() {
-    vec2 t = uTexel;
-    vec3 a = texture(uSource, vUv + t * vec2(-2.0, -2.0)).rgb;
-    vec3 b = texture(uSource, vUv + t * vec2( 0.0, -2.0)).rgb;
-    vec3 c = texture(uSource, vUv + t * vec2( 2.0, -2.0)).rgb;
-    vec3 d = texture(uSource, vUv + t * vec2(-2.0,  0.0)).rgb;
-    vec3 e = texture(uSource, vUv).rgb;
-    vec3 f = texture(uSource, vUv + t * vec2( 2.0,  0.0)).rgb;
-    vec3 g = texture(uSource, vUv + t * vec2(-2.0,  2.0)).rgb;
-    vec3 h = texture(uSource, vUv + t * vec2( 0.0,  2.0)).rgb;
-    vec3 i = texture(uSource, vUv + t * vec2( 2.0,  2.0)).rgb;
-    vec3 j = texture(uSource, vUv + t * vec2(-1.0, -1.0)).rgb;
-    vec3 k = texture(uSource, vUv + t * vec2( 1.0, -1.0)).rgb;
-    vec3 l = texture(uSource, vUv + t * vec2(-1.0,  1.0)).rgb;
-    vec3 m = texture(uSource, vUv + t * vec2( 1.0,  1.0)).rgb;
-    vec3 result = e * 0.125;
-    result += (a + c + g + i) * 0.03125;
-    result += (b + d + f + h) * 0.0625;
-    result += (j + k + l + m) * 0.125;
-    FragColor = vec4(result, 1.0);
-}
-)";
-
-// 3x3 tent upsample, blended additively into the next-larger mip.
-constexpr const char* kUpsampleFragment = R"(#version 410 core
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uSource;
-uniform vec2 uTexel;
-uniform float uRadius;
-void main() {
-    vec2 t = uTexel * uRadius;
-    vec3 result = texture(uSource, vUv).rgb * 4.0;
-    result += texture(uSource, vUv + vec2(-t.x, 0.0)).rgb * 2.0;
-    result += texture(uSource, vUv + vec2( t.x, 0.0)).rgb * 2.0;
-    result += texture(uSource, vUv + vec2( 0.0, -t.y)).rgb * 2.0;
-    result += texture(uSource, vUv + vec2( 0.0,  t.y)).rgb * 2.0;
-    result += texture(uSource, vUv + vec2(-t.x, -t.y)).rgb;
-    result += texture(uSource, vUv + vec2( t.x, -t.y)).rgb;
-    result += texture(uSource, vUv + vec2(-t.x,  t.y)).rgb;
-    result += texture(uSource, vUv + vec2( t.x,  t.y)).rgb;
-    FragColor = vec4(result / 16.0, 1.0);
-}
-)";
-
-// Composite: combine scene + bloom, expose, tone-map, grade, gamma. The tone-map curves mirror
-// rabbet/render/Tonemap.h (unit-tested on the CPU) so the GPU and the tests agree.
-constexpr const char* kCompositeFragment = R"(#version 410 core
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uScene;
-uniform sampler2D uBloom;
-uniform int uBloomEnabled;
-uniform float uBloomIntensity;
-uniform float uExposure;
-uniform int uTonemap;
-uniform float uGamma;
-uniform float uContrast;
-uniform float uSaturation;
-uniform float uVignette;
-
-vec3 tonemapReinhard(vec3 c) { return c / (c + vec3(1.0)); }
-vec3 tonemapAces(vec3 x) {
-    const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
-vec3 hablePartial(vec3 x) {
-    const float a = 0.15, b = 0.50, c = 0.10, d = 0.20, e = 0.02, f = 0.30;
-    return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f;
-}
-vec3 tonemapFilmic(vec3 c) {
-    vec3 w = hablePartial(vec3(11.2));
-    return clamp(hablePartial(c) / w, 0.0, 1.0);
-}
-vec3 tonemap(int op, vec3 c) {
-    if (op == 1) return tonemapReinhard(c);
-    if (op == 2) return tonemapFilmic(c);
-    return tonemapAces(c);
-}
-
-void main() {
-    vec3 color = texture(uScene, vUv).rgb;
-    if (uBloomEnabled == 1) {
-        color += texture(uBloom, vUv).rgb * uBloomIntensity;
-    }
-    color *= exp2(uExposure);
-    color = tonemap(uTonemap, color);
-    color = (color - vec3(0.18)) * uContrast + vec3(0.18);
-    float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
-    color = mix(vec3(luma), color, uSaturation);
-    vec2 d = vUv - vec2(0.5);
-    float vig = clamp(1.0 - uVignette * dot(d, d) * 4.0, 0.0, 1.0);
-    color *= vig;
-    color = pow(max(color, vec3(0.0)), vec3(1.0 / uGamma));
-    FragColor = vec4(color, 1.0);
-}
-)";
-
-// FXAA (Lottes' classic console variant): edge-directed blur driven by luma, on the LDR image.
-constexpr const char* kFxaaFragment = R"(#version 410 core
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uImage;
-uniform vec2 uTexel;
-float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
-void main() {
-    vec3 rgbM = texture(uImage, vUv).rgb;
-    float lM = luma(rgbM);
-    float lNW = luma(texture(uImage, vUv + uTexel * vec2(-1.0, -1.0)).rgb);
-    float lNE = luma(texture(uImage, vUv + uTexel * vec2( 1.0, -1.0)).rgb);
-    float lSW = luma(texture(uImage, vUv + uTexel * vec2(-1.0,  1.0)).rgb);
-    float lSE = luma(texture(uImage, vUv + uTexel * vec2( 1.0,  1.0)).rgb);
-    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
-    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
-    vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), ((lNW + lSW) - (lNE + lSE)));
-    float reduce = max((lNW + lNE + lSW + lSE) * 0.25 * (1.0 / 8.0), 1.0 / 128.0);
-    float rcpMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + reduce);
-    dir = clamp(dir * rcpMin, -8.0, 8.0) * uTexel;
-    vec3 rgbA = 0.5 * (texture(uImage, vUv + dir * (1.0 / 3.0 - 0.5)).rgb +
-                       texture(uImage, vUv + dir * (2.0 / 3.0 - 0.5)).rgb);
-    vec3 rgbB = rgbA * 0.5 + 0.25 * (texture(uImage, vUv + dir * -0.5).rgb +
-                                     texture(uImage, vUv + dir * 0.5).rgb);
-    float lB = luma(rgbB);
-    FragColor = vec4((lB < lMin || lB > lMax) ? rgbA : rgbB, 1.0);
-}
-)";
 
 void bindRawTexture(unsigned int texture, unsigned int unit) {
     glActiveTexture(GL_TEXTURE0 + unit);
@@ -189,11 +26,18 @@ glm::vec2 texelSize(const gl::ColorTarget& target) {
 
 void PostProcessor::init() {
     glGenVertexArrays(1, &m_vao);
-    m_prefilter = gl::Shader::fromSource(kFullscreenVertex, kPrefilterFragment);
-    m_downsample = gl::Shader::fromSource(kFullscreenVertex, kDownsampleFragment);
-    m_upsample = gl::Shader::fromSource(kFullscreenVertex, kUpsampleFragment);
-    m_composite = gl::Shader::fromSource(kFullscreenVertex, kCompositeFragment);
-    m_fxaa = gl::Shader::fromSource(kFullscreenVertex, kFxaaFragment);
+    // The shared vertex stage builds one oversized triangle from gl_VertexID, so no
+    // vertex buffer exists anywhere in the chain. Bloom starts from a soft knee bright
+    // pass, walks down through the thirteen tap weighted box from Jimenez and returns
+    // through a three by three tent blended additively. FXAA is the classic Lottes
+    // console variant applied to the LDR image. The composite curves mirror
+    // rabbet/render/Tonemap.h, which the CPU tests pin, so the GPU pass and the suite
+    // keep agreeing.
+    m_prefilter = gl::Shader::fromSource(shaders::kFullscreenVertex, shaders::kPrefilterFragment);
+    m_downsample = gl::Shader::fromSource(shaders::kFullscreenVertex, shaders::kDownsampleFragment);
+    m_upsample = gl::Shader::fromSource(shaders::kFullscreenVertex, shaders::kUpsampleFragment);
+    m_composite = gl::Shader::fromSource(shaders::kFullscreenVertex, shaders::kCompositeFragment);
+    m_fxaa = gl::Shader::fromSource(shaders::kFullscreenVertex, shaders::kFxaaFragment);
     if (!m_prefilter || !m_downsample || !m_upsample || !m_composite || !m_fxaa) {
         log::error("post-processor: failed to build a post-process shader");
     }

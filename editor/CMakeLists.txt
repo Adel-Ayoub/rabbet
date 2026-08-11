@@ -49,8 +49,33 @@ if(TARGET magic_enum)
     endif()
 endif()
 
+set(forge_shader_dir "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+set(forge_gl_shader_header
+    "${CMAKE_BINARY_DIR}/generated/editor/shaders/GlShaderSources.h")
+
+add_custom_command(
+    OUTPUT "${forge_gl_shader_header}"
+    COMMAND ${CMAKE_COMMAND}
+        "-DSHADER_DIR=${forge_shader_dir}"
+        "-DOUTPUT=${forge_gl_shader_header}"
+        "-DNAMESPACE=rb::editor::shaders"
+        "-DMANIFEST=kGridVert=grid.vert,kGridFrag=grid.frag,kThumbVert=thumbnail.vert,kThumbFrag=thumbnail.frag"
+        "-DDEPFILE=${forge_gl_shader_header}.d"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+    DEPENDS
+        "${forge_shader_dir}/grid.vert"
+        "${forge_shader_dir}/grid.frag"
+        "${forge_shader_dir}/thumbnail.vert"
+        "${forge_shader_dir}/thumbnail.frag"
+        "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+        "${CMAKE_CURRENT_LIST_FILE}"
+    DEPFILE "${forge_gl_shader_header}.d"
+    COMMENT "Composing the editor OpenGL shader header"
+    VERBATIM)
+
 add_executable(forge
     main.cpp
+    "${forge_gl_shader_header}"
     Editor.cpp
     Palette.cpp
     PanelManager.cpp
@@ -72,7 +97,9 @@ target_link_libraries(forge PRIVATE
     imgui
     magic_enum::magic_enum
     nfd)
-target_include_directories(forge PRIVATE "${PROJECT_SOURCE_DIR}")
+target_include_directories(forge PRIVATE
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_BINARY_DIR}/generated")
 target_compile_definitions(forge PRIVATE
     RB_EDITOR_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/resources"
     RB_EDITOR_ASSETS="${PROJECT_SOURCE_DIR}/examples/forge/assets"
