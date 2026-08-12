@@ -56,6 +56,9 @@ constexpr std::size_t kMaxPointLights = 8;
 constexpr std::size_t kMaxSpotLights = 4;
 constexpr int kShadowMapSize = 2048;
 constexpr unsigned int kShadowTextureUnit = 1;
+// Binding index of the RbPerFrame camera block, the GL face of the neutral contract's
+// set 0 binding 0 slot.
+constexpr unsigned int kCameraUniformBinding = 0;
 
 glm::mat3 normalMatrix(const glm::mat4& model) {
     return glm::transpose(glm::inverse(glm::mat3(model)));
@@ -277,6 +280,12 @@ void RenderSystem::onStart(Runtime& runtime) {
     m_flat = gl::Shader::fromSource(shaders::kFlatVertex, shaders::kFlatFragment);
     if (!m_flat) {
         log::error("render system: failed to build the flat shader");
+    } else {
+        m_flat->bindUniformBlock("RbPerFrame", kCameraUniformBinding);
+        gl::UniformBuffer cameraUbo = gl::UniformBuffer::create(sizeof(glm::mat4));
+        if (cameraUbo.valid()) {
+            m_cameraUbo = std::move(cameraUbo);
+        }
     }
     // The CPU expands every particle into a camera facing quad before upload, so the
     // particle vertex stage is a bare transform, and the blend mode belongs to the
@@ -917,9 +926,10 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
     // Collider debug wireframes (toggled by the editor). Drawn unlit, depth-test off so the
     // outlines read as gizmos sitting over the shaded scene rather than being occluded by it.
     if (const DebugDraw* debug = runtime.tryResource<DebugDraw>();
-        m_flat && debug != nullptr && debug->colliders) {
+        m_flat && m_cameraUbo && debug != nullptr && debug->colliders) {
         m_flat->bind();
-        m_flat->setMat4("uViewProjection", viewProjection);
+        m_cameraUbo->upload(&viewProjection, sizeof(viewProjection));
+        m_cameraUbo->bindBase(kCameraUniformBinding);
         m_flat->setVec3("uColor", glm::vec3(0.25f, 0.95f, 0.40f));
         glDisable(GL_DEPTH_TEST);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);

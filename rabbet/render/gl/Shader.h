@@ -47,6 +47,11 @@ public:
     // program to be linked (it is, post-fromSource). The order follows the driver's indices.
     [[nodiscard]] std::vector<ActiveUniform> activeUniforms() const;
 
+    // Wires a named uniform block to a buffer binding index. 410 has no binding layout
+    // qualifier, so the program side owns this wiring. Missing blocks are ignored the
+    // way missing loose uniforms are.
+    void bindUniformBlock(std::string_view name, unsigned int binding) const noexcept;
+
     void setInt(std::string_view name, int value);
     void setFloat(std::string_view name, float value);
     void setVec2(std::string_view name, const glm::vec2& value);

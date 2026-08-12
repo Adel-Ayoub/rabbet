@@ -29,7 +29,7 @@ Framebuffer Framebuffer::create(int width, int height, bool hdr) {
 
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depth);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth);
 
     Framebuffer framebuffer(fbo, color, depth, 0, 0, hdr);
     framebuffer.allocate(width, height);
@@ -54,7 +54,10 @@ void Framebuffer::allocate(int width, int height) noexcept {
                      nullptr);
     }
     glBindRenderbuffer(GL_RENDERBUFFER, m_depth);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, m_width, m_height);
+    // D32F with no stencil aspect is the one depth format every backend of the renderer
+    // shares. Nothing in the tree touches glStencil* state, so the packed stencil bits
+    // this buffer used to carry were never read.
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT32F, m_width, m_height);
 }
 
 Framebuffer::Framebuffer(Framebuffer&& other) noexcept

@@ -1,5 +1,6 @@
 #include "examples/vulkan_triangle/ObjectsPass.h"
 
+#include "examples/vulkan_triangle/PassCommands.h"
 #include "rabbet/render/vulkan/Allocator.h"
 #include "rabbet/render/vulkan/Barriers.h"
 #include "rabbet/render/vulkan/Buffer.h"
@@ -24,7 +25,6 @@ namespace {
 
 constexpr std::uint32_t passExtent = 256;
 constexpr std::uint32_t textureExtent = 4;
-constexpr std::uint64_t passTimeoutNanoseconds = 5'000'000'000ULL;
 
 struct Vertex {
     std::array<float, 3> position;
@@ -32,94 +32,6 @@ struct Vertex {
     std::array<float, 4> color;
 };
 static_assert(sizeof(Vertex) == 36);
-
-struct PassCommands {
-    VkDevice device{VK_NULL_HANDLE};
-    VkCommandPool pool{VK_NULL_HANDLE};
-    VkCommandBuffer buffer{VK_NULL_HANDLE};
-    VkFence fence{VK_NULL_HANDLE};
-
-    ~PassCommands() {
-        if (fence != VK_NULL_HANDLE) {
-            vkDestroyFence(device, fence, nullptr);
-        }
-        if (pool != VK_NULL_HANDLE) {
-            vkDestroyCommandPool(device, pool, nullptr);
-        }
-    }
-
-    [[nodiscard]] bool create(VkDevice createDevice, std::uint32_t queueFamily) {
-        device = createDevice;
-        VkCommandPoolCreateInfo poolInfo{};
-        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT |
-                         VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-        poolInfo.queueFamilyIndex = queueFamily;
-        if (vkCreateCommandPool(device, &poolInfo, nullptr, &pool) != VK_SUCCESS) {
-            std::cerr << "Vulkan objects command pool creation failed\n";
-            return false;
-        }
-        VkCommandBufferAllocateInfo allocateInfo{};
-        allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocateInfo.commandPool = pool;
-        allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocateInfo.commandBufferCount = 1;
-        if (vkAllocateCommandBuffers(device, &allocateInfo, &buffer) != VK_SUCCESS) {
-            std::cerr << "Vulkan objects command buffer allocation failed\n";
-            return false;
-        }
-        VkFenceCreateInfo fenceInfo{};
-        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        if (vkCreateFence(device, &fenceInfo, nullptr, &fence) != VK_SUCCESS) {
-            std::cerr << "Vulkan objects fence creation failed\n";
-            return false;
-        }
-        return true;
-    }
-
-    [[nodiscard]] bool begin() {
-        if (vkResetCommandBuffer(buffer, 0) != VK_SUCCESS) {
-            std::cerr << "Vulkan objects command buffer reset failed\n";
-            return false;
-        }
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        if (vkBeginCommandBuffer(buffer, &beginInfo) != VK_SUCCESS) {
-            std::cerr << "Vulkan objects command buffer begin failed\n";
-            return false;
-        }
-        return true;
-    }
-
-    [[nodiscard]] bool submitAndWait(VkQueue queue) {
-        if (vkEndCommandBuffer(buffer) != VK_SUCCESS) {
-            std::cerr << "Vulkan objects command buffer end failed\n";
-            return false;
-        }
-        if (vkResetFences(device, 1, &fence) != VK_SUCCESS) {
-            std::cerr << "Vulkan objects fence reset failed\n";
-            return false;
-        }
-        VkCommandBufferSubmitInfo commandInfo{};
-        commandInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        commandInfo.commandBuffer = buffer;
-        VkSubmitInfo2 submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submitInfo.commandBufferInfoCount = 1;
-        submitInfo.pCommandBufferInfos = &commandInfo;
-        if (vkQueueSubmit2(queue, 1, &submitInfo, fence) != VK_SUCCESS) {
-            std::cerr << "Vulkan objects submission failed\n";
-            return false;
-        }
-        if (vkWaitForFences(device, 1, &fence, VK_TRUE, passTimeoutNanoseconds) != VK_SUCCESS) {
-            std::cerr << "Vulkan objects fence wait failed\n";
-            static_cast<void>(vkDeviceWaitIdle(device));
-            return false;
-        }
-        return true;
-    }
-};
 
 struct ColorCheck {
     const char* name{""};
@@ -301,7 +213,8 @@ bool runChecks(const rb::vulkan::Device& device, const ObjectsPassPaths& paths) 
     }
 
     PassCommands commands;
-    if (!commands.create(device.handle(), device.graphicsQueueFamily()) || !commands.begin()) {
+    if (!commands.create(device.handle(), device.graphicsQueueFamily(), "objects") ||
+        !commands.begin()) {
         return false;
     }
     VkBufferCopy vertexRegion{0, 0, sizeof(vertices)};

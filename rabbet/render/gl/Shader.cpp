@@ -138,6 +138,15 @@ int Shader::uniformLocation(std::string_view name) {
     return location;
 }
 
+void Shader::bindUniformBlock(std::string_view name, unsigned int binding) const noexcept {
+    const std::string key{name};
+    const unsigned int index = glGetUniformBlockIndex(m_program, key.c_str());
+    if (index == GL_INVALID_INDEX) {
+        return;
+    }
+    glUniformBlockBinding(m_program, index, binding);
+}
+
 void Shader::setInt(std::string_view name, int value) {
     glUniform1i(uniformLocation(name), value);
 }
