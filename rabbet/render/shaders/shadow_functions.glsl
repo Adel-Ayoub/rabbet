@@ -1,6 +1,4 @@
-uniform mat4 uLightSpace;
-uniform sampler2D uShadowMap;
-uniform int uHasShadowMap;
+RB_FRAME_SAMPLER(3, sampler2D uShadowMap)
 float shadowFactor(vec3 worldPos, vec3 N, vec3 L) {
     if (uHasShadowMap == 0) return 0.0;
     vec4 lightClip = uLightSpace * vec4(worldPos, 1.0);

@@ -1,12 +1,14 @@
-in vec3 vNormal;
-in vec3 vWorldPos;
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uTexture;
-uniform vec3 uTint;
-uniform vec3 uEmissive;
-uniform float uSpecularStrength;
-uniform float uShininess;
+layout(location = 0) in vec3 vNormal;
+layout(location = 1) in vec3 vWorldPos;
+layout(location = 2) in vec2 vUv;
+layout(location = 0) out vec4 FragColor;
+RB_MATERIAL_BEGIN
+RB_MATERIAL_AT(vec3 uTint, 0)
+RB_MATERIAL_AT(float uSpecularStrength, 12)
+RB_MATERIAL_AT(vec3 uEmissive, 16)
+RB_MATERIAL_AT(float uShininess, 28)
+RB_MATERIAL_END
+RB_MATERIAL_SAMPLER(1, sampler2D uTexture)
 #include "light_uniforms.glsl"
 #include "shadow_functions.glsl"
 

@@ -15,7 +15,6 @@ uniform sampler2D uSplat;
 uniform int uHasSplat;
 uniform float uMetallic;
 uniform float uRoughness;
-uniform int uHdrOutput; // 1: emit linear HDR for the post pipeline; 0 (default): inline tonemap+gamma
 const float PI = 3.14159265359;
 #include "light_uniforms.glsl"
 #include "shadow_functions.glsl"

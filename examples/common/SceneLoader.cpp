@@ -29,7 +29,7 @@ struct Group {
 
 rb::gl::Texture albedoTexture(const std::filesystem::path& path, const glm::vec3& fallback) {
     if (std::optional<rb::Image> image = rb::loadImage(path)) {
-        rb::gl::TextureConfig config;
+        rb::TextureConfig config;
         config.srgb = true;
         return rb::gl::Texture::fromPixels(image->pixels, image->width, image->height,
                                            image->channels, config);

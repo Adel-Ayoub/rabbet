@@ -29,13 +29,12 @@ if(EXISTS "${SHADER_DIR}/GlShaderSources.h")
     message(FATAL_ERROR "remove ${SHADER_DIR}/GlShaderSources.h, it would shadow the generated header")
 endif()
 
-# The prelude maps the RB_ layout macros onto each dialect. A body declares its camera
-# block and per draw values once through them; 410 expands to a plain std140 block
-# plus loose uniforms, 450 expands to the set 0 binding 0 camera block plus one push
-# constant block, the descriptor convention the Vulkan core fixed. Both stages of an
-# opted pair must write the same RB_PER_DRAW block so the push constant offsets agree.
-set(prelude_410 "#define RB_PER_FRAME_BEGIN layout(std140) uniform RbPerFrame {\n#define RB_PER_FRAME_END };\n#define RB_PER_DRAW_BEGIN\n#define RB_PER_DRAW_END\n#define RB_PER_DRAW(declaration) uniform declaration;\n")
-set(prelude_450 "#define RB_PER_FRAME_BEGIN layout(std140, set = 0, binding = 0) uniform RbPerFrame {\n#define RB_PER_FRAME_END };\n#define RB_PER_DRAW_BEGIN layout(push_constant) uniform RbPerDraw {\n#define RB_PER_DRAW_END };\n#define RB_PER_DRAW(declaration) declaration;\n")
+# The prelude maps one shader body onto both resource models. OpenGL keeps material
+# and light values as loose uniforms while the camera uses its existing block. Vulkan
+# assigns those values to the fixed frame and draw descriptor sets, and moves transform
+# data into a bounded push block.
+set(prelude_410 "#define RB_PER_FRAME_BEGIN layout(std140) uniform RbPerFrame {\n#define RB_PER_FRAME_END };\n#define RB_PER_DRAW_BEGIN\n#define RB_PER_DRAW_END\n#define RB_PER_DRAW(declaration) uniform declaration;\n#define RB_PER_DRAW_AT(declaration, byte_offset) uniform declaration;\n#define RB_LIGHT_FRAME_BEGIN\n#define RB_LIGHT_FRAME_END\n#define RB_LIGHT_FRAME_AT(declaration, byte_offset) uniform declaration;\n#define RB_FRAME_SAMPLER(slot, declaration) uniform declaration;\n#define RB_MATERIAL_BEGIN\n#define RB_MATERIAL_END\n#define RB_MATERIAL_AT(declaration, byte_offset) uniform declaration;\n#define RB_MATERIAL_SAMPLER(slot, declaration) uniform declaration;\n")
+set(prelude_450 "#define RB_PER_FRAME_BEGIN layout(std140, set = 0, binding = 0) uniform RbPerFrame {\n#define RB_PER_FRAME_END };\n#define RB_PER_DRAW_BEGIN layout(push_constant) uniform RbPerDraw {\n#define RB_PER_DRAW_END };\n#define RB_PER_DRAW(declaration) declaration;\n#define RB_PER_DRAW_AT(declaration, byte_offset) layout(offset = byte_offset) declaration;\n#define RB_LIGHT_FRAME_BEGIN layout(std140, set = 0, binding = 1) uniform RbLights {\n#define RB_LIGHT_FRAME_END };\n#define RB_LIGHT_FRAME_AT(declaration, byte_offset) layout(offset = byte_offset) declaration;\n#define RB_FRAME_SAMPLER(slot, declaration) layout(set = 0, binding = slot) uniform declaration;\n#define RB_MATERIAL_BEGIN layout(std140, set = 1, binding = 0) uniform RbMaterial {\n#define RB_MATERIAL_END };\n#define RB_MATERIAL_AT(declaration, byte_offset) layout(offset = byte_offset) declaration;\n#define RB_MATERIAL_SAMPLER(slot, declaration) layout(set = 1, binding = slot) uniform declaration;\n")
 if(DIALECT STREQUAL "410")
     set(version_line "#version 410 core\n")
     set(prelude "${prelude_410}")

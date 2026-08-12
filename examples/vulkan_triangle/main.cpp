@@ -1,4 +1,5 @@
 #include "examples/vulkan_triangle/MeshDepthPass.h"
+#include "examples/vulkan_triangle/MaterialPass.h"
 #include "examples/vulkan_triangle/ObjectsPass.h"
 #include "rabbet/render/vulkan/Device.h"
 #include "rabbet/render/vulkan/FrameLoop.h"
@@ -46,14 +47,19 @@ struct TriangleMetrics {
     bool objectsPassed{false};
     bool meshDepthRan{false};
     bool meshDepthPassed{false};
+    bool materialsRan{false};
+    bool materialsPassed{false};
     bool deviceLost{false};
 };
 
 struct ProbeOptions {
     bool objectsOnly{false};
     bool meshDepthOnly{false};
+    bool materialsOnly{false};
     std::string meshDepthBaseline;
     std::string meshDepthOut;
+    std::string materialsBaseline;
+    std::string materialsOut;
     rb::vulkan::DeviceLossSite forceLoss{rb::vulkan::DeviceLossSite::none};
 };
 
@@ -142,7 +148,7 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    if (options.objectsOnly || options.meshDepthOnly) {
+    if (options.objectsOnly || options.meshDepthOnly || options.materialsOnly) {
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     }
     using Window = std::unique_ptr<GLFWwindow, decltype(&glfwDestroyWindow)>;
@@ -180,6 +186,17 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
     metrics.meshDepthPassed = runMeshDepthPass(*device, meshDepthPaths);
     if (!metrics.meshDepthPassed || options.meshDepthOnly) {
         return metrics.meshDepthPassed ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+    const MaterialPassPaths materialPaths{RB_VULKAN_LIT_VERTEX_SPV,
+                                          RB_VULKAN_PBR_FRAGMENT_SPV,
+                                          RB_VULKAN_PHONG_FRAGMENT_SPV,
+                                          options.materialsBaseline,
+                                          options.materialsOut};
+    metrics.materialsRan = true;
+    metrics.materialsPassed = runMaterialPass(*device, materialPaths);
+    if (!metrics.materialsPassed || options.materialsOnly) {
+        return metrics.materialsPassed ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     VkExtent2D initialExtent{};
@@ -269,6 +286,8 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
 int main(int argc, char** argv) {
     constexpr const char* baselinePrefix = "--mesh-depth-baseline=";
     constexpr const char* outPrefix = "--mesh-depth-out=";
+    constexpr const char* materialsBaselinePrefix = "--materials-baseline=";
+    constexpr const char* materialsOutPrefix = "--materials-out=";
     ProbeOptions options;
     for (int index = 1; index < argc; ++index) {
         const char* argument = argv[index];
@@ -276,26 +295,39 @@ int main(int argc, char** argv) {
             options.objectsOnly = true;
         } else if (std::strcmp(argument, "--mesh-depth-only") == 0) {
             options.meshDepthOnly = true;
+        } else if (std::strcmp(argument, "--materials-only") == 0) {
+            options.materialsOnly = true;
         } else if (std::strncmp(argument, baselinePrefix, std::strlen(baselinePrefix)) == 0) {
             options.meshDepthBaseline = argument + std::strlen(baselinePrefix);
         } else if (std::strncmp(argument, outPrefix, std::strlen(outPrefix)) == 0) {
             options.meshDepthOut = argument + std::strlen(outPrefix);
+        } else if (std::strncmp(argument, materialsBaselinePrefix,
+                                std::strlen(materialsBaselinePrefix)) == 0) {
+            options.materialsBaseline = argument + std::strlen(materialsBaselinePrefix);
+        } else if (std::strncmp(argument, materialsOutPrefix,
+                                std::strlen(materialsOutPrefix)) == 0) {
+            options.materialsOut = argument + std::strlen(materialsOutPrefix);
         } else if (std::strcmp(argument, "--force-device-loss=submit") == 0) {
             options.forceLoss = rb::vulkan::DeviceLossSite::submit;
         } else if (std::strcmp(argument, "--force-device-loss=present") == 0) {
             options.forceLoss = rb::vulkan::DeviceLossSite::present;
         } else {
             std::cerr << "usage vulkan_triangle [--objects-only] [--mesh-depth-only]"
+                         " [--materials-only]"
                          " [--mesh-depth-baseline=<depth.raw>] [--mesh-depth-out=<dir>]"
+                         " [--materials-baseline=<materials.ppm>] [--materials-out=<dir>]"
                          " [--force-device-loss=submit|present]\n";
             return EXIT_FAILURE;
         }
     }
-    if (options.objectsOnly && options.meshDepthOnly) {
-        std::cerr << "--objects-only stops before the mesh depth pass, drop one flag\n";
+    const int passFlagCount = static_cast<int>(options.objectsOnly) +
+                              static_cast<int>(options.meshDepthOnly) +
+                              static_cast<int>(options.materialsOnly);
+    if (passFlagCount > 1) {
+        std::cerr << "pass-only flags are mutually exclusive\n";
         return EXIT_FAILURE;
     }
-    if ((options.objectsOnly || options.meshDepthOnly) &&
+    if ((options.objectsOnly || options.meshDepthOnly || options.materialsOnly) &&
         options.forceLoss != rb::vulkan::DeviceLossSite::none) {
         std::cerr << "--force-device-loss needs the window loop and excludes the pass flags\n";
         return EXIT_FAILURE;
@@ -317,6 +349,8 @@ int main(int argc, char** argv) {
               << " objects=" << (metrics.objectsPassed ? "pass" : "fail")
               << " mesh_depth="
               << (metrics.meshDepthRan ? (metrics.meshDepthPassed ? "pass" : "fail") : "skipped")
+              << " materials="
+              << (metrics.materialsRan ? (metrics.materialsPassed ? "pass" : "fail") : "skipped")
               << " device_lost=" << (metrics.deviceLost ? 1 : 0)
               << " validation_total=" << validation->total()
               << " validation_verbose=" << validation->verbose()

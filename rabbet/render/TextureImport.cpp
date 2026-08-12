@@ -18,7 +18,7 @@ AssetHandle<TextureAsset> loadTextureAsset(AssetManager& assets,
             if (!image.has_value()) {
                 return std::nullopt;
             }
-            gl::TextureConfig config;
+            TextureConfig config;
             config.srgb = true;
             return TextureAsset{gl::Texture::fromPixels(image->pixels, image->width, image->height,
                                                         image->channels, config)};

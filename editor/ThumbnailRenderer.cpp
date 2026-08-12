@@ -220,11 +220,10 @@ unsigned int ThumbnailRenderer::renderInto(const Uuid& id, Draw&& draw) {
                                   4u);
     glReadPixels(0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-    gl::TextureConfig config;
+    TextureConfig config;
     config.srgb = false;
     config.generateMipmaps = false;
-    config.linearFilter = true;
-    config.repeat = false;
+    config.sampler.address = TextureAddress::ClampToEdge;
     const auto result =
         m_textures.insert_or_assign(id, gl::Texture::fromPixels(pixels, kSize, kSize, 4, config));
 

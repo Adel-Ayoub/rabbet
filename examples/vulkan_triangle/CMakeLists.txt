@@ -6,6 +6,12 @@ set(vulkan_flat_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/flat.vert")
 set(vulkan_flat_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/flat.frag")
 set(vulkan_flat_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/flat.vert.spv")
 set(vulkan_flat_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/flat.frag.spv")
+set(vulkan_lit_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/lit.vert")
+set(vulkan_pbr_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/pbr.frag")
+set(vulkan_phong_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/phong.frag")
+set(vulkan_lit_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/lit.vert.spv")
+set(vulkan_pbr_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/pbr.frag.spv")
+set(vulkan_phong_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/phong.frag.spv")
 set(vulkan_triangle_cache "${CMAKE_CURRENT_BINARY_DIR}/pipeline.cache")
 
 add_custom_command(
@@ -95,17 +101,67 @@ add_custom_command(
     DEPENDS "${vulkan_flat_450_frag}"
     VERBATIM)
 
+foreach(vulkan_material_shader IN ITEMS lit pbr phong)
+    if(vulkan_material_shader STREQUAL "lit")
+        set(vulkan_material_constant kLitVertex)
+        set(vulkan_material_source lit.vert)
+        set(vulkan_material_output "${vulkan_lit_450_vert}")
+        set(vulkan_material_spv "${vulkan_lit_vertex_spv}")
+    elseif(vulkan_material_shader STREQUAL "pbr")
+        set(vulkan_material_constant kPbrFragment)
+        set(vulkan_material_source pbr.frag)
+        set(vulkan_material_output "${vulkan_pbr_450_frag}")
+        set(vulkan_material_spv "${vulkan_pbr_fragment_spv}")
+    else()
+        set(vulkan_material_constant kPhongFragment)
+        set(vulkan_material_source phong.frag)
+        set(vulkan_material_output "${vulkan_phong_450_frag}")
+        set(vulkan_material_spv "${vulkan_phong_fragment_spv}")
+    endif()
+    add_custom_command(
+        OUTPUT "${vulkan_material_output}"
+        COMMAND ${CMAKE_COMMAND}
+            "-DSHADER_DIR=${PROJECT_SOURCE_DIR}/rabbet/render/shaders"
+            "-DOUTPUT=${vulkan_material_output}"
+            "-DDIALECT=450"
+            "-DPRELUDE=${vulkan_material_constant}"
+            "-DMANIFEST=${vulkan_material_constant}=${vulkan_material_source}"
+            "-DDEPFILE=${vulkan_material_output}.d"
+            -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+        DEPENDS
+            "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/${vulkan_material_source}"
+            "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/light_uniforms.glsl"
+            "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/shadow_functions.glsl"
+            "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/pbr_functions.glsl"
+            "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+            "${CMAKE_CURRENT_LIST_FILE}"
+        DEPFILE "${vulkan_material_output}.d"
+        COMMENT "Composing the 450 ${vulkan_material_source} shader"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT "${vulkan_material_spv}"
+        COMMAND Vulkan::glslc --target-env=vulkan1.3
+            "${vulkan_material_output}"
+            -o "${vulkan_material_spv}"
+        DEPENDS "${vulkan_material_output}"
+        VERBATIM)
+endforeach()
+
 add_executable(vulkan_triangle
     main.cpp
     ObjectsPass.cpp
     MeshDepthPass.cpp
+    MaterialPass.cpp
     "${PROJECT_SOURCE_DIR}/rabbet/render/Geometry.cpp"
     "${vulkan_triangle_vertex_spv}"
     "${vulkan_triangle_fragment_spv}"
     "${vulkan_objects_vertex_spv}"
     "${vulkan_objects_fragment_spv}"
     "${vulkan_flat_vertex_spv}"
-    "${vulkan_flat_fragment_spv}")
+    "${vulkan_flat_fragment_spv}"
+    "${vulkan_lit_vertex_spv}"
+    "${vulkan_pbr_fragment_spv}"
+    "${vulkan_phong_fragment_spv}")
 
 target_include_directories(vulkan_triangle PRIVATE
     "${PROJECT_SOURCE_DIR}")
@@ -121,6 +177,9 @@ target_compile_definitions(vulkan_triangle PRIVATE
     "RB_VULKAN_OBJECTS_FRAGMENT_SPV=\"${vulkan_objects_fragment_spv}\""
     "RB_VULKAN_FLAT_VERTEX_SPV=\"${vulkan_flat_vertex_spv}\""
     "RB_VULKAN_FLAT_FRAGMENT_SPV=\"${vulkan_flat_fragment_spv}\""
+    "RB_VULKAN_LIT_VERTEX_SPV=\"${vulkan_lit_vertex_spv}\""
+    "RB_VULKAN_PBR_FRAGMENT_SPV=\"${vulkan_pbr_fragment_spv}\""
+    "RB_VULKAN_PHONG_FRAGMENT_SPV=\"${vulkan_phong_fragment_spv}\""
     "RB_VULKAN_TRIANGLE_CACHE=\"${vulkan_triangle_cache}\"")
 
 rb_target_warnings(vulkan_triangle)

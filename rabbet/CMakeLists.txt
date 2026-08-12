@@ -124,6 +124,7 @@ target_sources(rabbet
             render/EnvironmentLighting.h
             render/Image.h
             render/ImageLoader.h
+            render/TextureConfig.h
             render/Model.h
             render/ModelLoader.h
             util/Log.h
@@ -243,7 +244,7 @@ add_custom_command(
         "-DOUTPUT=${rabbet_gl_shader_header}"
         "-DNAMESPACE=rb::shaders"
         "-DMANIFEST=${rabbet_gl_shader_manifest}"
-        "-DPRELUDE=kFlatVertex,kFlatFragment"
+        "-DPRELUDE=kLitVertex,kPhongFragment,kPbrFragment,kFlatVertex,kFlatFragment"
         "-DDEPFILE=${rabbet_gl_shader_header}.d"
         -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
     DEPENDS

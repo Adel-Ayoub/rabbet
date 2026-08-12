@@ -26,44 +26,74 @@ void resolveFormats(int channels, bool srgb, GLint& internalFormat, GLenum& form
     }
 }
 
-} // namespace
-
-Texture Texture::fromPixels(std::span<const std::byte> pixels, int width, int height, int channels,
-                            const TextureConfig& config) {
+unsigned int upload(std::span<const std::byte> pixels, int width, int height, int channels,
+                    bool srgb, bool generateMipmaps, GLint minFilter, GLint magFilter,
+                    GLint wrap) {
     unsigned int id = 0;
     glGenTextures(1, &id);
     glBindTexture(GL_TEXTURE_2D, id);
-
-    const GLint wrap = config.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap);
-
-    const GLint minFilter =
-        config.linearFilter ? (config.generateMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR)
-                            : GL_NEAREST;
-    const GLint magFilter = config.linearFilter ? GL_LINEAR : GL_NEAREST;
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, minFilter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter);
 
     GLint internalFormat = GL_RGBA8;
     GLenum format = GL_RGBA;
-    resolveFormats(channels, config.srgb, internalFormat, format);
-
+    resolveFormats(channels, srgb, internalFormat, format);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE,
                  pixels.data());
-    if (config.generateMipmaps) {
+    if (generateMipmaps) {
         glGenerateMipmap(GL_TEXTURE_2D);
     }
     glBindTexture(GL_TEXTURE_2D, 0);
-    return Texture(id, width, height);
+    return id;
+}
+
+} // namespace
+
+Texture Texture::fromNeutralPixels(std::span<const std::byte> pixels, int width, int height,
+                                   int channels, const rb::TextureConfig& config) {
+    const GLint wrap = config.sampler.address == TextureAddress::Repeat ? GL_REPEAT
+                                                                        : GL_CLAMP_TO_EDGE;
+    GLint minFilter = config.sampler.minFilter == TextureFilter::Linear ? GL_LINEAR : GL_NEAREST;
+    if (config.generateMipmaps) {
+        if (config.sampler.minFilter == TextureFilter::Linear) {
+            minFilter = config.sampler.mipFilter == TextureFilter::Linear
+                            ? GL_LINEAR_MIPMAP_LINEAR
+                            : GL_LINEAR_MIPMAP_NEAREST;
+        } else {
+            minFilter = config.sampler.mipFilter == TextureFilter::Linear
+                            ? GL_NEAREST_MIPMAP_LINEAR
+                            : GL_NEAREST_MIPMAP_NEAREST;
+        }
+    }
+    const GLint magFilter =
+        config.sampler.magFilter == TextureFilter::Linear ? GL_LINEAR : GL_NEAREST;
+    return Texture(upload(pixels, width, height, channels, config.srgb, config.generateMipmaps,
+                          minFilter, magFilter, wrap),
+                   width, height);
+}
+
+Texture Texture::fromPixels(std::span<const std::byte> pixels, int width, int height, int channels,
+                            const TextureConfig& config) {
+    const GLint wrap = config.repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+    const GLint minFilter =
+        config.linearFilter ? (config.generateMipmaps ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR)
+                            : GL_NEAREST;
+    const GLint magFilter = config.linearFilter ? GL_LINEAR : GL_NEAREST;
+    return Texture(upload(pixels, width, height, channels, config.srgb, config.generateMipmaps,
+                          minFilter, magFilter, wrap),
+                   width, height);
 }
 
 Texture Texture::solid(std::uint8_t r, std::uint8_t g, std::uint8_t b, std::uint8_t a) {
     const std::array<std::byte, 4> pixel{std::byte{r}, std::byte{g}, std::byte{b}, std::byte{a}};
-    TextureConfig config;
+    rb::TextureConfig config;
     config.generateMipmaps = false;
-    config.linearFilter = false;
+    config.sampler.minFilter = TextureFilter::Nearest;
+    config.sampler.magFilter = TextureFilter::Nearest;
+    config.sampler.mipFilter = TextureFilter::Nearest;
     return fromPixels(pixel, 1, 1, 4, config);
 }
 

@@ -27,6 +27,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -113,6 +114,16 @@ std::filesystem::path writeTempPpm() {
     return path;
 }
 
+std::filesystem::path writeTempPgm() {
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "rabbet_test_height.pgm";
+    std::ofstream out(path, std::ios::binary);
+    out << "P5\n2 1\n255\n";
+    const unsigned char pixels[] = {17, 231};
+    out.write(reinterpret_cast<const char*>(pixels), static_cast<std::streamsize>(sizeof(pixels)));
+    return path;
+}
+
 std::filesystem::path writeTempObj() {
     const std::filesystem::path path =
         std::filesystem::temp_directory_path() / "rabbet_test_triangle.obj";
@@ -139,8 +150,29 @@ static void loadsPpm() {
     if (image) {
         CHECK(image->width == 2);
         CHECK(image->height == 2);
-        CHECK(image->channels == 3);
-        CHECK(image->pixels.size() == 12u);
+        CHECK(image->channels == 4);
+        CHECK(image->pixels.size() == 16u);
+        CHECK(image->pixels[0] == std::byte{255});
+        CHECK(image->pixels[1] == std::byte{0});
+        CHECK(image->pixels[2] == std::byte{0});
+        CHECK(image->pixels[3] == std::byte{255});
+        CHECK(image->pixels[15] == std::byte{255});
+    }
+}
+
+static void loadsPgmAsR8() {
+    const std::filesystem::path path = writeTempPgm();
+    const std::optional<rb::Image> image = rb::loadImage(path, false);
+    std::filesystem::remove(path);
+
+    CHECK(image.has_value());
+    if (image) {
+        CHECK(image->width == 2);
+        CHECK(image->height == 1);
+        CHECK(image->channels == 1);
+        CHECK(image->pixels.size() == 2u);
+        CHECK(image->pixels[0] == std::byte{17});
+        CHECK(image->pixels[1] == std::byte{231});
     }
 }
 
@@ -165,6 +197,7 @@ static void missingFilesReturnNullopt() {
 
 void renderLoaderSuite() {
     loadsPpm();
+    loadsPgmAsR8();
     loadsTriangleObj();
     missingFilesReturnNullopt();
 }

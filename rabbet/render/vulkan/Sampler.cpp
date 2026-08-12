@@ -5,6 +5,34 @@
 #include <cstdio>
 
 namespace rb::vulkan {
+namespace {
+
+VkFilter filter(TextureFilter value) noexcept {
+    return value == TextureFilter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+}
+
+VkSamplerMipmapMode mipmapMode(TextureFilter value) noexcept {
+    return value == TextureFilter::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+                                          : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+}
+
+VkSamplerAddressMode addressMode(TextureAddress value) noexcept {
+    return value == TextureAddress::Repeat ? VK_SAMPLER_ADDRESS_MODE_REPEAT
+                                           : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+}
+
+} // namespace
+
+std::unique_ptr<Sampler> Sampler::createNeutral(const Device& device, const SamplerConfig& config,
+                                                std::uint32_t mipLevels) {
+    SamplerDescription description;
+    description.magFilter = filter(config.magFilter);
+    description.minFilter = filter(config.minFilter);
+    description.mipmapMode = mipmapMode(config.mipFilter);
+    description.addressMode = addressMode(config.address);
+    description.maxLod = static_cast<float>(mipLevels > 0U ? mipLevels - 1U : 0U);
+    return create(device, description);
+}
 
 std::unique_ptr<Sampler> Sampler::create(const Device& device,
                                          const SamplerDescription& description) {

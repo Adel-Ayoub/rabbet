@@ -63,7 +63,7 @@ private:
     std::optional<gl::Shader> m_depth;
     std::optional<gl::Shader> m_pick;
     std::optional<gl::Shader> m_flat; // unlit single-colour, for collider wireframes
-    std::optional<gl::UniformBuffer> m_cameraUbo; // camera block behind the flat pair's dialect seam
+    std::optional<gl::UniformBuffer> m_cameraUbo; // camera block shared by dialect shader groups
     std::optional<gl::Shader> m_particle; // billboard sprites for the transparent particle pass
     std::optional<gl::Shader> m_terrain;  // lit splat-blended heightfield terrain
     std::optional<gl::Shader> m_water;    // procedurally-waved fresnel water surface

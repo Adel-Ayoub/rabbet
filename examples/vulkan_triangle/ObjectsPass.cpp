@@ -302,13 +302,12 @@ bool runChecks(const rb::vulkan::Device& device, const ObjectsPassPaths& paths) 
         return false;
     }
 
-    rb::vulkan::SamplerDescription samplerDescription{};
-    samplerDescription.magFilter = VK_FILTER_NEAREST;
-    samplerDescription.minFilter = VK_FILTER_NEAREST;
-    samplerDescription.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    samplerDescription.addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerDescription.maxLod = 0.0F;
-    auto sampler = rb::vulkan::Sampler::create(device, samplerDescription);
+    rb::SamplerConfig samplerConfig{};
+    samplerConfig.minFilter = rb::TextureFilter::Nearest;
+    samplerConfig.magFilter = rb::TextureFilter::Nearest;
+    samplerConfig.mipFilter = rb::TextureFilter::Nearest;
+    samplerConfig.address = rb::TextureAddress::ClampToEdge;
+    auto sampler = rb::vulkan::Sampler::create(device, samplerConfig);
     if (sampler == nullptr) {
         return false;
     }

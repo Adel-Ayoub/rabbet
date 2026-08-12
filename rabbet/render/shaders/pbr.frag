@@ -1,14 +1,15 @@
-in vec3 vNormal;
-in vec3 vWorldPos;
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uAlbedoTex;
-uniform vec3 uBaseColor;
-uniform vec3 uEmissive;
-uniform float uMetallic;
-uniform float uRoughness;
-uniform float uAo;
-uniform int uHdrOutput; // 1: emit linear HDR for the post pipeline; 0 (default): inline tonemap+gamma
+layout(location = 0) in vec3 vNormal;
+layout(location = 1) in vec3 vWorldPos;
+layout(location = 2) in vec2 vUv;
+layout(location = 0) out vec4 FragColor;
+RB_MATERIAL_BEGIN
+RB_MATERIAL_AT(vec3 uBaseColor, 0)
+RB_MATERIAL_AT(float uMetallic, 12)
+RB_MATERIAL_AT(vec3 uEmissive, 16)
+RB_MATERIAL_AT(float uRoughness, 28)
+RB_MATERIAL_AT(float uAo, 32)
+RB_MATERIAL_END
+RB_MATERIAL_SAMPLER(1, sampler2D uAlbedoTex)
 const float PI = 3.14159265359;
 #include "light_uniforms.glsl"
 #include "shadow_functions.glsl"

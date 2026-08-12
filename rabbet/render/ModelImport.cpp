@@ -23,7 +23,7 @@ namespace {
 
 AssetHandle<TextureAsset> uploadAlbedo(AssetManager& assets, const std::filesystem::path& path) {
     if (std::optional<Image> image = loadImage(path)) {
-        gl::TextureConfig config;
+        TextureConfig config;
         config.srgb = true;
         return assets.add<TextureAsset>(TextureAsset{gl::Texture::fromPixels(
             image->pixels, image->width, image->height, image->channels, config)});

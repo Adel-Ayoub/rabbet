@@ -209,11 +209,10 @@ gl::Texture buildSoftParticleTexture() {
             pixels[i + 3] = std::byte{alpha};
         }
     }
-    gl::TextureConfig config;
+    TextureConfig config;
     config.srgb = false;
     config.generateMipmaps = true;
-    config.linearFilter = true;
-    config.repeat = false; // clamp so the quad edge does not wrap the falloff
+    config.sampler.address = TextureAddress::ClampToEdge;
     return gl::Texture::fromPixels(pixels, kSize, kSize, 4, config);
 }
 
@@ -241,6 +240,7 @@ gl::Shader* RenderSystem::shaderProgram(AssetManager& assets, AssetHandle<Shader
     std::optional<gl::Shader> compiled =
         gl::Shader::fromSource(asset->vertexSource, asset->fragmentSource);
     if (compiled) {
+        compiled->bindUniformBlock("RbPerFrame", kCameraUniformBinding);
         asset->uniforms = reflectMaterialUniforms(*compiled);
     } else {
         log::error("render system: failed to compile shader asset");
@@ -264,10 +264,14 @@ void RenderSystem::onStart(Runtime& runtime) {
     m_phong = gl::Shader::fromSource(builtinLitVertexSource(), builtinPhongFragmentSource());
     if (!m_phong) {
         log::error("render system: failed to build the Phong shader");
+    } else {
+        m_phong->bindUniformBlock("RbPerFrame", kCameraUniformBinding);
     }
     m_pbr = gl::Shader::fromSource(builtinLitVertexSource(), builtinPbrFragmentSource());
     if (!m_pbr) {
         log::error("render system: failed to build the PBR shader");
+    } else {
+        m_pbr->bindUniformBlock("RbPerFrame", kCameraUniformBinding);
     }
     m_depth = gl::Shader::fromSource(shaders::kDepthVertex, shaders::kDepthFragment);
     if (!m_depth) {
@@ -282,6 +286,8 @@ void RenderSystem::onStart(Runtime& runtime) {
         log::error("render system: failed to build the flat shader");
     } else {
         m_flat->bindUniformBlock("RbPerFrame", kCameraUniformBinding);
+    }
+    if (m_phong || m_pbr || m_flat) {
         gl::UniformBuffer cameraUbo = gl::UniformBuffer::create(sizeof(glm::mat4));
         if (cameraUbo.valid()) {
             m_cameraUbo = std::move(cameraUbo);
@@ -333,6 +339,10 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
     }
     const RenderView& view = runtime.resource<RenderView>();
     const glm::mat4 viewProjection = view.projection * view.view;
+    if (m_cameraUbo) {
+        m_cameraUbo->upload(&viewProjection, sizeof(viewProjection));
+        m_cameraUbo->bindBase(kCameraUniformBinding);
+    }
     const Lighting* lighting = runtime.tryResource<Lighting>();
     const EnvironmentLight* environment = runtime.tryResource<EnvironmentLight>();
 
@@ -928,7 +938,6 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
     if (const DebugDraw* debug = runtime.tryResource<DebugDraw>();
         m_flat && m_cameraUbo && debug != nullptr && debug->colliders) {
         m_flat->bind();
-        m_cameraUbo->upload(&viewProjection, sizeof(viewProjection));
         m_cameraUbo->bindBase(kCameraUniformBinding);
         m_flat->setVec3("uColor", glm::vec3(0.25f, 0.95f, 0.40f));
         glDisable(GL_DEPTH_TEST);
