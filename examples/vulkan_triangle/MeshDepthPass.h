@@ -7,6 +7,10 @@
 struct MeshDepthPassPaths {
     std::string vertexSpv;
     std::string fragmentSpv;
+    std::string depthVertexSpv;
+    std::string depthFragmentSpv;
+    std::string pickVertexSpv;
+    std::string pickFragmentSpv;
     // Optional GL depth capture of the same scene, raw float32 rows bottom to top.
     // Empty skips the comparison.
     std::string baselineDepthRaw;

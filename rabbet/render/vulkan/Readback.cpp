@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 namespace rb::vulkan {
 
@@ -100,17 +101,41 @@ bool Readback::ensureBuffer(VkDeviceSize size) {
 bool Readback::readImage(VkImage image, VkFormat format, VkExtent2D extent,
                          VkImageLayout currentLayout, VkPipelineStageFlags2 currentStage,
                          VkAccessFlags2 currentAccess, std::span<std::byte> destination) {
+    return readImageRegion(image, format, extent, VkOffset2D{0, 0}, extent, currentLayout,
+                           currentStage, currentAccess, destination);
+}
+
+bool Readback::readImageRegion(VkImage image, VkFormat format, VkExtent2D imageExtent,
+                               VkOffset2D offset, VkExtent2D readExtent,
+                               VkImageLayout currentLayout,
+                               VkPipelineStageFlags2 currentStage,
+                               VkAccessFlags2 currentAccess,
+                               std::span<std::byte> destination) {
     const std::uint32_t texelBytes = formatTexelBytes(format);
-    if (image == VK_NULL_HANDLE || texelBytes == 0U || extent.width == 0U ||
-        extent.height == 0U || currentLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+    if (image == VK_NULL_HANDLE || texelBytes == 0U || imageExtent.width == 0U ||
+        imageExtent.height == 0U || readExtent.width == 0U || readExtent.height == 0U ||
+        offset.x < 0 || offset.y < 0 || currentLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
         std::fprintf(stderr, "Vulkan readback received an invalid request\n");
         return false;
     }
-    const VkDeviceSize required = static_cast<VkDeviceSize>(extent.width) *
-                                  static_cast<VkDeviceSize>(extent.height) *
-                                  static_cast<VkDeviceSize>(texelBytes);
+    const auto x = static_cast<std::uint32_t>(offset.x);
+    const auto y = static_cast<std::uint32_t>(offset.y);
+    if (x >= imageExtent.width || y >= imageExtent.height ||
+        readExtent.width > imageExtent.width - x ||
+        readExtent.height > imageExtent.height - y) {
+        std::fprintf(stderr, "Vulkan readback region is outside the image\n");
+        return false;
+    }
+    constexpr VkDeviceSize maximumSize = std::numeric_limits<VkDeviceSize>::max();
+    const VkDeviceSize width = readExtent.width;
+    const VkDeviceSize height = readExtent.height;
+    if (width > maximumSize / height || width * height > maximumSize / texelBytes) {
+        std::fprintf(stderr, "Vulkan readback region size overflowed\n");
+        return false;
+    }
+    const VkDeviceSize required = width * height * texelBytes;
     if (destination.size() != required) {
-        std::fprintf(stderr, "Vulkan readback destination size does not match the image\n");
+        std::fprintf(stderr, "Vulkan readback destination size does not match the region\n");
         return false;
     }
     if (!ensureBuffer(required)) {
@@ -144,7 +169,8 @@ bool Readback::readImage(VkImage image, VkFormat format, VkExtent2D extent,
     VkBufferImageCopy region{};
     region.imageSubresource.aspectMask = aspect;
     region.imageSubresource.layerCount = 1;
-    region.imageExtent = VkExtent3D{extent.width, extent.height, 1U};
+    region.imageOffset = VkOffset3D{offset.x, offset.y, 0};
+    region.imageExtent = VkExtent3D{readExtent.width, readExtent.height, 1U};
     vkCmdCopyImageToBuffer(m_commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                            m_buffer->handle(), 1, &region);
 

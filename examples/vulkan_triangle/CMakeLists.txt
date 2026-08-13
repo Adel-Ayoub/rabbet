@@ -6,6 +6,14 @@ set(vulkan_flat_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/flat.vert")
 set(vulkan_flat_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/flat.frag")
 set(vulkan_flat_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/flat.vert.spv")
 set(vulkan_flat_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/flat.frag.spv")
+set(vulkan_depth_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/depth.vert")
+set(vulkan_depth_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/depth.frag")
+set(vulkan_depth_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/depth.vert.spv")
+set(vulkan_depth_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/depth.frag.spv")
+set(vulkan_pick_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/pick.vert")
+set(vulkan_pick_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/pick.frag")
+set(vulkan_pick_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/pick.vert.spv")
+set(vulkan_pick_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/pick.frag.spv")
 set(vulkan_lit_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/lit.vert")
 set(vulkan_pbr_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/pbr.frag")
 set(vulkan_phong_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/phong.frag")
@@ -101,6 +109,96 @@ add_custom_command(
     DEPENDS "${vulkan_flat_450_frag}"
     VERBATIM)
 
+add_custom_command(
+    OUTPUT "${vulkan_depth_450_vert}"
+    COMMAND ${CMAKE_COMMAND}
+        "-DSHADER_DIR=${PROJECT_SOURCE_DIR}/rabbet/render/shaders"
+        "-DOUTPUT=${vulkan_depth_450_vert}"
+        "-DDIALECT=450"
+        "-DPRELUDE=kDepthVertex"
+        "-DMANIFEST=kDepthVertex=depth.vert"
+        "-DDEPFILE=${vulkan_depth_450_vert}.d"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/depth.vert"
+        "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+        "${CMAKE_CURRENT_LIST_FILE}"
+    DEPFILE "${vulkan_depth_450_vert}.d"
+    VERBATIM)
+
+add_custom_command(
+    OUTPUT "${vulkan_depth_450_frag}"
+    COMMAND ${CMAKE_COMMAND}
+        "-DSHADER_DIR=${PROJECT_SOURCE_DIR}/rabbet/render/shaders"
+        "-DOUTPUT=${vulkan_depth_450_frag}"
+        "-DDIALECT=450"
+        "-DMANIFEST=kDepthFragment=depth.frag"
+        "-DDEPFILE=${vulkan_depth_450_frag}.d"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/depth.frag"
+        "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+        "${CMAKE_CURRENT_LIST_FILE}"
+    DEPFILE "${vulkan_depth_450_frag}.d"
+    VERBATIM)
+
+add_custom_command(
+    OUTPUT "${vulkan_pick_450_vert}"
+    COMMAND ${CMAKE_COMMAND}
+        "-DSHADER_DIR=${PROJECT_SOURCE_DIR}/rabbet/render/shaders"
+        "-DOUTPUT=${vulkan_pick_450_vert}"
+        "-DDIALECT=450"
+        "-DPRELUDE=kPickVertex"
+        "-DMANIFEST=kPickVertex=pick.vert"
+        "-DDEPFILE=${vulkan_pick_450_vert}.d"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/pick.vert"
+        "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+        "${CMAKE_CURRENT_LIST_FILE}"
+    DEPFILE "${vulkan_pick_450_vert}.d"
+    VERBATIM)
+
+add_custom_command(
+    OUTPUT "${vulkan_pick_450_frag}"
+    COMMAND ${CMAKE_COMMAND}
+        "-DSHADER_DIR=${PROJECT_SOURCE_DIR}/rabbet/render/shaders"
+        "-DOUTPUT=${vulkan_pick_450_frag}"
+        "-DDIALECT=450"
+        "-DPRELUDE=kPickFragment"
+        "-DMANIFEST=kPickFragment=pick.frag"
+        "-DDEPFILE=${vulkan_pick_450_frag}.d"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/pick.frag"
+        "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+        "${CMAKE_CURRENT_LIST_FILE}"
+    DEPFILE "${vulkan_pick_450_frag}.d"
+    VERBATIM)
+
+foreach(vulkan_offscreen_stage IN ITEMS depth_vertex depth_fragment pick_vertex pick_fragment)
+    if(vulkan_offscreen_stage STREQUAL "depth_vertex")
+        set(vulkan_offscreen_source "${vulkan_depth_450_vert}")
+        set(vulkan_offscreen_spv "${vulkan_depth_vertex_spv}")
+    elseif(vulkan_offscreen_stage STREQUAL "depth_fragment")
+        set(vulkan_offscreen_source "${vulkan_depth_450_frag}")
+        set(vulkan_offscreen_spv "${vulkan_depth_fragment_spv}")
+    elseif(vulkan_offscreen_stage STREQUAL "pick_vertex")
+        set(vulkan_offscreen_source "${vulkan_pick_450_vert}")
+        set(vulkan_offscreen_spv "${vulkan_pick_vertex_spv}")
+    else()
+        set(vulkan_offscreen_source "${vulkan_pick_450_frag}")
+        set(vulkan_offscreen_spv "${vulkan_pick_fragment_spv}")
+    endif()
+    add_custom_command(
+        OUTPUT "${vulkan_offscreen_spv}"
+        COMMAND Vulkan::glslc --target-env=vulkan1.3
+            "${vulkan_offscreen_source}"
+            -o "${vulkan_offscreen_spv}"
+        DEPENDS "${vulkan_offscreen_source}"
+        VERBATIM)
+endforeach()
+
 foreach(vulkan_material_shader IN ITEMS lit pbr phong)
     if(vulkan_material_shader STREQUAL "lit")
         set(vulkan_material_constant kLitVertex)
@@ -159,6 +257,10 @@ add_executable(vulkan_triangle
     "${vulkan_objects_fragment_spv}"
     "${vulkan_flat_vertex_spv}"
     "${vulkan_flat_fragment_spv}"
+    "${vulkan_depth_vertex_spv}"
+    "${vulkan_depth_fragment_spv}"
+    "${vulkan_pick_vertex_spv}"
+    "${vulkan_pick_fragment_spv}"
     "${vulkan_lit_vertex_spv}"
     "${vulkan_pbr_fragment_spv}"
     "${vulkan_phong_fragment_spv}")
@@ -177,6 +279,10 @@ target_compile_definitions(vulkan_triangle PRIVATE
     "RB_VULKAN_OBJECTS_FRAGMENT_SPV=\"${vulkan_objects_fragment_spv}\""
     "RB_VULKAN_FLAT_VERTEX_SPV=\"${vulkan_flat_vertex_spv}\""
     "RB_VULKAN_FLAT_FRAGMENT_SPV=\"${vulkan_flat_fragment_spv}\""
+    "RB_VULKAN_DEPTH_VERTEX_SPV=\"${vulkan_depth_vertex_spv}\""
+    "RB_VULKAN_DEPTH_FRAGMENT_SPV=\"${vulkan_depth_fragment_spv}\""
+    "RB_VULKAN_PICK_VERTEX_SPV=\"${vulkan_pick_vertex_spv}\""
+    "RB_VULKAN_PICK_FRAGMENT_SPV=\"${vulkan_pick_fragment_spv}\""
     "RB_VULKAN_LIT_VERTEX_SPV=\"${vulkan_lit_vertex_spv}\""
     "RB_VULKAN_PBR_FRAGMENT_SPV=\"${vulkan_pbr_fragment_spv}\""
     "RB_VULKAN_PHONG_FRAGMENT_SPV=\"${vulkan_phong_fragment_spv}\""

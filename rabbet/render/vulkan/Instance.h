@@ -38,18 +38,21 @@ public:
 
     [[nodiscard]] VkInstance handle() const noexcept;
     [[nodiscard]] VkSurfaceKHR surface() const noexcept;
+    [[nodiscard]] bool synchronizationValidationEnabled() const noexcept;
     [[nodiscard]] bool supportsKhrSurfaceMaintenance() const noexcept;
     [[nodiscard]] bool supportsExtSurfaceMaintenance() const noexcept;
 
 private:
     Instance(std::shared_ptr<ValidationCounter> validation, VkInstance instance,
              VkDebugUtilsMessengerEXT messenger, VkSurfaceKHR surface,
-             bool khrSurfaceMaintenance, bool extSurfaceMaintenance) noexcept;
+             bool synchronizationValidation, bool khrSurfaceMaintenance,
+             bool extSurfaceMaintenance) noexcept;
 
     std::shared_ptr<ValidationCounter> m_validation;
     VkInstance m_instance{VK_NULL_HANDLE};
     VkDebugUtilsMessengerEXT m_messenger{VK_NULL_HANDLE};
     VkSurfaceKHR m_surface{VK_NULL_HANDLE};
+    bool m_synchronizationValidation{false};
     bool m_khrSurfaceMaintenance{false};
     bool m_extSurfaceMaintenance{false};
 };

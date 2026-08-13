@@ -8,12 +8,14 @@
 #include "rabbet/render/vulkan/Buffer.h"
 #include "rabbet/render/vulkan/Descriptors.h"
 #include "rabbet/render/vulkan/Image.h"
+#include "rabbet/render/vulkan/OffscreenTarget.h"
 #include "rabbet/render/vulkan/Pipeline.h"
 #include "rabbet/render/vulkan/Readback.h"
 #include "rabbet/render/vulkan/RetireQueue.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/packing.hpp>
 
 #include <algorithm>
 #include <array>
@@ -25,6 +27,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace {
@@ -60,10 +63,34 @@ struct PushBlock {
 };
 static_assert(sizeof(PushBlock) == 76);
 
+struct PickPushBlock {
+    std::array<float, 16> model;
+    std::int32_t entityId{0};
+};
+static_assert(sizeof(PickPushBlock) == 68);
+
+struct DepthPushBlock {
+    std::array<float, 16> model;
+};
+static_assert(sizeof(DepthPushBlock) == 64);
+
 PushBlock makePush(const glm::mat4& model, const glm::vec3& color) {
     PushBlock push{};
     std::memcpy(push.model.data(), &model, sizeof(push.model));
     push.color = {color.x, color.y, color.z};
+    return push;
+}
+
+PickPushBlock makePickPush(const glm::mat4& model, std::int32_t entityId) {
+    PickPushBlock push{};
+    std::memcpy(push.model.data(), &model, sizeof(push.model));
+    push.entityId = entityId;
+    return push;
+}
+
+DepthPushBlock makeDepthPush(const glm::mat4& model) {
+    DepthPushBlock push{};
+    std::memcpy(push.model.data(), &model, sizeof(push.model));
     return push;
 }
 
@@ -78,12 +105,29 @@ std::array<long, 2> projectToPixel(const glm::mat4& viewProjection, const glm::v
                        0L, static_cast<long>(passHeight) - 1L)};
 }
 
+float projectToDepth(const glm::mat4& viewProjection, const glm::vec3& world) {
+    const glm::vec4 clip = viewProjection * glm::vec4(world, 1.0F);
+    return clip.z / clip.w;
+}
+
 std::array<unsigned, 4> pixelAt(const std::vector<std::byte>& pixels, long x, long y) {
     const std::size_t base =
         (static_cast<std::size_t>(y) * passWidth + static_cast<std::size_t>(x)) * 4U;
     return {std::to_integer<unsigned>(pixels[base]), std::to_integer<unsigned>(pixels[base + 1U]),
             std::to_integer<unsigned>(pixels[base + 2U]),
             std::to_integer<unsigned>(pixels[base + 3U])};
+}
+
+std::array<float, 4> halfPixelAt(const std::vector<std::byte>& pixels, long x, long y) {
+    const std::size_t base =
+        (static_cast<std::size_t>(y) * passWidth + static_cast<std::size_t>(x)) * 8U;
+    std::array<float, 4> result{};
+    for (std::size_t channel = 0; channel < result.size(); ++channel) {
+        std::uint16_t bits = 0;
+        std::memcpy(&bits, pixels.data() + base + channel * sizeof(bits), sizeof(bits));
+        result[channel] = glm::unpackHalf1x16(bits);
+    }
+    return result;
 }
 
 float depthAt(const std::vector<std::byte>& texels, long x, long y) {
@@ -108,6 +152,58 @@ bool checkFlatColor(const char* name, const std::vector<std::byte>& pixels, long
     std::cout << "Vulkan mesh_depth check " << name << " pixel=" << x << ',' << y
               << " expected=" << expected[0] << ',' << expected[1] << ',' << expected[2]
               << " actual=" << actual[0] << ',' << actual[1] << ',' << actual[2]
+              << " status=" << (passed ? "pass" : "fail") << '\n';
+    return passed;
+}
+
+bool checkShadowDepth(const char* name, const std::vector<std::byte>& texels,
+                      const glm::mat4& lightSpace, const glm::vec3& world) {
+    const std::array<long, 2> pixel = projectToPixel(lightSpace, world);
+    const float expected = projectToDepth(lightSpace, world);
+    const float actual = depthAt(texels, pixel[0], pixel[1]);
+    const bool passed = std::isfinite(actual) && actual > 0.0F && actual < 1.0F &&
+                        std::fabs(actual - expected) <= 5.0e-3F;
+    std::cout << "Vulkan mesh_depth check shadow_" << name << " pixel=" << pixel[0] << ','
+              << pixel[1] << " expected=" << expected << " actual=" << actual
+              << " status=" << (passed ? "pass" : "fail") << '\n';
+    return passed;
+}
+
+bool checkHalfColor(const char* name, const std::vector<std::byte>& pixels, long x, long y,
+                    const glm::vec3& color) {
+    const std::array<float, 4> actual = halfPixelAt(pixels, x, y);
+    const std::array<float, 4> expected{color.x, color.y, color.z, 1.0F};
+    bool passed = true;
+    for (std::size_t channel = 0; channel < actual.size(); ++channel) {
+        passed = passed && std::fabs(actual[channel] - expected[channel]) <= 1.0e-3F;
+    }
+    std::cout << "Vulkan mesh_depth check " << name << " pixel=" << x << ',' << y
+              << " expected=" << expected[0] << ',' << expected[1] << ',' << expected[2] << ','
+              << expected[3] << " actual=" << actual[0] << ',' << actual[1] << ',' << actual[2]
+              << ',' << actual[3]
+              << " status=" << (passed ? "pass" : "fail") << '\n';
+    return passed;
+}
+
+bool checkDepthCoverage(const char* name, const std::vector<std::byte>& texels) {
+    float minimum = 1.0F;
+    float maximum = 0.0F;
+    std::size_t written = 0;
+    bool finiteAndBounded = true;
+    for (std::size_t offset = 0; offset < texels.size(); offset += sizeof(float)) {
+        float value = 0.0F;
+        std::memcpy(&value, texels.data() + offset, sizeof(value));
+        finiteAndBounded = finiteAndBounded && std::isfinite(value) && value >= 0.0F &&
+                           value <= 1.0F;
+        minimum = std::min(minimum, value);
+        maximum = std::max(maximum, value);
+        if (value < 1.0F) {
+            ++written;
+        }
+    }
+    const bool passed = finiteAndBounded && written > 100U && minimum < 1.0F && maximum == 1.0F;
+    std::cout << "Vulkan mesh_depth check " << name << " written=" << written
+              << " min=" << minimum << " max=" << maximum
               << " status=" << (passed ? "pass" : "fail") << '\n';
     return passed;
 }
@@ -200,15 +296,209 @@ bool writeOutputs(const std::string& directory, const std::vector<std::byte>& co
     return true;
 }
 
+void transitionTarget(VkCommandBuffer commandBuffer,
+                      const rb::vulkan::OffscreenTarget& target) {
+    std::array<rb::vulkan::ImageBarrier, 2> barriers{};
+    std::size_t count = 0;
+    if (const rb::vulkan::Image* color = target.color()) {
+        auto& barrier = barriers[count++];
+        barrier.image = color->handle();
+        barrier.dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        barrier.dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+    if (const rb::vulkan::Image* depth = target.depth()) {
+        auto& barrier = barriers[count++];
+        barrier.image = depth->handle();
+        barrier.dstStage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                           VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        barrier.dstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        barrier.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    }
+    rb::vulkan::cmdBarriers(
+        commandBuffer,
+        std::span<const rb::vulkan::ImageBarrier>(barriers.data(), count), {});
+}
+
+void transitionForSampling(VkCommandBuffer commandBuffer, const rb::vulkan::Image& image,
+                           VkImageLayout oldLayout, VkPipelineStageFlags2 srcStage,
+                           VkAccessFlags2 srcAccess) {
+    rb::vulkan::ImageBarrier barrier{};
+    barrier.image = image.handle();
+    barrier.srcStage = srcStage;
+    barrier.srcAccess = srcAccess;
+    barrier.dstStage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    barrier.dstAccess = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = image.aspect() == VK_IMAGE_ASPECT_DEPTH_BIT
+                            ? VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
+                            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.aspect = image.aspect();
+    rb::vulkan::cmdImageBarrier(commandBuffer, barrier);
+}
+
+void bindDrawState(VkCommandBuffer commandBuffer, const rb::vulkan::Pipeline& pipeline,
+                   VkDescriptorSet frameSet, const rb::vulkan::Buffer& vertexBuffer,
+                   const rb::vulkan::Buffer& indexBuffer, VkExtent2D extent) {
+    const VkViewport viewport{0.0F, static_cast<float>(extent.height),
+                              static_cast<float>(extent.width),
+                              -static_cast<float>(extent.height), 0.0F, 1.0F};
+    const VkRect2D scissor{{0, 0}, extent};
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle());
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout(), 0,
+                            1, &frameSet, 0, nullptr);
+    const VkBuffer vertexHandle = vertexBuffer.handle();
+    const VkDeviceSize vertexOffset = 0;
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexHandle, &vertexOffset);
+    vkCmdBindIndexBuffer(commandBuffer, indexBuffer.handle(), 0, VK_INDEX_TYPE_UINT32);
+}
+
+void recordFlatTarget(VkCommandBuffer commandBuffer, const rb::vulkan::OffscreenTarget& target,
+                      const rb::vulkan::Pipeline& pipeline, VkDescriptorSet frameSet,
+                      const rb::vulkan::Buffer& vertexBuffer,
+                      const rb::vulkan::Buffer& indexBuffer,
+                      const std::array<DrawRange, 3>& draws) {
+    transitionTarget(commandBuffer, target);
+
+    VkRenderingAttachmentInfo colorAttachment{};
+    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    colorAttachment.imageView = target.color()->view();
+    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.clearValue.color = {
+        {clearColor[0], clearColor[1], clearColor[2], clearColor[3]}};
+    VkRenderingAttachmentInfo depthAttachment{};
+    depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depthAttachment.imageView = target.depth()->view();
+    depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAttachment.clearValue.depthStencil = {1.0F, 0};
+    VkRenderingInfo renderingInfo{};
+    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    renderingInfo.renderArea.extent = target.extent();
+    renderingInfo.layerCount = 1;
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachments = &colorAttachment;
+    renderingInfo.pDepthAttachment = &depthAttachment;
+    vkCmdBeginRendering(commandBuffer, &renderingInfo);
+
+    bindDrawState(commandBuffer, pipeline, frameSet, vertexBuffer, indexBuffer, target.extent());
+    for (const DrawRange& draw : draws) {
+        const PushBlock push = makePush(draw.model, draw.color);
+        vkCmdPushConstants(commandBuffer, pipeline.layout(),
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(push), &push);
+        vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, draw.vertexOffset, 0);
+    }
+    vkCmdEndRendering(commandBuffer);
+}
+
+void recordPickTarget(VkCommandBuffer commandBuffer, const rb::vulkan::OffscreenTarget& target,
+                      const rb::vulkan::Pipeline& pipeline, VkDescriptorSet frameSet,
+                      const rb::vulkan::Buffer& vertexBuffer,
+                      const rb::vulkan::Buffer& indexBuffer,
+                      const std::array<DrawRange, 3>& draws) {
+    transitionTarget(commandBuffer, target);
+
+    VkRenderingAttachmentInfo colorAttachment{};
+    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    colorAttachment.imageView = target.color()->view();
+    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.clearValue.color.int32[0] = rb::vulkan::OffscreenTarget::noPickId;
+    VkRenderingAttachmentInfo depthAttachment{};
+    depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depthAttachment.imageView = target.depth()->view();
+    depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAttachment.clearValue.depthStencil = {1.0F, 0};
+    VkRenderingInfo renderingInfo{};
+    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    renderingInfo.renderArea.extent = target.extent();
+    renderingInfo.layerCount = 1;
+    renderingInfo.colorAttachmentCount = 1;
+    renderingInfo.pColorAttachments = &colorAttachment;
+    renderingInfo.pDepthAttachment = &depthAttachment;
+    vkCmdBeginRendering(commandBuffer, &renderingInfo);
+
+    bindDrawState(commandBuffer, pipeline, frameSet, vertexBuffer, indexBuffer, target.extent());
+    for (std::size_t index = 0; index < draws.size(); ++index) {
+        const DrawRange& draw = draws[index];
+        const auto entityId = static_cast<std::int32_t>((index + 1U) * 11U);
+        const PickPushBlock push = makePickPush(draw.model, entityId);
+        vkCmdPushConstants(commandBuffer, pipeline.layout(),
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(push), &push);
+        vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, draw.vertexOffset, 0);
+    }
+    vkCmdEndRendering(commandBuffer);
+}
+
+void recordShadowTarget(VkCommandBuffer commandBuffer, const rb::vulkan::OffscreenTarget& target,
+                        const rb::vulkan::Pipeline& pipeline, VkDescriptorSet frameSet,
+                        const rb::vulkan::Buffer& vertexBuffer,
+                        const rb::vulkan::Buffer& indexBuffer,
+                        const std::array<DrawRange, 3>& draws) {
+    transitionTarget(commandBuffer, target);
+
+    VkRenderingAttachmentInfo depthAttachment{};
+    depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depthAttachment.imageView = target.depth()->view();
+    depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAttachment.clearValue.depthStencil = {1.0F, 0};
+    VkRenderingInfo renderingInfo{};
+    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    renderingInfo.renderArea.extent = target.extent();
+    renderingInfo.layerCount = 1;
+    renderingInfo.pDepthAttachment = &depthAttachment;
+    vkCmdBeginRendering(commandBuffer, &renderingInfo);
+
+    bindDrawState(commandBuffer, pipeline, frameSet, vertexBuffer, indexBuffer, target.extent());
+    for (const DrawRange& draw : draws) {
+        const DepthPushBlock push = makeDepthPush(draw.model);
+        vkCmdPushConstants(commandBuffer, pipeline.layout(), VK_SHADER_STAGE_VERTEX_BIT, 0,
+                           sizeof(push), &push);
+        vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, draw.vertexOffset, 0);
+    }
+    vkCmdEndRendering(commandBuffer);
+}
+
 bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths) {
     auto allocator = rb::vulkan::Allocator::create(device);
     if (allocator == nullptr) {
         return false;
     }
 
+    rb::vulkan::OffscreenTargetDescription invalidDescription{};
+    invalidDescription.extent = {passWidth, passHeight};
+    const bool invalidTargetRejected =
+        rb::vulkan::OffscreenTarget::create(device, *allocator, invalidDescription) == nullptr;
+    std::cout << "Vulkan mesh_depth check invalid_target status="
+              << (invalidTargetRejected ? "pass" : "fail") << '\n';
+    if (!invalidTargetRejected) {
+        return false;
+    }
+
     const auto vertexCode = loadSpirvFile(paths.vertexSpv);
     const auto fragmentCode = loadSpirvFile(paths.fragmentSpv);
-    if (vertexCode.empty() || fragmentCode.empty()) {
+    const auto depthVertexCode = loadSpirvFile(paths.depthVertexSpv);
+    const auto depthFragmentCode = loadSpirvFile(paths.depthFragmentSpv);
+    const auto pickVertexCode = loadSpirvFile(paths.pickVertexSpv);
+    const auto pickFragmentCode = loadSpirvFile(paths.pickFragmentSpv);
+    if (vertexCode.empty() || fragmentCode.empty() || depthVertexCode.empty() ||
+        depthFragmentCode.empty() || pickVertexCode.empty() || pickFragmentCode.empty()) {
         return false;
     }
 
@@ -225,6 +515,11 @@ bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths
     clipFix[2][2] = 0.5F;
     clipFix[3][2] = 0.5F;
     const glm::mat4 viewProjection = clipFix * projection * view;
+    const glm::vec3 lightPosition(4.0F, 8.0F, 4.0F);
+    const glm::mat4 lightView =
+        glm::lookAt(lightPosition, glm::vec3(0.0F), glm::vec3(0.0F, 1.0F, 0.0F));
+    const glm::mat4 lightProjection = glm::ortho(-7.0F, 7.0F, -7.0F, 7.0F, 1.0F, 30.0F);
+    const glm::mat4 lightSpace = clipFix * lightProjection * lightView;
 
     const rb::MeshData quad = rb::geometry::quad();
     const rb::MeshData cube = rb::geometry::cube();
@@ -248,6 +543,10 @@ bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths
                                            glm::vec3(0.0F, 0.5F, 0.0F),
                                            glm::vec3(1.1F, 0.75F, -1.2F)};
     const std::array<const char*, 3> names{"quad", "cube", "sphere"};
+    const glm::vec3 sphereCenter(1.1F, 0.75F, -1.2F);
+    const std::array<glm::vec3, 3> shadowSamples{
+        samples[0], glm::vec3(0.0F, 1.0F, 0.0F),
+        sphereCenter + 0.5F * glm::normalize(lightPosition - sphereCenter)};
     for (std::size_t i = 0; i < 3U; ++i) {
         DrawRange& draw = draws[i];
         draw.model = models[i];
@@ -275,6 +574,10 @@ bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths
         rb::vulkan::Buffer::create(device, *allocator, sizeof(viewProjection),
                                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                    rb::vulkan::MemoryClass::hostUpload);
+    auto lightUniformBuffer =
+        rb::vulkan::Buffer::create(device, *allocator, sizeof(lightSpace),
+                                   VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                   rb::vulkan::MemoryClass::hostUpload);
     auto vertexStaging =
         rb::vulkan::Buffer::create(device, *allocator, vertexBytes,
                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -284,30 +587,43 @@ bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths
                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                    rb::vulkan::MemoryClass::hostUpload);
     if (vertexBuffer == nullptr || indexBuffer == nullptr || uniformBuffer == nullptr ||
-        vertexStaging == nullptr || indexStaging == nullptr) {
+        lightUniformBuffer == nullptr || vertexStaging == nullptr || indexStaging == nullptr) {
         return false;
     }
 
-    rb::vulkan::ImageDescription colorDescription{};
-    colorDescription.extent = VkExtent2D{passWidth, passHeight};
-    colorDescription.format = VK_FORMAT_R8G8B8A8_UNORM;
-    colorDescription.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    auto colorTarget = rb::vulkan::Image::create(device, *allocator, colorDescription);
-    rb::vulkan::ImageDescription depthDescription{};
-    depthDescription.extent = VkExtent2D{passWidth, passHeight};
-    depthDescription.format = VK_FORMAT_D32_SFLOAT;
-    depthDescription.usage =
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    auto depthTarget = rb::vulkan::Image::create(device, *allocator, depthDescription);
-    if (colorTarget == nullptr || depthTarget == nullptr) {
+    rb::vulkan::OffscreenTargetDescription rgba8Description{};
+    rgba8Description.extent = {passWidth, passHeight};
+    rgba8Description.colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    rgba8Description.depth = true;
+    rgba8Description.sampledColor = true;
+    auto rgba8Target = rb::vulkan::OffscreenTarget::create(device, *allocator, rgba8Description);
+
+    rb::vulkan::OffscreenTargetDescription rgba16Description = rgba8Description;
+    rgba16Description.colorFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    auto rgba16Target = rb::vulkan::OffscreenTarget::create(device, *allocator, rgba16Description);
+
+    rb::vulkan::OffscreenTargetDescription pickDescription = rgba8Description;
+    pickDescription.colorFormat = VK_FORMAT_R32_SINT;
+    pickDescription.sampledColor = false;
+    auto pickTarget = rb::vulkan::OffscreenTarget::create(device, *allocator, pickDescription);
+
+    rb::vulkan::OffscreenTargetDescription shadowDescription{};
+    shadowDescription.extent = {passWidth, passHeight};
+    shadowDescription.depth = true;
+    shadowDescription.sampledDepth = true;
+    auto shadowTarget = rb::vulkan::OffscreenTarget::create(device, *allocator, shadowDescription);
+    if (rgba8Target == nullptr || rgba16Target == nullptr || pickTarget == nullptr ||
+        shadowTarget == nullptr) {
         return false;
     }
 
     std::memcpy(vertexStaging->mapped(), vertices.data(), vertexBytes);
     std::memcpy(indexStaging->mapped(), indices.data(), indexBytes);
     std::memcpy(uniformBuffer->mapped(), &viewProjection, sizeof(viewProjection));
+    std::memcpy(lightUniformBuffer->mapped(), &lightSpace, sizeof(lightSpace));
     if (!vertexStaging->flush(0, vertexBytes) || !indexStaging->flush(0, indexBytes) ||
-        !uniformBuffer->flush(0, sizeof(viewProjection))) {
+        !uniformBuffer->flush(0, sizeof(viewProjection)) ||
+        !lightUniformBuffer->flush(0, sizeof(lightSpace))) {
         std::cerr << "Vulkan mesh_depth staging flush failed\n";
         return false;
     }
@@ -355,114 +671,116 @@ bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths
         return false;
     }
     const std::array<VkDescriptorPoolSize, 1> poolSizes{
-        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1}};
-    auto descriptorPool = rb::vulkan::DescriptorPool::create(device, 1, poolSizes);
+        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2}};
+    auto descriptorPool = rb::vulkan::DescriptorPool::create(device, 2, poolSizes);
     if (descriptorPool == nullptr) {
         return false;
     }
     const VkDescriptorSet frameSet = descriptorPool->allocate(frameLayout->handle());
-    if (frameSet == VK_NULL_HANDLE) {
+    const VkDescriptorSet lightFrameSet = descriptorPool->allocate(frameLayout->handle());
+    if (frameSet == VK_NULL_HANDLE || lightFrameSet == VK_NULL_HANDLE) {
         return false;
     }
     VkDescriptorBufferInfo uniformInfo{uniformBuffer->handle(), 0, sizeof(viewProjection)};
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = frameSet;
-    write.dstBinding = 0;
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    write.pBufferInfo = &uniformInfo;
-    vkUpdateDescriptorSets(device.handle(), 1, &write, 0, nullptr);
+    VkDescriptorBufferInfo lightUniformInfo{lightUniformBuffer->handle(), 0, sizeof(lightSpace)};
+    std::array<VkWriteDescriptorSet, 2> writes{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = frameSet;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[0].pBufferInfo = &uniformInfo;
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = lightFrameSet;
+    writes[1].dstBinding = 0;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[1].pBufferInfo = &lightUniformInfo;
+    vkUpdateDescriptorSets(device.handle(), static_cast<std::uint32_t>(writes.size()),
+                           writes.data(), 0, nullptr);
 
     const std::array<rb::vulkan::VertexAttribute, 1> attributes{
         rb::vulkan::VertexAttribute{0, VK_FORMAT_R32G32B32_SFLOAT, 0}};
-    const std::array<VkFormat, 1> colorFormats{VK_FORMAT_R8G8B8A8_UNORM};
+    const std::array<VkFormat, 1> rgba8Formats{VK_FORMAT_R8G8B8A8_UNORM};
+    const std::array<VkFormat, 1> rgba16Formats{VK_FORMAT_R16G16B16A16_SFLOAT};
+    const std::array<VkFormat, 1> pickFormats{VK_FORMAT_R32_SINT};
     const std::array<VkDescriptorSetLayout, 1> setLayouts{frameLayout->handle()};
-    rb::vulkan::PipelineDescription pipelineDescription{};
-    pipelineDescription.vertexCode = vertexCode;
-    pipelineDescription.fragmentCode = fragmentCode;
-    pipelineDescription.vertexStride = sizeof(rb::Vertex);
-    pipelineDescription.vertexAttributes = attributes;
-    pipelineDescription.depthTest = true;
-    pipelineDescription.depthWrite = true;
-    pipelineDescription.colorFormats = colorFormats;
-    pipelineDescription.depthFormat = VK_FORMAT_D32_SFLOAT;
-    pipelineDescription.setLayouts = setLayouts;
-    pipelineDescription.pushConstantBytes = sizeof(PushBlock);
-    auto pipeline = rb::vulkan::Pipeline::create(device, pipelineDescription, VK_NULL_HANDLE);
-    if (pipeline == nullptr) {
+
+    rb::vulkan::PipelineDescription flatDescription{};
+    flatDescription.vertexCode = vertexCode;
+    flatDescription.fragmentCode = fragmentCode;
+    flatDescription.vertexStride = sizeof(rb::Vertex);
+    flatDescription.vertexAttributes = attributes;
+    flatDescription.depthTest = true;
+    flatDescription.depthWrite = true;
+    flatDescription.colorFormats = rgba8Formats;
+    flatDescription.depthFormat = VK_FORMAT_D32_SFLOAT;
+    flatDescription.setLayouts = setLayouts;
+    flatDescription.pushConstantBytes = sizeof(PushBlock);
+    auto rgba8Pipeline =
+        rb::vulkan::Pipeline::create(device, flatDescription, VK_NULL_HANDLE);
+    flatDescription.colorFormats = rgba16Formats;
+    auto rgba16Pipeline =
+        rb::vulkan::Pipeline::create(device, flatDescription, VK_NULL_HANDLE);
+
+    rb::vulkan::PipelineDescription pickPipelineDescription{};
+    pickPipelineDescription.vertexCode = pickVertexCode;
+    pickPipelineDescription.fragmentCode = pickFragmentCode;
+    pickPipelineDescription.vertexStride = sizeof(rb::Vertex);
+    pickPipelineDescription.vertexAttributes = attributes;
+    pickPipelineDescription.depthTest = true;
+    pickPipelineDescription.depthWrite = true;
+    pickPipelineDescription.colorFormats = pickFormats;
+    pickPipelineDescription.depthFormat = VK_FORMAT_D32_SFLOAT;
+    pickPipelineDescription.setLayouts = setLayouts;
+    pickPipelineDescription.pushConstantBytes = sizeof(PickPushBlock);
+    auto pickPipeline =
+        rb::vulkan::Pipeline::create(device, pickPipelineDescription, VK_NULL_HANDLE);
+
+    rb::vulkan::PipelineDescription shadowPipelineDescription{};
+    shadowPipelineDescription.vertexCode = depthVertexCode;
+    shadowPipelineDescription.fragmentCode = depthFragmentCode;
+    shadowPipelineDescription.vertexStride = sizeof(rb::Vertex);
+    shadowPipelineDescription.vertexAttributes = attributes;
+    shadowPipelineDescription.depthTest = true;
+    shadowPipelineDescription.depthWrite = true;
+    shadowPipelineDescription.depthFormat = VK_FORMAT_D32_SFLOAT;
+    shadowPipelineDescription.setLayouts = setLayouts;
+    shadowPipelineDescription.pushConstantBytes = sizeof(DepthPushBlock);
+    shadowPipelineDescription.pushConstantStages = VK_SHADER_STAGE_VERTEX_BIT;
+    auto shadowPipeline =
+        rb::vulkan::Pipeline::create(device, shadowPipelineDescription, VK_NULL_HANDLE);
+
+    if (rgba8Pipeline == nullptr || rgba16Pipeline == nullptr || pickPipeline == nullptr ||
+        shadowPipeline == nullptr) {
         return false;
     }
 
     if (!commands.begin()) {
         return false;
     }
-    rb::vulkan::ImageBarrier colorToAttachment{};
-    colorToAttachment.image = colorTarget->handle();
-    colorToAttachment.dstStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    colorToAttachment.dstAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    colorToAttachment.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorToAttachment.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    rb::vulkan::ImageBarrier depthToAttachment{};
-    depthToAttachment.image = depthTarget->handle();
-    depthToAttachment.dstStage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                                 VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-    depthToAttachment.dstAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-                                  VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    depthToAttachment.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    depthToAttachment.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depthToAttachment.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
-    const std::array<rb::vulkan::ImageBarrier, 2> renderBarriers{colorToAttachment,
-                                                                 depthToAttachment};
-    rb::vulkan::cmdBarriers(commands.buffer, renderBarriers, {});
-
-    VkRenderingAttachmentInfo colorAttachment{};
-    colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    colorAttachment.imageView = colorTarget->view();
-    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.clearValue.color = {{clearColor[0], clearColor[1], clearColor[2],
-                                         clearColor[3]}};
-    VkRenderingAttachmentInfo depthAttachment{};
-    depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depthAttachment.imageView = depthTarget->view();
-    depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    depthAttachment.clearValue.depthStencil = {1.0F, 0};
-    VkRenderingInfo renderingInfo{};
-    renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    renderingInfo.renderArea.extent = VkExtent2D{passWidth, passHeight};
-    renderingInfo.layerCount = 1;
-    renderingInfo.colorAttachmentCount = 1;
-    renderingInfo.pColorAttachments = &colorAttachment;
-    renderingInfo.pDepthAttachment = &depthAttachment;
-    vkCmdBeginRendering(commands.buffer, &renderingInfo);
-
-    // The negative height flips y so the engine's GL convention renders upright.
-    const VkViewport viewport{0.0F, static_cast<float>(passHeight),
-                              static_cast<float>(passWidth), -static_cast<float>(passHeight),
-                              0.0F, 1.0F};
-    const VkRect2D scissor{{0, 0}, {passWidth, passHeight}};
-    vkCmdSetViewport(commands.buffer, 0, 1, &viewport);
-    vkCmdSetScissor(commands.buffer, 0, 1, &scissor);
-    vkCmdBindPipeline(commands.buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->handle());
-    vkCmdBindDescriptorSets(commands.buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->layout(),
-                            0, 1, &frameSet, 0, nullptr);
-    const VkBuffer vertexHandle = vertexBuffer->handle();
-    const VkDeviceSize vertexOffset = 0;
-    vkCmdBindVertexBuffers(commands.buffer, 0, 1, &vertexHandle, &vertexOffset);
-    vkCmdBindIndexBuffer(commands.buffer, indexBuffer->handle(), 0, VK_INDEX_TYPE_UINT32);
-    for (const DrawRange& draw : draws) {
-        const PushBlock push = makePush(draw.model, draw.color);
-        vkCmdPushConstants(commands.buffer, pipeline->layout(),
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(push), &push);
-        vkCmdDrawIndexed(commands.buffer, draw.indexCount, 1, draw.firstIndex, draw.vertexOffset,
-                         0);
-    }
-    vkCmdEndRendering(commands.buffer);
+    recordFlatTarget(commands.buffer, *rgba8Target, *rgba8Pipeline, frameSet, *vertexBuffer,
+                     *indexBuffer, draws);
+    recordFlatTarget(commands.buffer, *rgba16Target, *rgba16Pipeline, frameSet, *vertexBuffer,
+                     *indexBuffer, draws);
+    recordPickTarget(commands.buffer, *pickTarget, *pickPipeline, frameSet, *vertexBuffer,
+                     *indexBuffer, draws);
+    recordShadowTarget(commands.buffer, *shadowTarget, *shadowPipeline, lightFrameSet,
+                       *vertexBuffer, *indexBuffer, draws);
+    transitionForSampling(commands.buffer, *rgba8Target->color(),
+                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                          VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+    transitionForSampling(commands.buffer, *rgba16Target->color(),
+                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                          VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+    transitionForSampling(commands.buffer, *shadowTarget->depth(),
+                          VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                          VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                              VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                          VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                              VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
     if (!commands.submitAndWait(device.graphicsQueue())) {
         return false;
     }
@@ -473,21 +791,36 @@ bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths
         if (readback == nullptr) {
             return false;
         }
-        std::vector<std::byte> colorPixels(static_cast<std::size_t>(passWidth) * passHeight * 4U);
-        std::vector<std::byte> depthTexels(static_cast<std::size_t>(passWidth) * passHeight * 4U);
-        if (!readback->readImage(colorTarget->handle(), colorTarget->format(),
-                                 colorTarget->extent(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, colorPixels)) {
+        const std::size_t pixelCount = static_cast<std::size_t>(passWidth) * passHeight;
+        std::vector<std::byte> colorPixels(pixelCount * 4U);
+        std::vector<std::byte> halfPixels(pixelCount * 8U);
+        std::vector<std::byte> depthTexels(pixelCount * 4U);
+        std::vector<std::byte> shadowTexels(pixelCount * 4U);
+        constexpr VkPipelineStageFlags2 colorStage =
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        constexpr VkAccessFlags2 colorAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        constexpr VkPipelineStageFlags2 depthStage =
+            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+        constexpr VkAccessFlags2 depthAccess =
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        constexpr VkPipelineStageFlags2 sampledStage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        constexpr VkAccessFlags2 sampledAccess = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        if (!rgba8Target->readColor(*readback, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                    sampledStage, sampledAccess, colorPixels)) {
             return false;
         }
-        if (!readback->readImage(depthTarget->handle(), depthTarget->format(),
-                                 depthTarget->extent(), VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-                                 VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                                     VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-                                 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-                                     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                                 depthTexels)) {
+        if (!rgba8Target->readDepth(*readback, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                                    depthStage, depthAccess, depthTexels)) {
+            return false;
+        }
+        if (!rgba16Target->readColor(*readback, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                     sampledStage, sampledAccess, halfPixels)) {
+            return false;
+        }
+        if (!shadowTarget->readDepth(*readback, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+                                     sampledStage, sampledAccess, shadowTexels)) {
             return false;
         }
 
@@ -497,6 +830,10 @@ bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths
                                                  glm::vec3(clearColor[0], clearColor[1],
                                                            clearColor[2]));
         checksPassed = checksPassed && cornerPassed && corner[3] == 255U;
+        checksPassed =
+            checkHalfColor("rgba16_background", halfPixels, 2, 2,
+                           glm::vec3(clearColor[0], clearColor[1], clearColor[2])) &&
+            checksPassed;
         const float cornerDepth = depthAt(depthTexels, 2, 2);
         const bool cornerDepthPassed = cornerDepth == 1.0F;
         std::cout << "Vulkan mesh_depth check background_depth expected=1 actual=" << cornerDepth
@@ -508,11 +845,59 @@ bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths
             checksPassed =
                 checkFlatColor(draw.name, colorPixels, pixel[0], pixel[1], draw.color) &&
                 checksPassed;
+            const std::string halfName = std::string("rgba16_") + draw.name;
+            checksPassed =
+                checkHalfColor(halfName.c_str(), halfPixels, pixel[0], pixel[1], draw.color) &&
+                checksPassed;
             const float depth = depthAt(depthTexels, pixel[0], pixel[1]);
             const bool depthPassed = depth > 0.0F && depth < 1.0F;
             std::cout << "Vulkan mesh_depth check " << draw.name << "_depth actual=" << depth
                       << " status=" << (depthPassed ? "pass" : "fail") << '\n';
             checksPassed = checksPassed && depthPassed;
+        }
+
+        const auto checkPick = [&](const char* name, std::int32_t x, std::int32_t y,
+                                   std::int32_t expected) {
+            std::int32_t actual = rb::vulkan::OffscreenTarget::noPickId;
+            const bool read = pickTarget->readPickId(
+                *readback, x, y, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage,
+                colorAccess, actual);
+            const bool passed = read && actual == expected;
+            std::cout << "Vulkan mesh_depth check " << name << " expected=" << expected
+                      << " actual=" << actual << " status=" << (passed ? "pass" : "fail")
+                      << '\n';
+            return passed;
+        };
+        checksPassed = checkPick("pick_background", 2, 2,
+                                 rb::vulkan::OffscreenTarget::noPickId) &&
+                       checksPassed;
+        for (std::size_t index = 0; index < draws.size(); ++index) {
+            const DrawRange& draw = draws[index];
+            const std::array<long, 2> pixel = projectToPixel(viewProjection, draw.samplePoint);
+            const std::string pickName = std::string("pick_") + draw.name;
+            const auto expected = static_cast<std::int32_t>((index + 1U) * 11U);
+            checksPassed = checkPick(pickName.c_str(), static_cast<std::int32_t>(pixel[0]),
+                                    static_cast<std::int32_t>(pixel[1]), expected) &&
+                           checksPassed;
+        }
+        std::int32_t outside = 0;
+        const bool pickBoundsPassed =
+            pickTarget->readPickId(*readback, -1, 0,
+                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage,
+                                   colorAccess, outside) &&
+            outside == rb::vulkan::OffscreenTarget::noPickId &&
+            pickTarget->readPickId(*readback, static_cast<std::int32_t>(passWidth), 0,
+                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage,
+                                   colorAccess, outside) &&
+            outside == rb::vulkan::OffscreenTarget::noPickId;
+        std::cout << "Vulkan mesh_depth check pick_bounds status="
+                  << (pickBoundsPassed ? "pass" : "fail") << '\n';
+        checksPassed = checksPassed && pickBoundsPassed;
+        checksPassed = checkDepthCoverage("shadow_depth", shadowTexels) && checksPassed;
+        for (std::size_t index = 0; index < draws.size(); ++index) {
+            checksPassed = checkShadowDepth(draws[index].name, shadowTexels, lightSpace,
+                                            shadowSamples[index]) &&
+                           checksPassed;
         }
 
         if (!paths.baselineDepthRaw.empty()) {
@@ -529,9 +914,12 @@ bool runChecks(const rb::vulkan::Device& device, const MeshDepthPassPaths& paths
     retireQueue.retire(std::move(vertexBuffer));
     retireQueue.retire(std::move(indexBuffer));
     retireQueue.retire(std::move(uniformBuffer));
-    retireQueue.retire(std::move(colorTarget));
-    retireQueue.retire(std::move(depthTarget));
+    retireQueue.retire(std::move(lightUniformBuffer));
     retireQueue.collect(2);
+    rgba8Target.reset();
+    rgba16Target.reset();
+    pickTarget.reset();
+    shadowTarget.reset();
 
     const rb::vulkan::AllocatorStats& stats = allocator->stats();
     std::cout << "Vulkan mesh_depth allocator blocks=" << stats.blockCount

@@ -16,6 +16,11 @@ namespace {
 
 constexpr const char* validationLayerName = "VK_LAYER_KHRONOS_validation";
 constexpr std::size_t enumerationAttempts = 4;
+constexpr std::uint32_t synchronizationValidationRevision = 4;
+#ifdef VK_EXT_layer_settings
+constexpr std::uint32_t publicLayerSettingsRevision = 2;
+constexpr const char* synchronizationSettingName = "validate_sync";
+#endif
 
 std::optional<std::vector<VkLayerProperties>> enumerateLayers() {
     for (std::size_t attempt = 0; attempt < enumerationAttempts; ++attempt) {
@@ -36,15 +41,15 @@ std::optional<std::vector<VkLayerProperties>> enumerateLayers() {
     return std::nullopt;
 }
 
-std::optional<std::vector<VkExtensionProperties>> enumerateExtensions() {
+std::optional<std::vector<VkExtensionProperties>> enumerateExtensions(const char* layerName) {
     for (std::size_t attempt = 0; attempt < enumerationAttempts; ++attempt) {
         std::uint32_t count = 0;
-        if (vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr) != VK_SUCCESS) {
+        if (vkEnumerateInstanceExtensionProperties(layerName, &count, nullptr) != VK_SUCCESS) {
             return std::nullopt;
         }
         std::vector<VkExtensionProperties> extensions(count);
         const VkResult result =
-            vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.data());
+            vkEnumerateInstanceExtensionProperties(layerName, &count, extensions.data());
         if (result == VK_SUCCESS) {
             extensions.resize(count);
             return extensions;
@@ -62,10 +67,12 @@ bool hasLayer(const std::vector<VkLayerProperties>& layers, const char* name) {
     });
 }
 
-bool hasExtension(const std::vector<VkExtensionProperties>& extensions, const char* name) {
+bool hasExtension(const std::vector<VkExtensionProperties>& extensions, const char* name,
+                  std::uint32_t minimumRevision = 0) {
     return std::any_of(extensions.begin(), extensions.end(),
-                       [name](const VkExtensionProperties& extension) {
-                           return std::strcmp(extension.extensionName, name) == 0;
+                       [name, minimumRevision](const VkExtensionProperties& extension) {
+                           return std::strcmp(extension.extensionName, name) == 0 &&
+                                  extension.specVersion >= minimumRevision;
                        });
 }
 
@@ -162,11 +169,25 @@ std::unique_ptr<Instance> Instance::create(GLFWwindow* window,
         return nullptr;
     }
 
-    const auto availableExtensions = enumerateExtensions();
+    const auto availableExtensions = enumerateExtensions(nullptr);
     if (!availableExtensions.has_value()) {
         std::fprintf(stderr, "Vulkan instance extension enumeration failed\n");
         return nullptr;
     }
+    const auto validationExtensions = enumerateExtensions(validationLayerName);
+    const bool validationFeatureSynchronization =
+        validationExtensions.has_value() &&
+        hasExtension(*validationExtensions, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME,
+                     synchronizationValidationRevision);
+    bool layerSettingSynchronization = false;
+#ifdef VK_EXT_layer_settings
+    layerSettingSynchronization =
+        validationExtensions.has_value() &&
+        hasExtension(*validationExtensions, VK_EXT_LAYER_SETTINGS_EXTENSION_NAME,
+                     publicLayerSettingsRevision);
+#endif
+    const bool synchronizationValidation =
+        layerSettingSynchronization || validationFeatureSynchronization;
 
     std::uint32_t glfwExtensionCount = 0;
     const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
@@ -183,6 +204,14 @@ std::unique_ptr<Instance> Instance::create(GLFWwindow* window,
     if (!containsName(enabledExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
         enabledExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
+    if (!layerSettingSynchronization && validationFeatureSynchronization) {
+        enabledExtensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+    }
+#ifdef VK_EXT_layer_settings
+    if (layerSettingSynchronization) {
+        enabledExtensions.push_back(VK_EXT_LAYER_SETTINGS_EXTENSION_NAME);
+    }
+#endif
     if (!hasExtension(*availableExtensions, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME)) {
         std::fprintf(stderr, "Vulkan surface capability extension is unavailable\n");
         return nullptr;
@@ -222,10 +251,37 @@ std::unique_ptr<Instance> Instance::create(GLFWwindow* window,
     applicationInfo.apiVersion = VK_API_VERSION_1_3;
 
     auto messengerInfo = debugMessengerInfo(*validation);
+    const VkValidationFeatureEnableEXT validationFeature =
+        VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+    VkValidationFeaturesEXT validationFeatures{};
+#ifdef VK_EXT_layer_settings
+    const VkBool32 synchronizationSettingValue = VK_TRUE;
+    const VkLayerSettingEXT synchronizationSetting{
+        validationLayerName, synchronizationSettingName, VK_LAYER_SETTING_TYPE_BOOL32_EXT, 1,
+        &synchronizationSettingValue};
+    VkLayerSettingsCreateInfoEXT layerSettings{};
+#endif
     const char* enabledLayers[] = {validationLayerName};
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    createInfo.pNext = &messengerInfo;
+    const void* instanceCreateChain = &messengerInfo;
+#ifdef VK_EXT_layer_settings
+    if (layerSettingSynchronization) {
+        layerSettings.sType = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT;
+        layerSettings.pNext = &messengerInfo;
+        layerSettings.settingCount = 1;
+        layerSettings.pSettings = &synchronizationSetting;
+        instanceCreateChain = &layerSettings;
+    }
+#endif
+    if (!layerSettingSynchronization && validationFeatureSynchronization) {
+        validationFeatures.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+        validationFeatures.pNext = &messengerInfo;
+        validationFeatures.enabledValidationFeatureCount = 1;
+        validationFeatures.pEnabledValidationFeatures = &validationFeature;
+        instanceCreateChain = &validationFeatures;
+    }
+    createInfo.pNext = instanceCreateChain;
     createInfo.flags = flags;
     createInfo.pApplicationInfo = &applicationInfo;
     createInfo.enabledLayerCount = 1;
@@ -273,15 +329,17 @@ std::unique_ptr<Instance> Instance::create(GLFWwindow* window,
     }
 
     return std::unique_ptr<Instance>(new Instance(
-        std::move(validation), instance, messenger, surface, khrSurfaceMaintenance,
-        extSurfaceMaintenance));
+        std::move(validation), instance, messenger, surface, synchronizationValidation,
+        khrSurfaceMaintenance, extSurfaceMaintenance));
 }
 
 Instance::Instance(std::shared_ptr<ValidationCounter> validation, VkInstance instance,
                    VkDebugUtilsMessengerEXT messenger, VkSurfaceKHR surface,
-                   bool khrSurfaceMaintenance, bool extSurfaceMaintenance) noexcept
+                   bool synchronizationValidation, bool khrSurfaceMaintenance,
+                   bool extSurfaceMaintenance) noexcept
     : m_validation(std::move(validation)), m_instance(instance), m_messenger(messenger),
-      m_surface(surface), m_khrSurfaceMaintenance(khrSurfaceMaintenance),
+      m_surface(surface), m_synchronizationValidation(synchronizationValidation),
+      m_khrSurfaceMaintenance(khrSurfaceMaintenance),
       m_extSurfaceMaintenance(extSurfaceMaintenance) {}
 
 Instance::~Instance() {
@@ -306,6 +364,10 @@ VkInstance Instance::handle() const noexcept {
 
 VkSurfaceKHR Instance::surface() const noexcept {
     return m_surface;
+}
+
+bool Instance::synchronizationValidationEnabled() const noexcept {
+    return m_synchronizationValidation;
 }
 
 bool Instance::supportsKhrSurfaceMaintenance() const noexcept {

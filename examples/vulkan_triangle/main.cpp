@@ -49,6 +49,7 @@ struct TriangleMetrics {
     bool meshDepthPassed{false};
     bool materialsRan{false};
     bool materialsPassed{false};
+    bool synchronizationValidation{false};
     bool deviceLost{false};
 };
 
@@ -60,6 +61,7 @@ struct ProbeOptions {
     std::string meshDepthOut;
     std::string materialsBaseline;
     std::string materialsOut;
+    bool requireSynchronizationValidation{false};
     rb::vulkan::DeviceLossSite forceLoss{rb::vulkan::DeviceLossSite::none};
 };
 
@@ -167,6 +169,11 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
     if (!instance) {
         return EXIT_FAILURE;
     }
+    metrics.synchronizationValidation = instance->synchronizationValidationEnabled();
+    if (options.requireSynchronizationValidation && !metrics.synchronizationValidation) {
+        std::cerr << "Vulkan synchronization validation is unavailable\n";
+        return EXIT_FAILURE;
+    }
     auto device = rb::vulkan::Device::create(*instance);
     if (!device) {
         return EXIT_FAILURE;
@@ -180,8 +187,11 @@ int runTriangle(const std::shared_ptr<rb::vulkan::ValidationCounter>& validation
         return metrics.objectsPassed ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
-    const MeshDepthPassPaths meshDepthPaths{RB_VULKAN_FLAT_VERTEX_SPV, RB_VULKAN_FLAT_FRAGMENT_SPV,
-                                            options.meshDepthBaseline, options.meshDepthOut};
+    const MeshDepthPassPaths meshDepthPaths{
+        RB_VULKAN_FLAT_VERTEX_SPV,  RB_VULKAN_FLAT_FRAGMENT_SPV,
+        RB_VULKAN_DEPTH_VERTEX_SPV, RB_VULKAN_DEPTH_FRAGMENT_SPV,
+        RB_VULKAN_PICK_VERTEX_SPV,  RB_VULKAN_PICK_FRAGMENT_SPV,
+        options.meshDepthBaseline,  options.meshDepthOut};
     metrics.meshDepthRan = true;
     metrics.meshDepthPassed = runMeshDepthPass(*device, meshDepthPaths);
     if (!metrics.meshDepthPassed || options.meshDepthOnly) {
@@ -297,6 +307,8 @@ int main(int argc, char** argv) {
             options.meshDepthOnly = true;
         } else if (std::strcmp(argument, "--materials-only") == 0) {
             options.materialsOnly = true;
+        } else if (std::strcmp(argument, "--require-sync-validation") == 0) {
+            options.requireSynchronizationValidation = true;
         } else if (std::strncmp(argument, baselinePrefix, std::strlen(baselinePrefix)) == 0) {
             options.meshDepthBaseline = argument + std::strlen(baselinePrefix);
         } else if (std::strncmp(argument, outPrefix, std::strlen(outPrefix)) == 0) {
@@ -316,6 +328,7 @@ int main(int argc, char** argv) {
                          " [--materials-only]"
                          " [--mesh-depth-baseline=<depth.raw>] [--mesh-depth-out=<dir>]"
                          " [--materials-baseline=<materials.ppm>] [--materials-out=<dir>]"
+                         " [--require-sync-validation]"
                          " [--force-device-loss=submit|present]\n";
             return EXIT_FAILURE;
         }
@@ -351,6 +364,7 @@ int main(int argc, char** argv) {
               << (metrics.meshDepthRan ? (metrics.meshDepthPassed ? "pass" : "fail") : "skipped")
               << " materials="
               << (metrics.materialsRan ? (metrics.materialsPassed ? "pass" : "fail") : "skipped")
+              << " sync_validation=" << (metrics.synchronizationValidation ? 1 : 0)
               << " device_lost=" << (metrics.deviceLost ? 1 : 0)
               << " validation_total=" << validation->total()
               << " validation_verbose=" << validation->verbose()

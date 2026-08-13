@@ -244,7 +244,7 @@ add_custom_command(
         "-DOUTPUT=${rabbet_gl_shader_header}"
         "-DNAMESPACE=rb::shaders"
         "-DMANIFEST=${rabbet_gl_shader_manifest}"
-        "-DPRELUDE=kLitVertex,kPhongFragment,kPbrFragment,kFlatVertex,kFlatFragment"
+        "-DPRELUDE=kLitVertex,kPhongFragment,kPbrFragment,kDepthVertex,kPickVertex,kPickFragment,kFlatVertex,kFlatFragment"
         "-DDEPFILE=${rabbet_gl_shader_header}.d"
         -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
     DEPENDS
@@ -290,6 +290,7 @@ if(RABBET_VULKAN)
         render/vulkan/Allocator.cpp
         render/vulkan/Buffer.cpp
         render/vulkan/Image.cpp
+        render/vulkan/OffscreenTarget.cpp
         render/vulkan/Sampler.cpp
         render/vulkan/Descriptors.cpp
         render/vulkan/Barriers.cpp
@@ -311,6 +312,7 @@ if(RABBET_VULKAN)
                 render/vulkan/Allocator.h
                 render/vulkan/Buffer.h
                 render/vulkan/Image.h
+                render/vulkan/OffscreenTarget.h
                 render/vulkan/Sampler.h
                 render/vulkan/Descriptors.h
                 render/vulkan/Barriers.h

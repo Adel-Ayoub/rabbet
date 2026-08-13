@@ -276,10 +276,14 @@ void RenderSystem::onStart(Runtime& runtime) {
     m_depth = gl::Shader::fromSource(shaders::kDepthVertex, shaders::kDepthFragment);
     if (!m_depth) {
         log::error("render system: failed to build the depth shader");
+    } else {
+        m_depth->bindUniformBlock("RbPerFrame", kCameraUniformBinding);
     }
     m_pick = gl::Shader::fromSource(shaders::kPickVertex, shaders::kPickFragment);
     if (!m_pick) {
         log::error("render system: failed to build the pick shader");
+    } else {
+        m_pick->bindUniformBlock("RbPerFrame", kCameraUniformBinding);
     }
     m_flat = gl::Shader::fromSource(shaders::kFlatVertex, shaders::kFlatFragment);
     if (!m_flat) {
@@ -287,7 +291,7 @@ void RenderSystem::onStart(Runtime& runtime) {
     } else {
         m_flat->bindUniformBlock("RbPerFrame", kCameraUniformBinding);
     }
-    if (m_phong || m_pbr || m_flat) {
+    if (m_phong || m_pbr || m_depth || m_pick || m_flat) {
         gl::UniformBuffer cameraUbo = gl::UniformBuffer::create(sizeof(glm::mat4));
         if (cameraUbo.valid()) {
             m_cameraUbo = std::move(cameraUbo);
@@ -443,8 +447,8 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
         }
     };
 
-    const bool shadows = m_depth.has_value() && m_shadowMap.has_value() && lighting != nullptr &&
-                         !lighting->directionalDirections.empty();
+    const bool shadows = m_depth.has_value() && m_shadowMap.has_value() && m_cameraUbo.has_value() &&
+                         lighting != nullptr && !lighting->directionalDirections.empty();
     glm::mat4 lightSpace{1.0f};
 
     if (shadows) {
@@ -462,7 +466,8 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
         m_shadowMap->bindForWriting();
         glClear(GL_DEPTH_BUFFER_BIT);
         m_depth->bind();
-        m_depth->setMat4("uLightSpace", lightSpace);
+        m_cameraUbo->upload(&lightSpace, sizeof(lightSpace));
+        m_cameraUbo->bindBase(kCameraUniformBinding);
         runtime.scene().each<WorldMatrix, gl::Mesh>([this](Entity, WorldMatrix& world, gl::Mesh& mesh) {
             m_depth->setMat4("uModel", world.value);
             mesh.draw();
@@ -493,6 +498,8 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
         glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
         glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
         m_shadowMap->bindTexture(kShadowTextureUnit);
+        m_cameraUbo->upload(&viewProjection, sizeof(viewProjection));
+        m_cameraUbo->bindBase(kCameraUniformBinding);
     }
 
     const int hasShadow = shadows ? 1 : 0;
@@ -979,7 +986,8 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
 }
 
 Entity RenderSystem::pick(Runtime& runtime, int x, int y) {
-    if (!m_pick || !runtime.hasResource<RenderView>() || !runtime.hasResource<Viewport>()) {
+    if (!m_pick || !m_cameraUbo || !runtime.hasResource<RenderView>() ||
+        !runtime.hasResource<Viewport>()) {
         return Entity{};
     }
     const Viewport& viewport = runtime.resource<Viewport>();
@@ -998,6 +1006,8 @@ Entity RenderSystem::pick(Runtime& runtime, int x, int y) {
 
     const RenderView& view = runtime.resource<RenderView>();
     const glm::mat4 viewProjection = view.projection * view.view;
+    m_cameraUbo->upload(&viewProjection, sizeof(viewProjection));
+    m_cameraUbo->bindBase(kCameraUniformBinding);
 
     m_pickBuffer->bindAndClear();
     glEnable(GL_DEPTH_TEST);
@@ -1007,7 +1017,6 @@ Entity RenderSystem::pick(Runtime& runtime, int x, int y) {
     glDisable(GL_BLEND); // integer colour targets cannot be blended
 
     m_pick->bind();
-    m_pick->setMat4("uViewProjection", viewProjection);
 
     runtime.scene().each<WorldMatrix, Primitive>(
         [this](Entity e, WorldMatrix& world, Primitive& primitive) {

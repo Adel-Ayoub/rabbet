@@ -50,7 +50,7 @@ void PickBuffer::allocate(int width, int height) noexcept {
     glBindTexture(GL_TEXTURE_2D, m_color);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R32I, m_width, m_height, 0, GL_RED_INTEGER, GL_INT, nullptr);
     glBindRenderbuffer(GL_RENDERBUFFER, m_depth);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, m_width, m_height);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT32F, m_width, m_height);
 }
 
 PickBuffer::PickBuffer(PickBuffer&& other) noexcept

@@ -28,7 +28,8 @@ std::unique_ptr<Image> Image::create(const Device& device, Allocator& allocator,
     // Combined depth and stencil formats are rejected because the engine dropped stencil,
     // and a single-view image could not serve them as sampled depth anyway.
     if (description.extent.width == 0U || description.extent.height == 0U ||
-        description.format == VK_FORMAT_UNDEFINED || description.mipLevels == 0U ||
+        description.format == VK_FORMAT_UNDEFINED || description.usage == 0U ||
+        description.mipLevels == 0U ||
         description.arrayLayers == 0U ||
         formatAspect(description.format) ==
             (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT) ||
@@ -39,11 +40,23 @@ std::unique_ptr<Image> Image::create(const Device& device, Allocator& allocator,
         return nullptr;
     }
 
+    const VkImageCreateFlags flags =
+        description.cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0U;
+    VkImageFormatProperties formatProperties{};
+    const VkResult formatResult = vkGetPhysicalDeviceImageFormatProperties(
+        device.physicalHandle(), description.format, VK_IMAGE_TYPE_2D,
+        VK_IMAGE_TILING_OPTIMAL, description.usage, flags, &formatProperties);
+    if (formatResult != VK_SUCCESS || description.extent.width > formatProperties.maxExtent.width ||
+        description.extent.height > formatProperties.maxExtent.height ||
+        description.mipLevels > formatProperties.maxMipLevels ||
+        description.arrayLayers > formatProperties.maxArrayLayers) {
+        std::fprintf(stderr, "Vulkan image format does not support the requested description\n");
+        return nullptr;
+    }
+
     VkImageCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    if (description.cube) {
-        createInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
-    }
+    createInfo.flags = flags;
     createInfo.imageType = VK_IMAGE_TYPE_2D;
     createInfo.format = description.format;
     createInfo.extent = VkExtent3D{description.extent.width, description.extent.height, 1U};

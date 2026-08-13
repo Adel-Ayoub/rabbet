@@ -31,6 +31,12 @@ public:
                                  VkImageLayout currentLayout,
                                  VkPipelineStageFlags2 currentStage, VkAccessFlags2 currentAccess,
                                  std::span<std::byte> destination);
+    [[nodiscard]] bool readImageRegion(VkImage image, VkFormat format, VkExtent2D imageExtent,
+                                       VkOffset2D offset, VkExtent2D readExtent,
+                                       VkImageLayout currentLayout,
+                                       VkPipelineStageFlags2 currentStage,
+                                       VkAccessFlags2 currentAccess,
+                                       std::span<std::byte> destination);
 
 private:
     Readback(const Device& device, VkQueue queue, Allocator& allocator,
