@@ -3,6 +3,8 @@
 #include "rabbet/render/vulkan/Device.h"
 
 #include <cstdio>
+#include <utility>
+#include <vector>
 
 namespace rb::vulkan {
 
@@ -54,6 +56,12 @@ std::unique_ptr<Image> Image::create(const Device& device, Allocator& allocator,
         return nullptr;
     }
 
+    std::vector<VkImageView> layerViews;
+    if (description.cube) {
+        layerViews.reserve(static_cast<std::size_t>(description.arrayLayers) *
+                           description.mipLevels);
+    }
+
     VkImageCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     createInfo.flags = flags;
@@ -83,8 +91,8 @@ std::unique_ptr<Image> Image::create(const Device& device, Allocator& allocator,
     if (vkBindImageMemory(device.handle(), image, allocation->memory, allocation->offset) !=
         VK_SUCCESS) {
         std::fprintf(stderr, "Vulkan image memory binding failed\n");
-        allocator.free(*allocation);
         vkDestroyImage(device.handle(), image, nullptr);
+        allocator.free(*allocation);
         return nullptr;
     }
 
@@ -105,21 +113,52 @@ std::unique_ptr<Image> Image::create(const Device& device, Allocator& allocator,
     VkImageView view = VK_NULL_HANDLE;
     if (vkCreateImageView(device.handle(), &viewInfo, nullptr, &view) != VK_SUCCESS) {
         std::fprintf(stderr, "Vulkan image view creation failed\n");
-        allocator.free(*allocation);
         vkDestroyImage(device.handle(), image, nullptr);
+        allocator.free(*allocation);
         return nullptr;
     }
+
+    if (description.cube) {
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.layerCount = 1;
+        for (std::uint32_t layer = 0; layer < description.arrayLayers; ++layer) {
+            viewInfo.subresourceRange.baseArrayLayer = layer;
+            for (std::uint32_t mipLevel = 0; mipLevel < description.mipLevels; ++mipLevel) {
+                viewInfo.subresourceRange.baseMipLevel = mipLevel;
+                VkImageView layerView = VK_NULL_HANDLE;
+                if (vkCreateImageView(device.handle(), &viewInfo, nullptr, &layerView) !=
+                    VK_SUCCESS) {
+                    std::fprintf(stderr, "Vulkan image layer view creation failed\n");
+                    for (VkImageView createdView : layerViews) {
+                        vkDestroyImageView(device.handle(), createdView, nullptr);
+                    }
+                    vkDestroyImageView(device.handle(), view, nullptr);
+                    vkDestroyImage(device.handle(), image, nullptr);
+                    allocator.free(*allocation);
+                    return nullptr;
+                }
+                layerViews.push_back(layerView);
+            }
+        }
+    }
     return std::unique_ptr<Image>(
-        new Image(device.handle(), allocator, image, view, *allocation, description));
+        new Image(device.handle(), allocator, image, view, std::move(layerViews), *allocation,
+                  description));
 }
 
 Image::Image(VkDevice device, Allocator& allocator, VkImage image, VkImageView view,
-             const Allocation& allocation, const ImageDescription& description) noexcept
+             std::vector<VkImageView> layerViews, const Allocation& allocation,
+             const ImageDescription& description) noexcept
     : m_device(device), m_allocator(&allocator), m_image(image), m_view(view),
-      m_allocation(allocation), m_format(description.format), m_extent(description.extent),
+      m_layerViews(std::move(layerViews)), m_allocation(allocation),
+      m_format(description.format), m_extent(description.extent),
       m_mipLevels(description.mipLevels), m_arrayLayers(description.arrayLayers) {}
 
 Image::~Image() {
+    for (VkImageView layerView : m_layerViews) {
+        vkDestroyImageView(m_device, layerView, nullptr);
+    }
     if (m_view != VK_NULL_HANDLE) {
         vkDestroyImageView(m_device, m_view, nullptr);
     }
@@ -137,6 +176,13 @@ VkImage Image::handle() const noexcept {
 
 VkImageView Image::view() const noexcept {
     return m_view;
+}
+
+VkImageView Image::layerView(std::uint32_t layer, std::uint32_t mipLevel) const noexcept {
+    if (layer >= m_arrayLayers || mipLevel >= m_mipLevels || m_layerViews.empty()) {
+        return VK_NULL_HANDLE;
+    }
+    return m_layerViews[static_cast<std::size_t>(layer) * m_mipLevels + mipLevel];
 }
 
 VkFormat Image::format() const noexcept {

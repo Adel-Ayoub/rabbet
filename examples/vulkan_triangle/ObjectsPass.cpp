@@ -436,14 +436,12 @@ bool runChecks(const rb::vulkan::Device& device, const ObjectsPassPaths& paths) 
             static_cast<std::size_t>(passExtent) * passExtent * 4U);
         std::vector<std::byte> depthTexels(
             static_cast<std::size_t>(passExtent) * passExtent * 4U);
-        if (!readback->readImage(colorTarget->handle(), colorTarget->format(),
-                                 colorTarget->extent(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        if (!readback->readImage(*colorTarget, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                                  VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                                  VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, colorPixels)) {
             return false;
         }
-        if (!readback->readImage(depthTarget->handle(), depthTarget->format(),
-                                 depthTarget->extent(), VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        if (!readback->readImage(*depthTarget, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
                                  VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
                                      VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
                                  VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |

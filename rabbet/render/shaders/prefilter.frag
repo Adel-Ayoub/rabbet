@@ -1,8 +1,10 @@
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uScene;
-uniform float uThreshold;
-uniform float uKnee;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 FragColor;
+RB_FRAME_SAMPLER(0, sampler2D uScene)
+RB_PER_DRAW_BEGIN
+RB_PER_DRAW_AT(float uThreshold, 0)
+RB_PER_DRAW_AT(float uKnee, 4)
+RB_PER_DRAW_END
 void main() {
     vec3 c = texture(uScene, vUv).rgb;
     float brightness = max(c.r, max(c.g, c.b));

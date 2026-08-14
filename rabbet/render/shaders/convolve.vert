@@ -1,8 +1,12 @@
 layout(location = 0) in vec3 aPosition;
-uniform mat4 uView;
-uniform mat4 uProjection;
-out vec3 vDir;
+RB_PER_DRAW_BEGIN
+RB_PER_DRAW_AT(mat4 uView, 0)
+RB_PER_DRAW_AT(mat4 uProjection, 64)
+RB_PER_DRAW_END
+layout(location = 0) out vec3 vDir;
 void main() {
     vDir = aPosition;
-    gl_Position = uProjection * uView * vec4(aPosition, 1.0);
+    vec4 clip = uProjection * uView * vec4(aPosition, 1.0);
+    clip.y = RB_CLIP_Y(clip.y);
+    gl_Position = clip;
 }

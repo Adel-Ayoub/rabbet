@@ -1,15 +1,17 @@
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uScene;
-uniform sampler2D uBloom;
-uniform int uBloomEnabled;
-uniform float uBloomIntensity;
-uniform float uExposure;
-uniform int uTonemap;
-uniform float uGamma;
-uniform float uContrast;
-uniform float uSaturation;
-uniform float uVignette;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 FragColor;
+RB_FRAME_SAMPLER(0, sampler2D uScene)
+RB_FRAME_SAMPLER(1, sampler2D uBloom)
+RB_PER_DRAW_BEGIN
+RB_PER_DRAW_AT(int uBloomEnabled, 0)
+RB_PER_DRAW_AT(float uBloomIntensity, 4)
+RB_PER_DRAW_AT(float uExposure, 8)
+RB_PER_DRAW_AT(int uTonemap, 12)
+RB_PER_DRAW_AT(float uGamma, 16)
+RB_PER_DRAW_AT(float uContrast, 20)
+RB_PER_DRAW_AT(float uSaturation, 24)
+RB_PER_DRAW_AT(float uVignette, 28)
+RB_PER_DRAW_END
 
 vec3 tonemapReinhard(vec3 c) { return c / (c + vec3(1.0)); }
 vec3 tonemapAces(vec3 x) {

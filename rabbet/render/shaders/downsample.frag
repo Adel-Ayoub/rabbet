@@ -1,7 +1,9 @@
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uSource;
-uniform vec2 uTexel;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 FragColor;
+RB_FRAME_SAMPLER(0, sampler2D uSource)
+RB_PER_DRAW_BEGIN
+RB_PER_DRAW_AT(vec2 uTexel, 0)
+RB_PER_DRAW_END
 void main() {
     vec2 t = uTexel;
     vec3 a = texture(uSource, vUv + t * vec2(-2.0, -2.0)).rgb;

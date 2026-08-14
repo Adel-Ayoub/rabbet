@@ -244,7 +244,7 @@ add_custom_command(
         "-DOUTPUT=${rabbet_gl_shader_header}"
         "-DNAMESPACE=rb::shaders"
         "-DMANIFEST=${rabbet_gl_shader_manifest}"
-        "-DPRELUDE=kLitVertex,kPhongFragment,kPbrFragment,kDepthVertex,kPickVertex,kPickFragment,kFlatVertex,kFlatFragment"
+        "-DPRELUDE=kLitVertex,kPhongFragment,kPbrFragment,kWaterVertex,kWaterFragment,kDepthVertex,kPickVertex,kPickFragment,kFlatVertex,kFlatFragment,kFullscreenVertex,kPrefilterFragment,kDownsampleFragment,kUpsampleFragment,kCompositeFragment,kFxaaFragment,kSkyboxVertex,kSkyboxFragment,kConvolveVertex,kConvolveFragment"
         "-DDEPFILE=${rabbet_gl_shader_header}.d"
         -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
     DEPENDS

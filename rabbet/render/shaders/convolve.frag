@@ -1,6 +1,6 @@
-in vec3 vDir;
-out vec4 FragColor;
-uniform samplerCube uEnvironment;
+layout(location = 0) in vec3 vDir;
+layout(location = 0) out vec4 FragColor;
+RB_FRAME_SAMPLER(0, samplerCube uEnvironment)
 const float PI = 3.14159265359;
 void main() {
     vec3 N = normalize(vDir);

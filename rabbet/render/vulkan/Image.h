@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace rb::vulkan {
 
@@ -33,6 +34,8 @@ public:
 
     [[nodiscard]] VkImage handle() const noexcept;
     [[nodiscard]] VkImageView view() const noexcept;
+    [[nodiscard]] VkImageView layerView(std::uint32_t layer,
+                                        std::uint32_t mipLevel = 0) const noexcept;
     [[nodiscard]] VkFormat format() const noexcept;
     [[nodiscard]] VkExtent2D extent() const noexcept;
     [[nodiscard]] std::uint32_t mipLevels() const noexcept;
@@ -41,12 +44,14 @@ public:
 
 private:
     Image(VkDevice device, Allocator& allocator, VkImage image, VkImageView view,
-          const Allocation& allocation, const ImageDescription& description) noexcept;
+          std::vector<VkImageView> layerViews, const Allocation& allocation,
+          const ImageDescription& description) noexcept;
 
     VkDevice m_device{VK_NULL_HANDLE};
     Allocator* m_allocator{nullptr};
     VkImage m_image{VK_NULL_HANDLE};
     VkImageView m_view{VK_NULL_HANDLE};
+    std::vector<VkImageView> m_layerViews;
     Allocation m_allocation{};
     VkFormat m_format{VK_FORMAT_UNDEFINED};
     VkExtent2D m_extent{};

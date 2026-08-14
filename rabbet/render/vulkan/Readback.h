@@ -13,6 +13,7 @@
 namespace rb::vulkan {
 
 class Device;
+class Image;
 
 [[nodiscard]] std::uint32_t formatTexelBytes(VkFormat format) noexcept;
 
@@ -25,18 +26,23 @@ public:
     Readback& operator=(const Readback&) = delete;
     ~Readback();
 
-    // destination.size() must equal width times height times formatTexelBytes(format).
+    // The selected mip is read in full.
+    // destination.size() must equal its width times height times the format texel size.
     // currentLayout must name the image layout on entry and is restored before return.
-    [[nodiscard]] bool readImage(VkImage image, VkFormat format, VkExtent2D extent,
-                                 VkImageLayout currentLayout,
+    [[nodiscard]] bool readImage(const Image& image, VkImageLayout currentLayout,
                                  VkPipelineStageFlags2 currentStage, VkAccessFlags2 currentAccess,
-                                 std::span<std::byte> destination);
-    [[nodiscard]] bool readImageRegion(VkImage image, VkFormat format, VkExtent2D imageExtent,
-                                       VkOffset2D offset, VkExtent2D readExtent,
+                                 std::span<std::byte> destination,
+                                 std::uint32_t mipLevel = 0,
+                                 std::uint32_t arrayLayer = 0);
+    // The offset and read extent use selected-mip texels.
+    [[nodiscard]] bool readImageRegion(const Image& image, VkOffset2D offset,
+                                       VkExtent2D readExtent,
                                        VkImageLayout currentLayout,
                                        VkPipelineStageFlags2 currentStage,
                                        VkAccessFlags2 currentAccess,
-                                       std::span<std::byte> destination);
+                                       std::span<std::byte> destination,
+                                       std::uint32_t mipLevel = 0,
+                                       std::uint32_t arrayLayer = 0);
 
 private:
     Readback(const Device& device, VkQueue queue, Allocator& allocator,

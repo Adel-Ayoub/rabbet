@@ -92,8 +92,8 @@ bool OffscreenTarget::readColor(Readback& readback, VkImageLayout currentLayout,
         std::fprintf(stderr, "Vulkan offscreen color read received no color image\n");
         return false;
     }
-    return readback.readImage(m_color->handle(), m_color->format(), m_extent, currentLayout,
-                              currentStage, currentAccess, destination);
+    return readback.readImage(*m_color, currentLayout, currentStage, currentAccess,
+                              destination);
 }
 
 bool OffscreenTarget::readDepth(Readback& readback, VkImageLayout currentLayout,
@@ -104,8 +104,8 @@ bool OffscreenTarget::readDepth(Readback& readback, VkImageLayout currentLayout,
         std::fprintf(stderr, "Vulkan offscreen depth read received no depth image\n");
         return false;
     }
-    return readback.readImage(m_depth->handle(), m_depth->format(), m_extent, currentLayout,
-                              currentStage, currentAccess, destination);
+    return readback.readImage(*m_depth, currentLayout, currentStage, currentAccess,
+                              destination);
 }
 
 bool OffscreenTarget::readPickId(Readback& readback, std::int32_t x, std::int32_t y,
@@ -124,9 +124,8 @@ bool OffscreenTarget::readPickId(Readback& readback, std::int32_t x, std::int32_
     }
 
     std::array<std::byte, sizeof(value)> bytes{};
-    if (!readback.readImageRegion(
-            m_color->handle(), m_color->format(), m_extent, VkOffset2D{x, y}, VkExtent2D{1, 1},
-            currentLayout, currentStage, currentAccess, bytes)) {
+    if (!readback.readImageRegion(*m_color, VkOffset2D{x, y}, VkExtent2D{1, 1},
+                                  currentLayout, currentStage, currentAccess, bytes)) {
         return false;
     }
     std::memcpy(&value, bytes.data(), sizeof(value));

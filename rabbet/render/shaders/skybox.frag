@@ -1,7 +1,9 @@
-in vec3 vDir;
-out vec4 FragColor;
-uniform samplerCube uSkybox;
-uniform int uHdrOutput; // 1: emit linear for the post pipeline; 0 (default): encode back to sRGB
+layout(location = 0) in vec3 vDir;
+layout(location = 0) out vec4 FragColor;
+RB_FRAME_SAMPLER(0, samplerCube uSkybox)
+RB_PER_DRAW_BEGIN
+RB_PER_DRAW_AT(int uHdrOutput, 64)
+RB_PER_DRAW_END
 // The exact inverse of the sampler's sRGB decode. A plain 1/2.2 power is not: it lifts
 // the darkest codes (1 -> 6) and bands night gradients.
 vec3 encodeSrgb(vec3 c) {

@@ -20,6 +20,30 @@ set(vulkan_phong_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/phong.frag")
 set(vulkan_lit_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/lit.vert.spv")
 set(vulkan_pbr_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/pbr.frag.spv")
 set(vulkan_phong_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/phong.frag.spv")
+set(vulkan_skybox_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/skybox.vert")
+set(vulkan_skybox_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/skybox.frag")
+set(vulkan_skybox_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/skybox.vert.spv")
+set(vulkan_skybox_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/skybox.frag.spv")
+set(vulkan_convolve_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/convolve.vert")
+set(vulkan_convolve_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/convolve.frag")
+set(vulkan_convolve_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/convolve.vert.spv")
+set(vulkan_convolve_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/convolve.frag.spv")
+set(vulkan_fullscreen_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/fullscreen.vert")
+set(vulkan_fullscreen_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/fullscreen.vert.spv")
+set(vulkan_prefilter_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/prefilter.frag")
+set(vulkan_downsample_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/downsample.frag")
+set(vulkan_upsample_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/upsample.frag")
+set(vulkan_composite_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/composite.frag")
+set(vulkan_fxaa_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/fxaa.frag")
+set(vulkan_prefilter_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/prefilter.frag.spv")
+set(vulkan_downsample_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/downsample.frag.spv")
+set(vulkan_upsample_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/upsample.frag.spv")
+set(vulkan_composite_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/composite.frag.spv")
+set(vulkan_fxaa_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/fxaa.frag.spv")
+set(vulkan_water_450_vert "${CMAKE_CURRENT_BINARY_DIR}/450/water.vert")
+set(vulkan_water_450_frag "${CMAKE_CURRENT_BINARY_DIR}/450/water.frag")
+set(vulkan_water_vertex_spv "${CMAKE_CURRENT_BINARY_DIR}/water.vert.spv")
+set(vulkan_water_fragment_spv "${CMAKE_CURRENT_BINARY_DIR}/water.frag.spv")
 set(vulkan_triangle_cache "${CMAKE_CURRENT_BINARY_DIR}/pipeline.cache")
 
 add_custom_command(
@@ -245,6 +269,57 @@ foreach(vulkan_material_shader IN ITEMS lit pbr phong)
         VERBATIM)
 endforeach()
 
+function(rb_add_vulkan_hdr_shader constant source composed spv)
+    add_custom_command(
+        OUTPUT "${composed}"
+        COMMAND ${CMAKE_COMMAND}
+            "-DSHADER_DIR=${PROJECT_SOURCE_DIR}/rabbet/render/shaders"
+            "-DOUTPUT=${composed}"
+            "-DDIALECT=450"
+            "-DPRELUDE=${constant}"
+            "-DMANIFEST=${constant}=${source}"
+            "-DDEPFILE=${composed}.d"
+            -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+        DEPENDS
+            "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/${source}"
+            "${PROJECT_SOURCE_DIR}/rabbet/render/shaders/light_uniforms.glsl"
+            "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+            "${CMAKE_CURRENT_LIST_FILE}"
+        DEPFILE "${composed}.d"
+        COMMENT "Composing the 450 ${source} shader"
+        VERBATIM)
+    add_custom_command(
+        OUTPUT "${spv}"
+        COMMAND Vulkan::glslc --target-env=vulkan1.3 "${composed}" -o "${spv}"
+        DEPENDS "${composed}"
+        VERBATIM)
+endfunction()
+
+rb_add_vulkan_hdr_shader(kSkyboxVertex skybox.vert
+    "${vulkan_skybox_450_vert}" "${vulkan_skybox_vertex_spv}")
+rb_add_vulkan_hdr_shader(kSkyboxFragment skybox.frag
+    "${vulkan_skybox_450_frag}" "${vulkan_skybox_fragment_spv}")
+rb_add_vulkan_hdr_shader(kConvolveVertex convolve.vert
+    "${vulkan_convolve_450_vert}" "${vulkan_convolve_vertex_spv}")
+rb_add_vulkan_hdr_shader(kConvolveFragment convolve.frag
+    "${vulkan_convolve_450_frag}" "${vulkan_convolve_fragment_spv}")
+rb_add_vulkan_hdr_shader(kFullscreenVertex fullscreen.vert
+    "${vulkan_fullscreen_450_vert}" "${vulkan_fullscreen_vertex_spv}")
+rb_add_vulkan_hdr_shader(kPrefilterFragment prefilter.frag
+    "${vulkan_prefilter_450_frag}" "${vulkan_prefilter_fragment_spv}")
+rb_add_vulkan_hdr_shader(kDownsampleFragment downsample.frag
+    "${vulkan_downsample_450_frag}" "${vulkan_downsample_fragment_spv}")
+rb_add_vulkan_hdr_shader(kUpsampleFragment upsample.frag
+    "${vulkan_upsample_450_frag}" "${vulkan_upsample_fragment_spv}")
+rb_add_vulkan_hdr_shader(kCompositeFragment composite.frag
+    "${vulkan_composite_450_frag}" "${vulkan_composite_fragment_spv}")
+rb_add_vulkan_hdr_shader(kFxaaFragment fxaa.frag
+    "${vulkan_fxaa_450_frag}" "${vulkan_fxaa_fragment_spv}")
+rb_add_vulkan_hdr_shader(kWaterVertex water.vert
+    "${vulkan_water_450_vert}" "${vulkan_water_vertex_spv}")
+rb_add_vulkan_hdr_shader(kWaterFragment water.frag
+    "${vulkan_water_450_frag}" "${vulkan_water_fragment_spv}")
+
 add_executable(vulkan_triangle
     main.cpp
     ObjectsPass.cpp
@@ -263,7 +338,19 @@ add_executable(vulkan_triangle
     "${vulkan_pick_fragment_spv}"
     "${vulkan_lit_vertex_spv}"
     "${vulkan_pbr_fragment_spv}"
-    "${vulkan_phong_fragment_spv}")
+    "${vulkan_phong_fragment_spv}"
+    "${vulkan_skybox_vertex_spv}"
+    "${vulkan_skybox_fragment_spv}"
+    "${vulkan_convolve_vertex_spv}"
+    "${vulkan_convolve_fragment_spv}"
+    "${vulkan_fullscreen_vertex_spv}"
+    "${vulkan_prefilter_fragment_spv}"
+    "${vulkan_downsample_fragment_spv}"
+    "${vulkan_upsample_fragment_spv}"
+    "${vulkan_composite_fragment_spv}"
+    "${vulkan_fxaa_fragment_spv}"
+    "${vulkan_water_vertex_spv}"
+    "${vulkan_water_fragment_spv}")
 
 target_include_directories(vulkan_triangle PRIVATE
     "${PROJECT_SOURCE_DIR}")
@@ -286,6 +373,18 @@ target_compile_definitions(vulkan_triangle PRIVATE
     "RB_VULKAN_LIT_VERTEX_SPV=\"${vulkan_lit_vertex_spv}\""
     "RB_VULKAN_PBR_FRAGMENT_SPV=\"${vulkan_pbr_fragment_spv}\""
     "RB_VULKAN_PHONG_FRAGMENT_SPV=\"${vulkan_phong_fragment_spv}\""
+    "RB_VULKAN_SKYBOX_VERTEX_SPV=\"${vulkan_skybox_vertex_spv}\""
+    "RB_VULKAN_SKYBOX_FRAGMENT_SPV=\"${vulkan_skybox_fragment_spv}\""
+    "RB_VULKAN_CONVOLVE_VERTEX_SPV=\"${vulkan_convolve_vertex_spv}\""
+    "RB_VULKAN_CONVOLVE_FRAGMENT_SPV=\"${vulkan_convolve_fragment_spv}\""
+    "RB_VULKAN_FULLSCREEN_VERTEX_SPV=\"${vulkan_fullscreen_vertex_spv}\""
+    "RB_VULKAN_PREFILTER_FRAGMENT_SPV=\"${vulkan_prefilter_fragment_spv}\""
+    "RB_VULKAN_DOWNSAMPLE_FRAGMENT_SPV=\"${vulkan_downsample_fragment_spv}\""
+    "RB_VULKAN_UPSAMPLE_FRAGMENT_SPV=\"${vulkan_upsample_fragment_spv}\""
+    "RB_VULKAN_COMPOSITE_FRAGMENT_SPV=\"${vulkan_composite_fragment_spv}\""
+    "RB_VULKAN_FXAA_FRAGMENT_SPV=\"${vulkan_fxaa_fragment_spv}\""
+    "RB_VULKAN_WATER_VERTEX_SPV=\"${vulkan_water_vertex_spv}\""
+    "RB_VULKAN_WATER_FRAGMENT_SPV=\"${vulkan_water_fragment_spv}\""
     "RB_VULKAN_TRIANGLE_CACHE=\"${vulkan_triangle_cache}\"")
 
 rb_target_warnings(vulkan_triangle)

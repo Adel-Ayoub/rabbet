@@ -10,7 +10,7 @@ class Cubemap {
 public:
     [[nodiscard]] static Cubemap fromFaces(const std::array<Image, 6>& faces);
 
-    // An empty RGB16F cubemap of `size` x `size` faces, allocated but undefined, suitable as a
+    // An empty RGBA16F cubemap of `size` x `size` faces, allocated but undefined, suitable as a
     // render target (its faces are attached to an FBO to capture a convolved environment). Linear
     // filtering + clamp-to-edge, like fromFaces.
     [[nodiscard]] static Cubemap empty(int size);

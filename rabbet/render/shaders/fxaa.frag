@@ -1,7 +1,9 @@
-in vec2 vUv;
-out vec4 FragColor;
-uniform sampler2D uImage;
-uniform vec2 uTexel;
+layout(location = 0) in vec2 vUv;
+layout(location = 0) out vec4 FragColor;
+RB_FRAME_SAMPLER(0, sampler2D uImage)
+RB_PER_DRAW_BEGIN
+RB_PER_DRAW_AT(vec2 uTexel, 0)
+RB_PER_DRAW_END
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 void main() {
     vec3 rgbM = texture(uImage, vUv).rgb;

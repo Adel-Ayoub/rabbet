@@ -1,23 +1,19 @@
-in vec3 vWorldPos;
-in vec2 vLocal;
-out vec4 FragColor;
+layout(location = 0) in vec3 vWorldPos;
+layout(location = 1) in vec2 vLocal;
+layout(location = 0) out vec4 FragColor;
 
-uniform vec3 uViewPosition;
-uniform int uHdrOutput;
-uniform vec3 uAmbient;
-uniform int uDirectionalCount;
-uniform vec3 uDirectionalDirection[4];
-uniform vec3 uDirectionalColor[4];
-
-uniform float uTime; // already carries the surface's wave speed, wrapped on a whole cycle
-uniform float uWaveTileScale;
-uniform float uWaveStrength;
-uniform float uSmoothness;
-uniform vec2 uExtent;
-uniform vec4 uDeepColor;
-uniform vec4 uShallowColor;
-uniform samplerCube uSkybox;
-uniform int uHasSkybox;
+#include "light_uniforms.glsl"
+RB_MATERIAL_BEGIN
+RB_MATERIAL_AT(float uTime, 0)
+RB_MATERIAL_AT(float uWaveTileScale, 4)
+RB_MATERIAL_AT(float uWaveStrength, 8)
+RB_MATERIAL_AT(float uSmoothness, 12)
+RB_MATERIAL_AT(vec2 uExtent, 16)
+RB_MATERIAL_AT(int uHasSkybox, 24)
+RB_MATERIAL_AT(vec4 uDeepColor, 32)
+RB_MATERIAL_AT(vec4 uShallowColor, 48)
+RB_MATERIAL_END
+RB_MATERIAL_SAMPLER(1, samplerCube uSkybox)
 
 // Exact gradient of the height field sum(A * sin(f * dot(d, p) + w * t)) in tile space. The world
 // slope would carry a further factor of uWaveTileScale; leaving it out is what keeps wave SIZE

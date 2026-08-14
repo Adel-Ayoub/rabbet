@@ -14,6 +14,14 @@ namespace {
 
 constexpr std::uint64_t readbackTimeoutNanoseconds = 5'000'000'000ULL;
 
+std::uint32_t mipDimension(std::uint32_t dimension, std::uint32_t mipLevel) noexcept {
+    if (mipLevel >= std::numeric_limits<std::uint32_t>::digits) {
+        return 1U;
+    }
+    const std::uint32_t mipDimension = dimension >> mipLevel;
+    return mipDimension == 0U ? 1U : mipDimension;
+}
+
 }
 
 std::uint32_t formatTexelBytes(VkFormat format) noexcept {
@@ -98,31 +106,40 @@ bool Readback::ensureBuffer(VkDeviceSize size) {
     return m_buffer != nullptr;
 }
 
-bool Readback::readImage(VkImage image, VkFormat format, VkExtent2D extent,
-                         VkImageLayout currentLayout, VkPipelineStageFlags2 currentStage,
-                         VkAccessFlags2 currentAccess, std::span<std::byte> destination) {
-    return readImageRegion(image, format, extent, VkOffset2D{0, 0}, extent, currentLayout,
-                           currentStage, currentAccess, destination);
+bool Readback::readImage(const Image& image, VkImageLayout currentLayout,
+                         VkPipelineStageFlags2 currentStage,
+                         VkAccessFlags2 currentAccess, std::span<std::byte> destination,
+                         std::uint32_t mipLevel, std::uint32_t arrayLayer) {
+    const VkExtent2D baseExtent = image.extent();
+    const VkExtent2D mipExtent{mipDimension(baseExtent.width, mipLevel),
+                               mipDimension(baseExtent.height, mipLevel)};
+    return readImageRegion(image, VkOffset2D{0, 0}, mipExtent, currentLayout,
+                           currentStage, currentAccess, destination, mipLevel, arrayLayer);
 }
 
-bool Readback::readImageRegion(VkImage image, VkFormat format, VkExtent2D imageExtent,
-                               VkOffset2D offset, VkExtent2D readExtent,
+bool Readback::readImageRegion(const Image& image, VkOffset2D offset, VkExtent2D readExtent,
                                VkImageLayout currentLayout,
                                VkPipelineStageFlags2 currentStage,
                                VkAccessFlags2 currentAccess,
-                               std::span<std::byte> destination) {
+                               std::span<std::byte> destination,
+                               std::uint32_t mipLevel, std::uint32_t arrayLayer) {
+    const VkFormat format = image.format();
+    const VkExtent2D imageExtent = image.extent();
     const std::uint32_t texelBytes = formatTexelBytes(format);
-    if (image == VK_NULL_HANDLE || texelBytes == 0U || imageExtent.width == 0U ||
+    if (image.handle() == VK_NULL_HANDLE || texelBytes == 0U || imageExtent.width == 0U ||
         imageExtent.height == 0U || readExtent.width == 0U || readExtent.height == 0U ||
-        offset.x < 0 || offset.y < 0 || currentLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+        offset.x < 0 || offset.y < 0 || currentLayout == VK_IMAGE_LAYOUT_UNDEFINED ||
+        mipLevel >= image.mipLevels() || arrayLayer >= image.arrayLayers()) {
         std::fprintf(stderr, "Vulkan readback received an invalid request\n");
         return false;
     }
+    const VkExtent2D mipExtent{mipDimension(imageExtent.width, mipLevel),
+                               mipDimension(imageExtent.height, mipLevel)};
     const auto x = static_cast<std::uint32_t>(offset.x);
     const auto y = static_cast<std::uint32_t>(offset.y);
-    if (x >= imageExtent.width || y >= imageExtent.height ||
-        readExtent.width > imageExtent.width - x ||
-        readExtent.height > imageExtent.height - y) {
+    if (x >= mipExtent.width || y >= mipExtent.height ||
+        readExtent.width > mipExtent.width - x ||
+        readExtent.height > mipExtent.height - y) {
         std::fprintf(stderr, "Vulkan readback region is outside the image\n");
         return false;
     }
@@ -156,7 +173,7 @@ bool Readback::readImageRegion(VkImage image, VkFormat format, VkExtent2D imageE
 
     const VkImageAspectFlags aspect = formatAspect(format);
     ImageBarrier toTransfer{};
-    toTransfer.image = image;
+    toTransfer.image = image.handle();
     toTransfer.srcStage = currentStage;
     toTransfer.srcAccess = currentAccess;
     toTransfer.dstStage = VK_PIPELINE_STAGE_2_COPY_BIT;
@@ -164,18 +181,23 @@ bool Readback::readImageRegion(VkImage image, VkFormat format, VkExtent2D imageE
     toTransfer.oldLayout = currentLayout;
     toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     toTransfer.aspect = aspect;
+    toTransfer.baseMipLevel = mipLevel;
+    toTransfer.baseArrayLayer = arrayLayer;
     cmdImageBarrier(m_commandBuffer, toTransfer);
 
     VkBufferImageCopy region{};
     region.imageSubresource.aspectMask = aspect;
+    region.imageSubresource.mipLevel = mipLevel;
+    region.imageSubresource.baseArrayLayer = arrayLayer;
     region.imageSubresource.layerCount = 1;
     region.imageOffset = VkOffset3D{offset.x, offset.y, 0};
     region.imageExtent = VkExtent3D{readExtent.width, readExtent.height, 1U};
-    vkCmdCopyImageToBuffer(m_commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    vkCmdCopyImageToBuffer(m_commandBuffer, image.handle(),
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                            m_buffer->handle(), 1, &region);
 
     ImageBarrier fromTransfer{};
-    fromTransfer.image = image;
+    fromTransfer.image = image.handle();
     fromTransfer.srcStage = VK_PIPELINE_STAGE_2_COPY_BIT;
     fromTransfer.srcAccess = VK_ACCESS_2_TRANSFER_READ_BIT;
     fromTransfer.dstStage = currentStage;
@@ -183,6 +205,8 @@ bool Readback::readImageRegion(VkImage image, VkFormat format, VkExtent2D imageE
     fromTransfer.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     fromTransfer.newLayout = currentLayout;
     fromTransfer.aspect = aspect;
+    fromTransfer.baseMipLevel = mipLevel;
+    fromTransfer.baseArrayLayer = arrayLayer;
     BufferBarrier toHost{};
     toHost.buffer = m_buffer->handle();
     toHost.srcStage = VK_PIPELINE_STAGE_2_COPY_BIT;
