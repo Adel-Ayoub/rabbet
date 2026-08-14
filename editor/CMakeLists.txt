@@ -50,28 +50,16 @@ if(TARGET magic_enum)
 endif()
 
 set(forge_shader_dir "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
-set(forge_gl_shader_header
-    "${CMAKE_BINARY_DIR}/generated/editor/shaders/GlShaderSources.h")
-
-add_custom_command(
-    OUTPUT "${forge_gl_shader_header}"
-    COMMAND ${CMAKE_COMMAND}
-        "-DSHADER_DIR=${forge_shader_dir}"
-        "-DOUTPUT=${forge_gl_shader_header}"
-        "-DNAMESPACE=rb::editor::shaders"
-        "-DMANIFEST=kGridVert=grid.vert,kGridFrag=grid.frag,kThumbVert=thumbnail.vert,kThumbFrag=thumbnail.frag"
-        "-DDEPFILE=${forge_gl_shader_header}.d"
-        -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
-    DEPENDS
-        "${forge_shader_dir}/grid.vert"
-        "${forge_shader_dir}/grid.frag"
-        "${forge_shader_dir}/thumbnail.vert"
-        "${forge_shader_dir}/thumbnail.frag"
-        "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
-        "${CMAKE_CURRENT_LIST_FILE}"
-    DEPFILE "${forge_gl_shader_header}.d"
-    COMMENT "Composing the editor OpenGL shader header"
-    VERBATIM)
+set(forge_gl_shader_entries
+    kGridVert=grid.vert
+    kGridFrag=grid.frag
+    kThumbVert=thumbnail.vert
+    kThumbFrag=thumbnail.frag)
+rb_compose_gl_shader_header(forge_gl_shader_header
+    OUTPUT "${CMAKE_BINARY_DIR}/generated/editor/shaders/GlShaderSources.h"
+    NAMESPACE "rb::editor::shaders"
+    SHADER_DIR "${forge_shader_dir}"
+    ENTRIES ${forge_gl_shader_entries})
 
 add_executable(forge
     main.cpp

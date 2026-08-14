@@ -198,8 +198,6 @@ target_sources(rabbet
             scene/Hierarchy.h)
 
 set(rabbet_shader_dir "${CMAKE_CURRENT_SOURCE_DIR}/render/shaders")
-set(rabbet_gl_shader_header
-    "${CMAKE_BINARY_DIR}/generated/rabbet/render/shaders/GlShaderSources.h")
 set(rabbet_gl_shader_entries
     kLitVertex=lit.vert
     kPhongFragment=phong.frag
@@ -226,34 +224,38 @@ set(rabbet_gl_shader_entries
     kSkyboxFragment=skybox.frag
     kConvolveVertex=convolve.vert
     kConvolveFragment=convolve.frag)
-string(JOIN "," rabbet_gl_shader_manifest ${rabbet_gl_shader_entries})
-set(rabbet_gl_shader_files)
-foreach(rabbet_gl_shader_entry IN LISTS rabbet_gl_shader_entries)
-    string(REGEX REPLACE "^[^=]+=" "" rabbet_gl_shader_file "${rabbet_gl_shader_entry}")
-    list(APPEND rabbet_gl_shader_files "${rabbet_shader_dir}/${rabbet_gl_shader_file}")
-endforeach()
-list(APPEND rabbet_gl_shader_files
-    "${rabbet_shader_dir}/light_uniforms.glsl"
-    "${rabbet_shader_dir}/shadow_functions.glsl"
-    "${rabbet_shader_dir}/pbr_functions.glsl")
+set(rabbet_gl_shader_prelude
+    kLitVertex
+    kPhongFragment
+    kPbrFragment
+    kWaterVertex
+    kWaterFragment
+    kDepthVertex
+    kPickVertex
+    kPickFragment
+    kFlatVertex
+    kFlatFragment
+    kFullscreenVertex
+    kPrefilterFragment
+    kDownsampleFragment
+    kUpsampleFragment
+    kCompositeFragment
+    kFxaaFragment
+    kSkyboxVertex
+    kSkyboxFragment
+    kConvolveVertex
+    kConvolveFragment)
 
-add_custom_command(
-    OUTPUT "${rabbet_gl_shader_header}"
-    COMMAND ${CMAKE_COMMAND}
-        "-DSHADER_DIR=${rabbet_shader_dir}"
-        "-DOUTPUT=${rabbet_gl_shader_header}"
-        "-DNAMESPACE=rb::shaders"
-        "-DMANIFEST=${rabbet_gl_shader_manifest}"
-        "-DPRELUDE=kLitVertex,kPhongFragment,kPbrFragment,kWaterVertex,kWaterFragment,kDepthVertex,kPickVertex,kPickFragment,kFlatVertex,kFlatFragment,kFullscreenVertex,kPrefilterFragment,kDownsampleFragment,kUpsampleFragment,kCompositeFragment,kFxaaFragment,kSkyboxVertex,kSkyboxFragment,kConvolveVertex,kConvolveFragment"
-        "-DDEPFILE=${rabbet_gl_shader_header}.d"
-        -P "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
+rb_compose_gl_shader_header(rabbet_gl_shader_header
+    OUTPUT "${CMAKE_BINARY_DIR}/generated/rabbet/render/shaders/GlShaderSources.h"
+    NAMESPACE "rb::shaders"
+    SHADER_DIR "${rabbet_shader_dir}"
+    ENTRIES ${rabbet_gl_shader_entries}
+    PRELUDE ${rabbet_gl_shader_prelude}
     DEPENDS
-        ${rabbet_gl_shader_files}
-        "${PROJECT_SOURCE_DIR}/cmake/RabbetShaderCompose.cmake"
-        "${CMAKE_CURRENT_LIST_FILE}"
-    DEPFILE "${rabbet_gl_shader_header}.d"
-    COMMENT "Composing the OpenGL shader header"
-    VERBATIM)
+        light_uniforms.glsl
+        shadow_functions.glsl
+        pbr_functions.glsl)
 
 target_sources(rabbet PRIVATE "${rabbet_gl_shader_header}")
 

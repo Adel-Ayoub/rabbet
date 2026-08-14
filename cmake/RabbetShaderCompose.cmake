@@ -1,15 +1,3 @@
-# Script mode. Composes version-free shader bodies for one GLSL dialect. The default
-# 410 invocation emits a header of OpenGL dialect string constants and MANIFEST is a
-# comma separated list of constant=file entries, every file read from SHADER_DIR. An
-# include line is replaced by a newline plus the named chunk file, so the composed
-# bytes stay identical to the strings that were previously embedded in the C++
-# sources. A DIALECT of 450 instead writes the single manifest entry as composed GLSL
-# text to OUTPUT for glslc. Entries named in the optional PRELUDE list receive the
-# dialect prelude after the version line; entries outside the list compose byte for
-# byte as before. When DEPFILE is set the script also writes a make format dependency
-# file naming every body and chunk it read, so a future include edit rebuilds the
-# output without touching the DEPENDS list.
-
 if(NOT DEFINED DIALECT)
     set(DIALECT 410)
 endif()
@@ -23,18 +11,54 @@ if(DIALECT STREQUAL "410" AND NOT DEFINED NAMESPACE)
     message(FATAL_ERROR "RabbetShaderCompose needs NAMESPACE for the 410 header")
 endif()
 
-# The source include path is searched ahead of the generated one, so a stray header
-# beside the shader files would silently shadow every composed constant.
+# A source header would win the include lookup and hide the generated shaders.
 if(EXISTS "${SHADER_DIR}/GlShaderSources.h")
-    message(FATAL_ERROR "remove ${SHADER_DIR}/GlShaderSources.h, it would shadow the generated header")
+    message(FATAL_ERROR
+        "remove ${SHADER_DIR}/GlShaderSources.h because it hides the generated header")
 endif()
 
-# The prelude maps one shader body onto both resource models. OpenGL keeps material
-# and light values as loose uniforms while the camera uses its existing block. Vulkan
-# assigns those values to the fixed frame and draw descriptor sets, and moves transform
-# data into a bounded push block.
-set(prelude_410 "#define RB_VERTEX_INDEX gl_VertexID\n#define RB_CLIP_Y(value) (value)\n#define RB_TEXTURE_Y(value) (value)\n#define RB_DEPTH_TO_TEXTURE(value) ((value) * 0.5 + 0.5)\n#define RB_PER_FRAME_BEGIN layout(std140) uniform RbPerFrame {\n#define RB_PER_FRAME_END };\n#define RB_PER_DRAW_BEGIN\n#define RB_PER_DRAW_END\n#define RB_PER_DRAW(declaration) uniform declaration;\n#define RB_PER_DRAW_AT(declaration, byte_offset) uniform declaration;\n#define RB_LIGHT_FRAME_BEGIN\n#define RB_LIGHT_FRAME_END\n#define RB_LIGHT_FRAME_AT(declaration, byte_offset) uniform declaration;\n#define RB_FRAME_SAMPLER(slot, declaration) uniform declaration;\n#define RB_MATERIAL_BEGIN\n#define RB_MATERIAL_END\n#define RB_MATERIAL_AT(declaration, byte_offset) uniform declaration;\n#define RB_MATERIAL_SAMPLER(slot, declaration) uniform declaration;\n")
-set(prelude_450 "#define RB_VERTEX_INDEX gl_VertexIndex\n#define RB_CLIP_Y(value) (-(value))\n#define RB_TEXTURE_Y(value) (1.0 - (value))\n#define RB_DEPTH_TO_TEXTURE(value) (value)\n#define RB_PER_FRAME_BEGIN layout(std140, set = 0, binding = 0) uniform RbPerFrame {\n#define RB_PER_FRAME_END };\n#define RB_PER_DRAW_BEGIN layout(push_constant) uniform RbPerDraw {\n#define RB_PER_DRAW_END };\n#define RB_PER_DRAW(declaration) declaration;\n#define RB_PER_DRAW_AT(declaration, byte_offset) layout(offset = byte_offset) declaration;\n#define RB_LIGHT_FRAME_BEGIN layout(std140, set = 0, binding = 1) uniform RbLights {\n#define RB_LIGHT_FRAME_END };\n#define RB_LIGHT_FRAME_AT(declaration, byte_offset) layout(offset = byte_offset) declaration;\n#define RB_FRAME_SAMPLER(slot, declaration) layout(set = 0, binding = slot) uniform declaration;\n#define RB_MATERIAL_BEGIN layout(std140, set = 1, binding = 0) uniform RbMaterial {\n#define RB_MATERIAL_END };\n#define RB_MATERIAL_AT(declaration, byte_offset) layout(offset = byte_offset) declaration;\n#define RB_MATERIAL_SAMPLER(slot, declaration) layout(set = 1, binding = slot) uniform declaration;\n")
+# OpenGL uses loose material and light uniforms. Vulkan maps the same declarations
+# to descriptor sets and push constants.
+set(prelude_410 [=[
+#define RB_VERTEX_INDEX gl_VertexID
+#define RB_CLIP_Y(value) (value)
+#define RB_TEXTURE_Y(value) (value)
+#define RB_DEPTH_TO_TEXTURE(value) ((value) * 0.5 + 0.5)
+#define RB_PER_FRAME_BEGIN layout(std140) uniform RbPerFrame {
+#define RB_PER_FRAME_END };
+#define RB_PER_DRAW_BEGIN
+#define RB_PER_DRAW_END
+#define RB_PER_DRAW(declaration) uniform declaration;
+#define RB_PER_DRAW_AT(declaration, byte_offset) uniform declaration;
+#define RB_LIGHT_FRAME_BEGIN
+#define RB_LIGHT_FRAME_END
+#define RB_LIGHT_FRAME_AT(declaration, byte_offset) uniform declaration;
+#define RB_FRAME_SAMPLER(slot, declaration) uniform declaration;
+#define RB_MATERIAL_BEGIN
+#define RB_MATERIAL_END
+#define RB_MATERIAL_AT(declaration, byte_offset) uniform declaration;
+#define RB_MATERIAL_SAMPLER(slot, declaration) uniform declaration;
+]=])
+set(prelude_450 [=[
+#define RB_VERTEX_INDEX gl_VertexIndex
+#define RB_CLIP_Y(value) (-(value))
+#define RB_TEXTURE_Y(value) (1.0 - (value))
+#define RB_DEPTH_TO_TEXTURE(value) (value)
+#define RB_PER_FRAME_BEGIN layout(std140, set = 0, binding = 0) uniform RbPerFrame {
+#define RB_PER_FRAME_END };
+#define RB_PER_DRAW_BEGIN layout(push_constant) uniform RbPerDraw {
+#define RB_PER_DRAW_END };
+#define RB_PER_DRAW(declaration) declaration;
+#define RB_PER_DRAW_AT(declaration, byte_offset) layout(offset = byte_offset) declaration;
+#define RB_LIGHT_FRAME_BEGIN layout(std140, set = 0, binding = 1) uniform RbLights {
+#define RB_LIGHT_FRAME_END };
+#define RB_LIGHT_FRAME_AT(declaration, byte_offset) layout(offset = byte_offset) declaration;
+#define RB_FRAME_SAMPLER(slot, declaration) layout(set = 0, binding = slot) uniform declaration;
+#define RB_MATERIAL_BEGIN layout(std140, set = 1, binding = 0) uniform RbMaterial {
+#define RB_MATERIAL_END };
+#define RB_MATERIAL_AT(declaration, byte_offset) layout(offset = byte_offset) declaration;
+#define RB_MATERIAL_SAMPLER(slot, declaration) layout(set = 1, binding = slot) uniform declaration;
+]=])
 if(DIALECT STREQUAL "410")
     set(version_line "#version 410 core\n")
     set(prelude "${prelude_410}")
@@ -120,7 +144,9 @@ foreach(entry IN LISTS entries)
 
     string(FIND "${expanded}" "#version" version_position)
     if(NOT version_position EQUAL -1)
-        message(FATAL_ERROR "${body_file} or a chunk it includes must stay version free, the composer owns the version line")
+        message(FATAL_ERROR
+            "${body_file} or an included chunk contains #version. "
+            "The composer writes the version line.")
     endif()
     # A directive surviving expansion means a chunk carried its own include, which the
     # single level scan above never resolves.
