@@ -35,7 +35,16 @@ public:
     [[nodiscard]] Entity pick(Runtime& runtime, int x, int y);
 
 private:
+    struct FrameContext;
+
     [[nodiscard]] gl::Mesh* primitiveMesh(PrimitiveShape shape) noexcept;
+    void drawShadowMap(FrameContext& frame);
+    void drawBuiltInMaterials(FrameContext& frame);
+    void drawMaterialComponents(FrameContext& frame);
+    void drawTerrain(FrameContext& frame);
+    void drawWater(FrameContext& frame);
+    void drawParticles(FrameContext& frame);
+    void drawDebugColliders(FrameContext& frame);
 
     // A compiled GL program for a ShaderAsset, cached by the asset's uuid and the source
     // revision it was built from so a hot-reload (revision bump) triggers a recompile.

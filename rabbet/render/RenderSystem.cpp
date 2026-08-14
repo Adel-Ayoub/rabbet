@@ -216,7 +216,72 @@ gl::Texture buildSoftParticleTexture() {
     return gl::Texture::fromPixels(pixels, kSize, kSize, 4, config);
 }
 
+bool usesMaterialAsset(Scene& scene, Entity entity) {
+    const MaterialComponent* component = scene.tryGet<MaterialComponent>(entity);
+    return component != nullptr && component->handle.valid();
+}
+
 } // namespace
+
+struct RenderSystem::FrameContext {
+    RenderSystem& renderer;
+    Runtime& runtime;
+    Scene& scene;
+    const RenderView& view;
+    AssetManager* assets;
+    const Lighting* lighting;
+    const EnvironmentLight* environment;
+    glm::mat4 viewProjection;
+    glm::mat4 lightSpace{1.0f};
+    int hdrOutput{0};
+    bool shadows{false};
+
+    void uploadLighting(gl::Shader& program) const {
+        uploadLights(program, viewProjection, view.position, lighting, environment, hdrOutput);
+        program.setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
+        program.setInt("uHasShadowMap", shadows ? 1 : 0);
+        program.setMat4("uLightSpace", lightSpace);
+    }
+
+    void drawModelSubmeshes(gl::Shader& program, const glm::mat4& world, ModelAsset* model,
+                            const MaterialAsset* overrides) {
+        program.setMat4("uModel", world);
+        program.setMat3("uNormalMatrix", normalMatrix(world));
+        if (model == nullptr) {
+            if (renderer.m_missingMesh && renderer.m_missingTexture) {
+                program.setVec3("uBaseColor", glm::vec3(1.0f, 0.0f, 1.0f));
+                program.setVec3("uEmissive", glm::vec3(0.0f));
+                program.setFloat("uMetallic", 0.0f);
+                program.setFloat("uRoughness", 1.0f);
+                program.setFloat("uAo", 1.0f);
+                renderer.m_missingTexture->bind(0);
+                if (overrides != nullptr && assets != nullptr) {
+                    applyMaterialOverrides(program, *overrides, *assets);
+                }
+                renderer.m_missingMesh->draw();
+            }
+            return;
+        }
+        for (const ModelAsset::Submesh& submesh : model->submeshes) {
+            program.setVec3("uBaseColor", submesh.baseColor);
+            program.setVec3("uEmissive", submesh.emissive);
+            program.setFloat("uMetallic", submesh.metallic);
+            program.setFloat("uRoughness", submesh.roughness);
+            program.setFloat("uAo", submesh.ao);
+            if (assets != nullptr) {
+                if (TextureAsset* texture = assets->get<TextureAsset>(submesh.albedo)) {
+                    texture->texture.bind(0);
+                } else if (renderer.m_missingTexture) {
+                    renderer.m_missingTexture->bind(0);
+                }
+            }
+            if (overrides != nullptr && assets != nullptr) {
+                applyMaterialOverrides(program, *overrides, *assets);
+            }
+            submesh.mesh.draw();
+        }
+    }
+};
 
 gl::Mesh* RenderSystem::primitiveMesh(PrimitiveShape shape) noexcept {
     switch (shape) {
@@ -334,196 +399,71 @@ void RenderSystem::onStart(Runtime& runtime) {
     m_fallbackCubemap = gl::Cubemap::empty(1); // keeps the environment sampler complete when off
 }
 
-void RenderSystem::onUpdate(Runtime& runtime, float dt) {
-    // Clamped like the particle step: a blocking dialog or a scene load hands back a multi-second
-    // frame, which would otherwise snap every wave to a new phase.
-    m_waterTime += static_cast<double>(std::min(std::max(dt, 0.0f), 0.1f));
-    if (!runtime.hasResource<RenderView>()) {
+void RenderSystem::drawShadowMap(FrameContext& frame) {
+    if (!frame.shadows) {
         return;
     }
-    const RenderView& view = runtime.resource<RenderView>();
-    const glm::mat4 viewProjection = view.projection * view.view;
-    if (m_cameraUbo) {
-        m_cameraUbo->upload(&viewProjection, sizeof(viewProjection));
-        m_cameraUbo->bindBase(kCameraUniformBinding);
-    }
-    const Lighting* lighting = runtime.tryResource<Lighting>();
-    const EnvironmentLight* environment = runtime.tryResource<EnvironmentLight>();
 
-    // Over the shader caps, keep the lights nearest the view (selected once per frame,
-    // every uploadLights call below reads the clamped copy). Directional lights have no
-    // position, so an over-cap set of those stays authored-order.
-    Lighting selected;
-    if (lighting != nullptr && (lighting->pointPositions.size() > kMaxPointLights ||
-                                lighting->spotPositions.size() > kMaxSpotLights)) {
-        selected = *lighting;
-        if (selected.pointPositions.size() > kMaxPointLights) {
-            const std::vector<std::size_t> keep =
-                selectNearestLights(selected.pointPositions, view.position, kMaxPointLights);
-            keepIndices(selected.pointPositions, keep);
-            keepIndices(selected.pointColors, keep);
-            keepIndices(selected.pointAttenuations, keep);
-        }
-        if (selected.spotPositions.size() > kMaxSpotLights) {
-            const std::vector<std::size_t> keep =
-                selectNearestLights(selected.spotPositions, view.position, kMaxSpotLights);
-            keepIndices(selected.spotPositions, keep);
-            keepIndices(selected.spotDirections, keep);
-            keepIndices(selected.spotColors, keep);
-            keepIndices(selected.spotAttenuations, keep);
-            keepIndices(selected.spotCones, keep);
-        }
-        lighting = &selected;
-    }
+    // The caller may be drawing into an editor target instead of the default framebuffer.
+    GLint previousFramebuffer = 0;
+    GLint previousViewport[4] = {0, 0, 0, 0};
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    glGetIntegerv(GL_VIEWPORT, previousViewport);
 
-    AssetManager* assets = runtime.tryResource<AssetManager>();
-    if (assets != nullptr) {
-        // Safety net: resolve any ModelRenderer not yet linked to its asset, in case
-        // no AssetResolveSystem is registered. That system also re-resolves every
-        // frame to follow hot reloads; this only fills in still-invalid handles.
-        runtime.scene().each<ModelRenderer>([assets](Entity, ModelRenderer& renderer) {
-            if (!renderer.handle.valid()) {
-                renderer.handle = assets->find<ModelAsset>(renderer.model);
-            }
-        });
-    }
-
-    Scene& scene = runtime.scene();
-
-    // When a post-process pass is active the lit shaders emit linear HDR (the post chain tone-maps);
-    // otherwise they keep their inline tone-map + gamma so the direct path is byte-identical.
-    const int hdrOutput = activePostProcess(scene) != nullptr ? 1 : 0;
-
-    // An entity whose material has resolved is drawn by the material pass below; the built-in
-    // passes skip it so its geometry is not drawn twice.
-    const auto materialDriven = [&scene](Entity e) {
-        const MaterialComponent* component = scene.tryGet<MaterialComponent>(e);
-        return component != nullptr && component->handle.valid();
-    };
-
-    // Sets per-entity and per-submesh uniforms and draws a model, applying a material's overrides
-    // on top of each submesh when one is supplied. Shared by the built-in ModelRenderer pass (no
-    // overrides) and the material pass so the two cannot drift: a default material renders a model
-    // identically to the built-in path.
-    const auto drawModelSubmeshes = [this, assets](gl::Shader& program, const glm::mat4& world,
-                                                   ModelAsset* model,
-                                                   const MaterialAsset* overrides) {
-        program.setMat4("uModel", world);
-        program.setMat3("uNormalMatrix", normalMatrix(world));
-        if (model == nullptr) {
-            // unresolved or missing model: draw a loud magenta placeholder, but only when both
-            // fallback resources exist (else skip this entity).
-            if (m_missingMesh && m_missingTexture) {
-                program.setVec3("uBaseColor", glm::vec3(1.0f, 0.0f, 1.0f));
-                program.setVec3("uEmissive", glm::vec3(0.0f));
-                program.setFloat("uMetallic", 0.0f);
-                program.setFloat("uRoughness", 1.0f);
-                program.setFloat("uAo", 1.0f);
-                m_missingTexture->bind(0);
-                if (overrides != nullptr && assets != nullptr) {
-                    applyMaterialOverrides(program, *overrides, *assets);
-                }
-                m_missingMesh->draw();
-            }
-            return;
-        }
-        for (const ModelAsset::Submesh& submesh : model->submeshes) {
-            program.setVec3("uBaseColor", submesh.baseColor);
-            program.setVec3("uEmissive", submesh.emissive);
-            program.setFloat("uMetallic", submesh.metallic);
-            program.setFloat("uRoughness", submesh.roughness);
-            program.setFloat("uAo", submesh.ao);
-            if (assets != nullptr) {
-                if (TextureAsset* texture = assets->get<TextureAsset>(submesh.albedo)) {
-                    texture->texture.bind(0);
-                } else if (m_missingTexture) {
-                    m_missingTexture->bind(0);
-                }
-            }
-            if (overrides != nullptr && assets != nullptr) {
-                applyMaterialOverrides(program, *overrides, *assets);
-            }
-            submesh.mesh.draw();
-        }
-    };
-
-    const bool shadows = m_depth.has_value() && m_shadowMap.has_value() && m_cameraUbo.has_value() &&
-                         lighting != nullptr && !lighting->directionalDirections.empty();
-    glm::mat4 lightSpace{1.0f};
-
-    if (shadows) {
-        // Remember the target the caller had bound (the default framebuffer, or an
-        // editor offscreen framebuffer) so we can restore it after the shadow pass.
-        // The old code hard-bound framebuffer 0 and only reset the viewport when a
-        // Viewport resource existed, which left the main pass at the shadow map's size.
-        GLint prevFramebuffer = 0;
-        GLint prevViewport[4] = {0, 0, 0, 0};
-        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevFramebuffer);
-        glGetIntegerv(GL_VIEWPORT, prevViewport);
-
-        lightSpace = directionalLightSpace(lighting->directionalDirections.front(), 7.0f, 1.0f,
-                                           30.0f, 14.0f);
-        m_shadowMap->bindForWriting();
-        glClear(GL_DEPTH_BUFFER_BIT);
-        m_depth->bind();
-        m_cameraUbo->upload(&lightSpace, sizeof(lightSpace));
-        m_cameraUbo->bindBase(kCameraUniformBinding);
-        runtime.scene().each<WorldMatrix, gl::Mesh>([this](Entity, WorldMatrix& world, gl::Mesh& mesh) {
-            m_depth->setMat4("uModel", world.value);
-            mesh.draw();
-        });
-        if (assets != nullptr) {
-            runtime.scene().each<WorldMatrix, ModelRenderer>(
-                [this, assets](Entity, WorldMatrix& world, ModelRenderer& renderer) {
-                    m_depth->setMat4("uModel", world.value);
-                    const ModelAsset* model = assets->get<ModelAsset>(renderer.handle);
-                    if (model == nullptr) {
-                        if (m_missingMesh) {
-                            m_missingMesh->draw();
-                        }
-                        return;
+    frame.lightSpace = directionalLightSpace(frame.lighting->directionalDirections.front(), 7.0f,
+                                             1.0f, 30.0f, 14.0f);
+    m_shadowMap->bindForWriting();
+    glClear(GL_DEPTH_BUFFER_BIT);
+    m_depth->bind();
+    m_cameraUbo->upload(&frame.lightSpace, sizeof(frame.lightSpace));
+    m_cameraUbo->bindBase(kCameraUniformBinding);
+    frame.scene.each<WorldMatrix, gl::Mesh>([this](Entity, WorldMatrix& world, gl::Mesh& mesh) {
+        m_depth->setMat4("uModel", world.value);
+        mesh.draw();
+    });
+    if (frame.assets != nullptr) {
+        frame.scene.each<WorldMatrix, ModelRenderer>(
+            [this, &frame](Entity, WorldMatrix& world, ModelRenderer& renderer) {
+                m_depth->setMat4("uModel", world.value);
+                const ModelAsset* model = frame.assets->get<ModelAsset>(renderer.handle);
+                if (model == nullptr) {
+                    if (m_missingMesh) {
+                        m_missingMesh->draw();
                     }
-                    for (const ModelAsset::Submesh& submesh : model->submeshes) {
-                        submesh.mesh.draw();
-                    }
-                });
-        }
-        runtime.scene().each<WorldMatrix, Primitive>(
-            [this](Entity, WorldMatrix& world, Primitive& primitive) {
-                if (gl::Mesh* mesh = primitiveMesh(primitive.shape)) {
-                    m_depth->setMat4("uModel", world.value);
-                    mesh->draw();
+                    return;
+                }
+                for (const ModelAsset::Submesh& submesh : model->submeshes) {
+                    submesh.mesh.draw();
                 }
             });
-        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFramebuffer));
-        glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
-        m_shadowMap->bindTexture(kShadowTextureUnit);
-        m_cameraUbo->upload(&viewProjection, sizeof(viewProjection));
-        m_cameraUbo->bindBase(kCameraUniformBinding);
     }
+    frame.scene.each<WorldMatrix, Primitive>(
+        [this](Entity, WorldMatrix& world, Primitive& primitive) {
+            if (gl::Mesh* mesh = primitiveMesh(primitive.shape)) {
+                m_depth->setMat4("uModel", world.value);
+                mesh->draw();
+            }
+        });
 
-    const int hasShadow = shadows ? 1 : 0;
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+    glViewport(previousViewport[0], previousViewport[1], previousViewport[2],
+               previousViewport[3]);
+    m_shadowMap->bindTexture(kShadowTextureUnit);
+    m_cameraUbo->upload(&frame.viewProjection, sizeof(frame.viewProjection));
+    m_cameraUbo->bindBase(kCameraUniformBinding);
+}
 
-    // Bind the environment irradiance (or a 1x1 fallback) to its reserved unit for the whole frame
-    // so every lit program's samplerCube stays complete; uHasEnvironment gates whether it is used.
-    if (const gl::Cubemap* envCube =
-            environment != nullptr ? &environment->irradiance
-                                   : (m_fallbackCubemap ? &*m_fallbackCubemap : nullptr)) {
-        envCube->bind(kEnvTextureUnit);
-    }
-
-    if (m_phong && runtime.scene().count<Material>() > 0) {
+void RenderSystem::drawBuiltInMaterials(FrameContext& frame) {
+    if (m_phong && frame.scene.count<Material>() > 0) {
         m_phong->bind();
-        uploadLights(*m_phong, viewProjection, view.position, lighting, environment, hdrOutput);
+        frame.uploadLighting(*m_phong);
         m_phong->setInt("uTexture", 0);
-        m_phong->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
-        m_phong->setInt("uHasShadowMap", hasShadow);
-        m_phong->setMat4("uLightSpace", lightSpace);
         m_phong->setVec3("uEmissive", glm::vec3(0.0f));
-        runtime.scene().each<WorldMatrix, gl::Mesh, Material>(
-            [this, &materialDriven](Entity e, WorldMatrix& world, gl::Mesh& mesh, Material& material) {
-                if (materialDriven(e)) {
-                    return; // shaded by the material pass instead
+        frame.scene.each<WorldMatrix, gl::Mesh, Material>(
+            [this, &frame](Entity entity, WorldMatrix& world, gl::Mesh& mesh,
+                           Material& material) {
+                if (usesMaterialAsset(frame.scene, entity)) {
+                    return;
                 }
                 m_phong->setMat4("uModel", world.value);
                 m_phong->setMat3("uNormalMatrix", normalMatrix(world.value));
@@ -535,18 +475,15 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
             });
     }
 
-    if (m_pbr && runtime.scene().count<PbrMaterial>() > 0) {
+    if (m_pbr && frame.scene.count<PbrMaterial>() > 0) {
         m_pbr->bind();
-        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment, hdrOutput);
+        frame.uploadLighting(*m_pbr);
         m_pbr->setInt("uAlbedoTex", 0);
-        m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
-        m_pbr->setInt("uHasShadowMap", hasShadow);
-        m_pbr->setMat4("uLightSpace", lightSpace);
-        runtime.scene().each<WorldMatrix, gl::Mesh, PbrMaterial>(
-            [this, &materialDriven](Entity e, WorldMatrix& world, gl::Mesh& mesh,
-                                    PbrMaterial& material) {
-                if (materialDriven(e)) {
-                    return; // shaded by the material pass instead
+        frame.scene.each<WorldMatrix, gl::Mesh, PbrMaterial>(
+            [this, &frame](Entity entity, WorldMatrix& world, gl::Mesh& mesh,
+                           PbrMaterial& material) {
+                if (usesMaterialAsset(frame.scene, entity)) {
+                    return;
                 }
                 m_pbr->setMat4("uModel", world.value);
                 m_pbr->setMat3("uNormalMatrix", normalMatrix(world.value));
@@ -560,36 +497,29 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
             });
     }
 
-    if (m_pbr && assets != nullptr && runtime.scene().count<ModelRenderer>() > 0) {
+    if (m_pbr && frame.assets != nullptr && frame.scene.count<ModelRenderer>() > 0) {
         m_pbr->bind();
-        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment, hdrOutput);
+        frame.uploadLighting(*m_pbr);
         m_pbr->setInt("uAlbedoTex", 0);
-        m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
-        m_pbr->setInt("uHasShadowMap", hasShadow);
-        m_pbr->setMat4("uLightSpace", lightSpace);
-        runtime.scene().each<WorldMatrix, ModelRenderer>(
-            [this, assets, &materialDriven, &drawModelSubmeshes](Entity e, WorldMatrix& world,
-                                                                 ModelRenderer& renderer) {
-                if (materialDriven(e)) {
-                    return; // shaded by the material pass instead
+        frame.scene.each<WorldMatrix, ModelRenderer>(
+            [this, &frame](Entity entity, WorldMatrix& world, ModelRenderer& renderer) {
+                if (usesMaterialAsset(frame.scene, entity)) {
+                    return;
                 }
-                ModelAsset* model = assets->get<ModelAsset>(renderer.handle);
-                drawModelSubmeshes(*m_pbr, world.value, model, nullptr);
+                ModelAsset* model = frame.assets->get<ModelAsset>(renderer.handle);
+                frame.drawModelSubmeshes(*m_pbr, world.value, model, nullptr);
             });
     }
 
-    if (m_pbr && m_whiteTexture && runtime.scene().count<Primitive>() > 0) {
+    if (m_pbr && m_whiteTexture && frame.scene.count<Primitive>() > 0) {
         m_pbr->bind();
-        uploadLights(*m_pbr, viewProjection, view.position, lighting, environment, hdrOutput);
+        frame.uploadLighting(*m_pbr);
         m_pbr->setInt("uAlbedoTex", 0);
-        m_pbr->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
-        m_pbr->setInt("uHasShadowMap", hasShadow);
-        m_pbr->setMat4("uLightSpace", lightSpace);
         m_whiteTexture->bind(0);
-        runtime.scene().each<WorldMatrix, Primitive>(
-            [this, &materialDriven](Entity e, WorldMatrix& world, Primitive& primitive) {
-                if (materialDriven(e)) {
-                    return; // shaded by the material pass instead
+        frame.scene.each<WorldMatrix, Primitive>(
+            [this, &frame](Entity entity, WorldMatrix& world, Primitive& primitive) {
+                if (usesMaterialAsset(frame.scene, entity)) {
+                    return;
                 }
                 gl::Mesh* mesh = primitiveMesh(primitive.shape);
                 if (mesh == nullptr) {
@@ -605,194 +535,192 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
                 mesh->draw();
             });
     }
+}
 
-    // Data-driven material pass: entities with a resolved MaterialComponent are shaded by their
-    // material's shader (the built-in passes above skipped them). The material's uniform/texture
-    // overrides apply on top of the per-surface values, so the default PBR material renders a
-    // model exactly like the built-in path; a custom shader or overrides change the look.
-    if (assets != nullptr && runtime.scene().count<MaterialComponent>() > 0) {
-        runtime.scene().each<WorldMatrix, MaterialComponent>(
-            [&](Entity e, WorldMatrix& world, MaterialComponent& component) {
-                if (!component.handle.valid()) {
-                    return; // unresolved: left to the built-in fallback passes
-                }
-                MaterialAsset* material = assets->get<MaterialAsset>(component.handle);
-                if (material == nullptr) {
-                    return;
-                }
-                gl::Shader* program =
-                    shaderProgram(*assets, material->shaderHandle, material->shader);
-                if (program == nullptr) {
-                    program = m_pbr ? &*m_pbr : nullptr; // fall back so the entity still draws
-                }
-                if (program == nullptr) {
-                    return;
-                }
-                program->bind();
-                uploadLights(*program, viewProjection, view.position, lighting, environment, hdrOutput);
-                program->setInt("uAlbedoTex", 0);
-                program->setInt("uTexture", 0);
-                program->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
-                program->setInt("uHasShadowMap", hasShadow);
-                program->setMat4("uLightSpace", lightSpace);
+void RenderSystem::drawMaterialComponents(FrameContext& frame) {
+    if (frame.assets == nullptr || frame.scene.count<MaterialComponent>() == 0) {
+        return;
+    }
 
-                if (ModelRenderer* renderer = scene.tryGet<ModelRenderer>(e)) {
-                    ModelAsset* model = assets->get<ModelAsset>(renderer->handle);
-                    drawModelSubmeshes(*program, world.value, model, material);
-                } else if (Primitive* primitive = scene.tryGet<Primitive>(e)) {
-                    if (gl::Mesh* mesh = primitiveMesh(primitive->shape)) {
-                        if (m_whiteTexture) {
-                            m_whiteTexture->bind(0);
-                        }
-                        program->setMat4("uModel", world.value);
-                        program->setMat3("uNormalMatrix", normalMatrix(world.value));
-                        program->setVec3("uBaseColor", primitive->color);
-                        program->setVec3("uEmissive", primitive->emissive);
-                        program->setFloat("uMetallic", primitive->metallic);
-                        program->setFloat("uRoughness", primitive->roughness);
-                        program->setFloat("uAo", 1.0f);
-                        applyMaterialOverrides(*program, *material, *assets);
-                        mesh->draw();
-                    }
-                } else if (gl::Mesh* mesh = scene.tryGet<gl::Mesh>(e)) {
+    frame.scene.each<WorldMatrix, MaterialComponent>(
+        [this, &frame](Entity entity, WorldMatrix& world, MaterialComponent& component) {
+            if (!component.handle.valid()) {
+                return;
+            }
+            MaterialAsset* material = frame.assets->get<MaterialAsset>(component.handle);
+            if (material == nullptr) {
+                return;
+            }
+            gl::Shader* program =
+                shaderProgram(*frame.assets, material->shaderHandle, material->shader);
+            if (program == nullptr) {
+                program = m_pbr ? &*m_pbr : nullptr;
+            }
+            if (program == nullptr) {
+                return;
+            }
+
+            program->bind();
+            frame.uploadLighting(*program);
+            program->setInt("uAlbedoTex", 0);
+            program->setInt("uTexture", 0);
+
+            if (ModelRenderer* renderer = frame.scene.tryGet<ModelRenderer>(entity)) {
+                ModelAsset* model = frame.assets->get<ModelAsset>(renderer->handle);
+                frame.drawModelSubmeshes(*program, world.value, model, material);
+            } else if (Primitive* primitive = frame.scene.tryGet<Primitive>(entity)) {
+                if (gl::Mesh* mesh = primitiveMesh(primitive->shape)) {
                     if (m_whiteTexture) {
                         m_whiteTexture->bind(0);
                     }
                     program->setMat4("uModel", world.value);
                     program->setMat3("uNormalMatrix", normalMatrix(world.value));
-                    program->setVec3("uBaseColor", glm::vec3(1.0f));
-                    program->setVec3("uEmissive", glm::vec3(0.0f));
-                    program->setFloat("uMetallic", 0.0f);
-                    program->setFloat("uRoughness", 0.8f);
+                    program->setVec3("uBaseColor", primitive->color);
+                    program->setVec3("uEmissive", primitive->emissive);
+                    program->setFloat("uMetallic", primitive->metallic);
+                    program->setFloat("uRoughness", primitive->roughness);
                     program->setFloat("uAo", 1.0f);
-                    applyMaterialOverrides(*program, *material, *assets);
+                    applyMaterialOverrides(*program, *material, *frame.assets);
                     mesh->draw();
                 }
-            });
+            } else if (gl::Mesh* mesh = frame.scene.tryGet<gl::Mesh>(entity)) {
+                if (m_whiteTexture) {
+                    m_whiteTexture->bind(0);
+                }
+                program->setMat4("uModel", world.value);
+                program->setMat3("uNormalMatrix", normalMatrix(world.value));
+                program->setVec3("uBaseColor", glm::vec3(1.0f));
+                program->setVec3("uEmissive", glm::vec3(0.0f));
+                program->setFloat("uMetallic", 0.0f);
+                program->setFloat("uRoughness", 0.8f);
+                program->setFloat("uAo", 1.0f);
+                applyMaterialOverrides(*program, *material, *frame.assets);
+                mesh->draw();
+            }
+        });
+}
+
+void RenderSystem::drawTerrain(FrameContext& frame) {
+    const TerrainRenderData* terrain = frame.runtime.tryResource<TerrainRenderData>();
+    if (!m_terrain || !m_terrainFallback || terrain == nullptr || terrain->draws.empty()) {
+        if (!m_terrainMeshes.empty()) {
+            m_terrainMeshes.clear();
+        }
+        return;
     }
 
-    // Terrain pass: lit, splat-blended heightfields published by TerrainSystem. Opaque (depth-write
-    // on), drawn after the other opaque passes. Each entity's CPU mesh is uploaded once and cached,
-    // re-uploaded only when its revision changes. Runs only when a terrain published a draw, so a
-    // scene with no TerrainComponent is byte-identical to before this phase (the resource is absent).
-    if (const TerrainRenderData* terrain = runtime.tryResource<TerrainRenderData>();
-        m_terrain && m_terrainFallback && terrain != nullptr && !terrain->draws.empty()) {
-        constexpr unsigned int kLayerUnit0 = 2; // units 0 (albedo) / 1 (shadow) / 7 (env) reserved
-        constexpr unsigned int kSplatUnit = 6;
-        const gl::Texture& fallback = *m_terrainFallback;
+    // Texture units 0 and 1 hold albedo and shadow. Layers use 2 through 5,
+    // the splat map uses 6 and environment lighting uses 7.
+    constexpr unsigned int kLayerUnit0 = 2;
+    constexpr unsigned int kSplatUnit = 6;
+    const gl::Texture& fallback = *m_terrainFallback;
 
-        m_terrain->bind();
-        uploadLights(*m_terrain, viewProjection, view.position, lighting, environment, hdrOutput);
-        m_terrain->setInt("uShadowMap", static_cast<int>(kShadowTextureUnit));
-        m_terrain->setInt("uHasShadowMap", hasShadow);
-        m_terrain->setMat4("uLightSpace", lightSpace);
-        m_terrain->setFloat("uMetallic", 0.0f);
-        m_terrain->setFloat("uRoughness", 0.92f);
-        for (int i = 0; i < 4; ++i) {
-            m_terrain->setInt("uLayerAlbedo[" + std::to_string(i) + "]",
-                              static_cast<int>(kLayerUnit0) + i);
+    m_terrain->bind();
+    frame.uploadLighting(*m_terrain);
+    m_terrain->setFloat("uMetallic", 0.0f);
+    m_terrain->setFloat("uRoughness", 0.92f);
+    for (int index = 0; index < 4; ++index) {
+        m_terrain->setInt("uLayerAlbedo[" + std::to_string(index) + "]",
+                          static_cast<int>(kLayerUnit0) + index);
+    }
+    m_terrain->setInt("uSplat", static_cast<int>(kSplatUnit));
+
+    for (const TerrainDraw& draw : terrain->draws) {
+        const WorldMatrix* world = frame.scene.tryGet<WorldMatrix>(draw.entity);
+        if (draw.mesh == nullptr || world == nullptr) {
+            continue;
         }
-        m_terrain->setInt("uSplat", static_cast<int>(kSplatUnit));
+        TerrainMeshCache& cache = m_terrainMeshes[draw.entity];
+        if (!cache.mesh.has_value() || cache.revision != draw.revision) {
+            cache.mesh = gl::Mesh::create(*draw.mesh);
+            cache.revision = draw.revision;
+        }
 
-        for (const TerrainDraw& draw : terrain->draws) {
-            const WorldMatrix* world = scene.tryGet<WorldMatrix>(draw.entity);
-            if (draw.mesh == nullptr || world == nullptr) {
-                continue;
-            }
-            TerrainMeshCache& cache = m_terrainMeshes[draw.entity];
-            if (!cache.mesh.has_value() || cache.revision != draw.revision) {
-                cache.mesh = gl::Mesh::create(*draw.mesh);
-                cache.revision = draw.revision;
-            }
+        m_terrain->setMat4("uModel", world->value);
+        m_terrain->setMat3("uNormalMatrix", normalMatrix(world->value));
+        m_terrain->setFloat("uHeightScale", draw.heightScale);
+        m_terrain->setInt("uLayerCount", draw.layerCount);
+        m_terrain->setInt("uBlendMode", draw.blend == TerrainBlend::Splatmap ? 1 : 0);
 
-            m_terrain->setMat4("uModel", world->value);
-            m_terrain->setMat3("uNormalMatrix", normalMatrix(world->value));
-            m_terrain->setFloat("uHeightScale", draw.heightScale);
-            m_terrain->setInt("uLayerCount", draw.layerCount);
-            m_terrain->setInt("uBlendMode", draw.blend == TerrainBlend::Splatmap ? 1 : 0);
-
-            for (int i = 0; i < 4; ++i) {
-                const std::string idx = "[" + std::to_string(i) + "]";
-                const gl::Texture* tex = &fallback;
-                glm::vec2 heightRange{0.0f, 1.0f};
-                glm::vec2 slopeRange{0.0f, 1.0f};
-                float tiling = 1.0f;
-                float sharpness = 0.12f;
-                if (i < draw.layerCount) {
-                    const TerrainLayerBinding& layer = draw.layers[static_cast<std::size_t>(i)];
-                    if (assets != nullptr && layer.albedo.valid()) {
-                        if (TextureAsset* asset = assets->get<TextureAsset>(layer.albedo)) {
-                            tex = &asset->texture;
-                        }
+        for (int index = 0; index < 4; ++index) {
+            const std::string suffix = "[" + std::to_string(index) + "]";
+            const gl::Texture* texture = &fallback;
+            glm::vec2 heightRange{0.0f, 1.0f};
+            glm::vec2 slopeRange{0.0f, 1.0f};
+            float tiling = 1.0f;
+            float sharpness = 0.12f;
+            if (index < draw.layerCount) {
+                const TerrainLayerBinding& layer =
+                    draw.layers[static_cast<std::size_t>(index)];
+                if (frame.assets != nullptr && layer.albedo.valid()) {
+                    if (TextureAsset* asset = frame.assets->get<TextureAsset>(layer.albedo)) {
+                        texture = &asset->texture;
                     }
-                    heightRange = layer.heightRange;
-                    slopeRange = layer.slopeRange;
-                    tiling = layer.tiling;
-                    sharpness = layer.sharpness;
                 }
-                tex->bind(kLayerUnit0 + static_cast<unsigned int>(i));
-                m_terrain->setFloat("uLayerTiling" + idx, tiling);
-                m_terrain->setVec2("uLayerHeightRange" + idx, heightRange);
-                m_terrain->setVec2("uLayerSlopeRange" + idx, slopeRange);
-                m_terrain->setFloat("uLayerSharpness" + idx, sharpness);
+                heightRange = layer.heightRange;
+                slopeRange = layer.slopeRange;
+                tiling = layer.tiling;
+                sharpness = layer.sharpness;
             }
-
-            const gl::Texture* splat = &fallback;
-            int hasSplat = 0;
-            if (draw.blend == TerrainBlend::Splatmap && assets != nullptr && draw.splat.valid()) {
-                if (TextureAsset* asset = assets->get<TextureAsset>(draw.splat)) {
-                    splat = &asset->texture;
-                    hasSplat = 1;
-                }
-            }
-            splat->bind(kSplatUnit);
-            m_terrain->setInt("uHasSplat", hasSplat);
-
-            cache.mesh->draw();
+            texture->bind(kLayerUnit0 + static_cast<unsigned int>(index));
+            m_terrain->setFloat("uLayerTiling" + suffix, tiling);
+            m_terrain->setVec2("uLayerHeightRange" + suffix, heightRange);
+            m_terrain->setVec2("uLayerSlopeRange" + suffix, slopeRange);
+            m_terrain->setFloat("uLayerSharpness" + suffix, sharpness);
         }
 
-        // Release cached meshes for terrains no longer drawn (entity destroyed or component removed).
-        for (auto it = m_terrainMeshes.begin(); it != m_terrainMeshes.end();) {
-            const bool present = std::any_of(
-                terrain->draws.begin(), terrain->draws.end(),
-                [&](const TerrainDraw& draw) { return draw.entity == it->first; });
-            if (present) {
-                ++it;
-            } else {
-                it = m_terrainMeshes.erase(it);
+        const gl::Texture* splat = &fallback;
+        int hasSplat = 0;
+        if (draw.blend == TerrainBlend::Splatmap && frame.assets != nullptr &&
+            draw.splat.valid()) {
+            if (TextureAsset* asset = frame.assets->get<TextureAsset>(draw.splat)) {
+                splat = &asset->texture;
+                hasSplat = 1;
             }
         }
-    } else if (!m_terrainMeshes.empty()) {
-        m_terrainMeshes.clear();
+        splat->bind(kSplatUnit);
+        m_terrain->setInt("uHasSplat", hasSplat);
+        cache.mesh->draw();
     }
 
-    // Water pass: procedurally-waved fresnel surfaces, one shared unit quad per component.
-    // Transparent like the particles (depth-tested, writes off, over-blend) and drawn before
-    // them so sparks stay visible above the surface. Runs only when a scene has an enabled
-    // component, so every other scene is byte-identical to before this phase.
-    if (m_water && m_waterMesh && scene.count<WaterComponent>() > 0) {
-        // Every octave completes a whole number of cycles over this span, so wrapping (time *
-        // speed) onto it is seamless for any authored speed, not just the default.
-        constexpr double kWavePeriod = 8.0 * 3.14159265358979323846;
-        const Skybox* sky = runtime.tryResource<Skybox>();
-        constexpr unsigned int kWaterSkyUnit = 8; // past the terrain's reserved 0..7 set
-        bool passOpen = false;
-        GLboolean wasBlend = GL_FALSE;
-        GLboolean wasCull = GL_FALSE;
-        GLboolean depthWrite = GL_TRUE;
-        GLint blendSrcRgb = GL_ONE;
-        GLint blendDstRgb = GL_ZERO;
-        GLint blendSrcAlpha = GL_ONE;
-        GLint blendDstAlpha = GL_ZERO;
-        GLint activeUnit = GL_TEXTURE0;
+    for (auto it = m_terrainMeshes.begin(); it != m_terrainMeshes.end();) {
+        const bool present = std::any_of(
+            terrain->draws.begin(), terrain->draws.end(),
+            [&](const TerrainDraw& draw) { return draw.entity == it->first; });
+        if (present) {
+            ++it;
+        } else {
+            it = m_terrainMeshes.erase(it);
+        }
+    }
+}
 
-        scene.each<WaterComponent, WorldMatrix>([&](Entity, WaterComponent& w, WorldMatrix& world) {
-            if (!w.enabled) {
+void RenderSystem::drawWater(FrameContext& frame) {
+    if (!m_water || !m_waterMesh || frame.scene.count<WaterComponent>() == 0) {
+        return;
+    }
+
+    // Every shader octave repeats over this interval, so wrapping does not pop.
+    constexpr double kWavePeriod = 8.0 * 3.14159265358979323846;
+    constexpr unsigned int kWaterSkyUnit = 8;
+    const Skybox* sky = frame.runtime.tryResource<Skybox>();
+    bool passOpen = false;
+    GLboolean wasBlend = GL_FALSE;
+    GLboolean wasCull = GL_FALSE;
+    GLboolean depthWrite = GL_TRUE;
+    GLint blendSrcRgb = GL_ONE;
+    GLint blendDstRgb = GL_ZERO;
+    GLint blendSrcAlpha = GL_ONE;
+    GLint blendDstAlpha = GL_ZERO;
+    GLint activeUnit = GL_TEXTURE0;
+
+    frame.scene.each<WaterComponent, WorldMatrix>(
+        [&](Entity, WaterComponent& water, WorldMatrix& world) {
+            if (!water.enabled) {
                 return;
             }
             if (!passOpen) {
-                // Opened lazily on the first surface actually drawn, so a scene whose water is
-                // all disabled touches no GL state at all.
+                // Disabled water must not change GL state.
                 passOpen = true;
                 wasBlend = glIsEnabled(GL_BLEND);
                 wasCull = glIsEnabled(GL_CULL_FACE);
@@ -806,15 +734,15 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 glDepthMask(GL_FALSE);
-                glDisable(GL_CULL_FACE); // the surface reads from below as well
+                // Water remains visible from below.
+                glDisable(GL_CULL_FACE);
 
                 m_water->bind();
-                uploadLights(*m_water, viewProjection, view.position, lighting, environment,
-                             hdrOutput);
+                uploadLights(*m_water, frame.viewProjection, frame.view.position, frame.lighting,
+                             frame.environment, frame.hdrOutput);
                 m_water->setInt("uSkybox", static_cast<int>(kWaterSkyUnit));
                 m_water->setInt("uHasSkybox", sky != nullptr ? 1 : 0);
-                // Bound either way: an incomplete samplerCube can cost the whole draw on drivers
-                // that validate every sampler, which is why the fallback exists.
+                // Keep the cubemap sampler complete when no skybox exists.
                 if (sky != nullptr) {
                     sky->cubemap.bind(kWaterSkyUnit);
                 } else if (m_fallbackCubemap) {
@@ -822,11 +750,10 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
                 }
             }
 
-            WaterComponent safe = w;
+            WaterComponent safe = water;
             sanitizeWater(safe);
-            const float phase =
-                static_cast<float>(std::fmod(m_waterTime * static_cast<double>(safe.waveSpeed),
-                                             kWavePeriod));
+            const float phase = static_cast<float>(
+                std::fmod(m_waterTime * static_cast<double>(safe.waveSpeed), kWavePeriod));
             m_water->setMat4("uModel", waterSurfaceModel(world.value, safe.extent));
             m_water->setFloat("uTime", phase);
             m_water->setVec2("uExtent", safe.extent);
@@ -838,151 +765,236 @@ void RenderSystem::onUpdate(Runtime& runtime, float dt) {
             m_waterMesh->draw();
         });
 
-        if (passOpen) {
-            glActiveTexture(static_cast<GLenum>(activeUnit));
-            glDepthMask(depthWrite);
-            glBlendFuncSeparate(static_cast<GLenum>(blendSrcRgb), static_cast<GLenum>(blendDstRgb),
-                                static_cast<GLenum>(blendSrcAlpha),
-                                static_cast<GLenum>(blendDstAlpha));
-            if (wasCull == GL_TRUE) {
-                glEnable(GL_CULL_FACE);
-            }
-            if (wasBlend == GL_FALSE) {
-                glDisable(GL_BLEND);
-            }
-        }
+    if (!passOpen) {
+        return;
+    }
+    glActiveTexture(static_cast<GLenum>(activeUnit));
+    glDepthMask(depthWrite);
+    glBlendFuncSeparate(static_cast<GLenum>(blendSrcRgb), static_cast<GLenum>(blendDstRgb),
+                        static_cast<GLenum>(blendSrcAlpha),
+                        static_cast<GLenum>(blendDstAlpha));
+    if (wasCull == GL_TRUE) {
+        glEnable(GL_CULL_FACE);
+    }
+    if (wasBlend == GL_FALSE) {
+        glDisable(GL_BLEND);
+    }
+}
+
+void RenderSystem::drawParticles(FrameContext& frame) {
+    const ParticleRenderData* particles = frame.runtime.tryResource<ParticleRenderData>();
+    if (!m_particle || !m_particleStream || !m_particleTexture || particles == nullptr ||
+        particles->batches.empty()) {
+        return;
     }
 
-    // Transparent particle pass: camera-facing billboards drawn after the opaque + material passes,
-    // depth-tested against the scene (so geometry occludes them) but with depth writes off so they
-    // blend with each other instead of z-fighting. Additive sums light (glow), Alpha is a standard
-    // over-blend. Runs only when an emitter published particles, so a scene without one is
-    // byte-identical. State touched here is saved and restored so the pass is order-independent.
-    if (const ParticleRenderData* particles = runtime.tryResource<ParticleRenderData>();
-        m_particle && m_particleStream && m_particleTexture && particles != nullptr &&
-        !particles->batches.empty()) {
-        const glm::mat4& v = view.view;
-        const glm::vec3 camRight{v[0][0], v[1][0], v[2][0]};
-        const glm::vec3 camUp{v[0][1], v[1][1], v[2][1]};
+    const glm::mat4& view = frame.view.view;
+    const glm::vec3 cameraRight{view[0][0], view[1][0], view[2][0]};
+    const glm::vec3 cameraUp{view[0][1], view[1][1], view[2][1]};
 
-        const GLboolean wasBlend = glIsEnabled(GL_BLEND);
-        const GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
-        GLboolean depthWrite = GL_TRUE;
-        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
-        // The batches switch the blend func per blend mode; capture it so the pass leaves
-        // the function exactly as found, not stuck on whatever the last batch used.
-        GLint blendSrcRgb = GL_ONE;
-        GLint blendDstRgb = GL_ZERO;
-        GLint blendSrcAlpha = GL_ONE;
-        GLint blendDstAlpha = GL_ZERO;
-        glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
-        glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
-        glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcAlpha);
-        glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstAlpha);
+    const GLboolean wasBlend = glIsEnabled(GL_BLEND);
+    const GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
+    GLboolean depthWrite = GL_TRUE;
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrite);
+    GLint blendSrcRgb = GL_ONE;
+    GLint blendDstRgb = GL_ZERO;
+    GLint blendSrcAlpha = GL_ONE;
+    GLint blendDstAlpha = GL_ZERO;
+    glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
+    glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcAlpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstAlpha);
 
-        glEnable(GL_BLEND);
-        glDepthMask(GL_FALSE);
-        glDisable(GL_CULL_FACE); // billboards are double-sided; winding must not cull them
+    glEnable(GL_BLEND);
+    glDepthMask(GL_FALSE);
+    // Billboards are visible from either winding.
+    glDisable(GL_CULL_FACE);
 
-        m_particle->bind();
-        m_particle->setMat4("uViewProjection", viewProjection);
-        m_particle->setInt("uTexture", 0);
+    m_particle->bind();
+    m_particle->setMat4("uViewProjection", frame.viewProjection);
+    m_particle->setInt("uTexture", 0);
 
-        for (const ParticleDrawBatch& batch : particles->batches) {
-            if (batch.particles.empty()) {
-                continue;
-            }
-            if (batch.blendMode == ParticleBlendMode::Additive) {
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-            } else {
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            }
-
-            const gl::Texture* sprite = m_particleTexture ? &*m_particleTexture : nullptr;
-            if (assets != nullptr && batch.sprite.valid()) {
-                if (TextureAsset* texture = assets->get<TextureAsset>(batch.sprite)) {
-                    sprite = &texture->texture;
-                }
-            }
-            if (sprite != nullptr) {
-                sprite->bind(0);
-            }
-
-            m_particleVertices.clear();
-            m_particleVertices.reserve(batch.particles.size() * 6);
-            for (const ParticleBillboard& p : batch.particles) {
-                const glm::vec3 right = camRight * (p.size * 0.5f);
-                const glm::vec3 up = camUp * (p.size * 0.5f);
-                const glm::vec3 bl = p.position - right - up;
-                const glm::vec3 br = p.position + right - up;
-                const glm::vec3 tr = p.position + right + up;
-                const glm::vec3 tl = p.position - right + up;
-                m_particleVertices.push_back({bl, {0.0f, 0.0f}, p.color});
-                m_particleVertices.push_back({br, {1.0f, 0.0f}, p.color});
-                m_particleVertices.push_back({tr, {1.0f, 1.0f}, p.color});
-                m_particleVertices.push_back({bl, {0.0f, 0.0f}, p.color});
-                m_particleVertices.push_back({tr, {1.0f, 1.0f}, p.color});
-                m_particleVertices.push_back({tl, {0.0f, 1.0f}, p.color});
-            }
-            m_particleStream->upload(m_particleVertices);
-            m_particleStream->draw();
+    for (const ParticleDrawBatch& batch : particles->batches) {
+        if (batch.particles.empty()) {
+            continue;
+        }
+        if (batch.blendMode == ParticleBlendMode::Additive) {
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        } else {
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         }
 
-        glDepthMask(depthWrite);
-        glBlendFuncSeparate(static_cast<GLenum>(blendSrcRgb), static_cast<GLenum>(blendDstRgb),
-                            static_cast<GLenum>(blendSrcAlpha),
-                            static_cast<GLenum>(blendDstAlpha));
-        if (wasCull == GL_TRUE) {
-            glEnable(GL_CULL_FACE);
+        const gl::Texture* sprite = &*m_particleTexture;
+        if (frame.assets != nullptr && batch.sprite.valid()) {
+            if (TextureAsset* texture = frame.assets->get<TextureAsset>(batch.sprite)) {
+                sprite = &texture->texture;
+            }
         }
-        if (wasBlend == GL_FALSE) {
-            glDisable(GL_BLEND);
+        sprite->bind(0);
+
+        m_particleVertices.clear();
+        m_particleVertices.reserve(batch.particles.size() * 6);
+        for (const ParticleBillboard& particle : batch.particles) {
+            const glm::vec3 right = cameraRight * (particle.size * 0.5f);
+            const glm::vec3 up = cameraUp * (particle.size * 0.5f);
+            const glm::vec3 bottomLeft = particle.position - right - up;
+            const glm::vec3 bottomRight = particle.position + right - up;
+            const glm::vec3 topRight = particle.position + right + up;
+            const glm::vec3 topLeft = particle.position - right + up;
+            m_particleVertices.push_back({bottomLeft, {0.0f, 0.0f}, particle.color});
+            m_particleVertices.push_back({bottomRight, {1.0f, 0.0f}, particle.color});
+            m_particleVertices.push_back({topRight, {1.0f, 1.0f}, particle.color});
+            m_particleVertices.push_back({bottomLeft, {0.0f, 0.0f}, particle.color});
+            m_particleVertices.push_back({topRight, {1.0f, 1.0f}, particle.color});
+            m_particleVertices.push_back({topLeft, {0.0f, 1.0f}, particle.color});
         }
+        m_particleStream->upload(m_particleVertices);
+        m_particleStream->draw();
     }
 
-    // Collider debug wireframes (toggled by the editor). Drawn unlit, depth-test off so the
-    // outlines read as gizmos sitting over the shaded scene rather than being occluded by it.
-    if (const DebugDraw* debug = runtime.tryResource<DebugDraw>();
-        m_flat && m_cameraUbo && debug != nullptr && debug->colliders) {
-        m_flat->bind();
+    glDepthMask(depthWrite);
+    glBlendFuncSeparate(static_cast<GLenum>(blendSrcRgb), static_cast<GLenum>(blendDstRgb),
+                        static_cast<GLenum>(blendSrcAlpha),
+                        static_cast<GLenum>(blendDstAlpha));
+    if (wasCull == GL_TRUE) {
+        glEnable(GL_CULL_FACE);
+    }
+    if (wasBlend == GL_FALSE) {
+        glDisable(GL_BLEND);
+    }
+}
+
+void RenderSystem::drawDebugColliders(FrameContext& frame) {
+    const DebugDraw* debug = frame.runtime.tryResource<DebugDraw>();
+    if (!m_flat || !m_cameraUbo || debug == nullptr || !debug->colliders) {
+        return;
+    }
+
+    m_flat->bind();
+    m_cameraUbo->bindBase(kCameraUniformBinding);
+    m_flat->setVec3("uColor", glm::vec3(0.25f, 0.95f, 0.40f));
+    glDisable(GL_DEPTH_TEST);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+    // Use the composed world pose but keep collider dimensions in world space.
+    frame.scene.each<Transform, BoxCollider>(
+        [this, &frame](Entity entity, Transform&, BoxCollider& box) {
+            if (!m_primitiveCube) {
+                return;
+            }
+            const WorldPose pose = worldPoseOf(frame.scene, entity);
+            const glm::mat4 model = glm::translate(glm::mat4(1.0f), pose.position) *
+                                    glm::mat4_cast(pose.rotation) *
+                                    glm::translate(glm::mat4(1.0f), box.offset) *
+                                    glm::scale(glm::mat4(1.0f), box.halfExtents * 2.0f);
+            m_flat->setMat4("uModel", model);
+            m_primitiveCube->draw();
+        });
+    frame.scene.each<Transform, SphereCollider>(
+        [this, &frame](Entity entity, Transform&, SphereCollider& sphere) {
+            if (!m_primitiveSphere) {
+                return;
+            }
+            const WorldPose pose = worldPoseOf(frame.scene, entity);
+            const glm::mat4 model = glm::translate(glm::mat4(1.0f), pose.position) *
+                                    glm::mat4_cast(pose.rotation) *
+                                    glm::translate(glm::mat4(1.0f), sphere.offset) *
+                                    glm::scale(glm::mat4(1.0f),
+                                               glm::vec3(sphere.radius * 2.0f));
+            m_flat->setMat4("uModel", model);
+            m_primitiveSphere->draw();
+        });
+
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glEnable(GL_DEPTH_TEST);
+}
+
+void RenderSystem::onUpdate(Runtime& runtime, float dt) {
+    // Long pauses from dialogs or scene loads must not jump water to a distant phase.
+    m_waterTime += static_cast<double>(std::clamp(dt, 0.0f, 0.1f));
+    if (!runtime.hasResource<RenderView>()) {
+        return;
+    }
+
+    const RenderView& view = runtime.resource<RenderView>();
+    const glm::mat4 viewProjection = view.projection * view.view;
+    if (m_cameraUbo) {
+        m_cameraUbo->upload(&viewProjection, sizeof(viewProjection));
         m_cameraUbo->bindBase(kCameraUniformBinding);
-        m_flat->setVec3("uColor", glm::vec3(0.25f, 0.95f, 0.40f));
-        glDisable(GL_DEPTH_TEST);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        // Outlines compose the world pose like the bodies do (PhysicsSystem spawns at
-        // worldPoseOf + rotated offset): a parented collider's wireframe must sit where
-        // the body actually collides, not at the raw local TRS. Collider dimensions stay
-        // world-space, so the composed scale is deliberately not applied to them.
-        Scene& wireScene = runtime.scene();
-        wireScene.each<Transform, BoxCollider>(
-            [this, &wireScene](Entity entity, Transform&, BoxCollider& box) {
-                if (!m_primitiveCube) {
-                    return;
-                }
-                const WorldPose pose = worldPoseOf(wireScene, entity);
-                const glm::mat4 model = glm::translate(glm::mat4(1.0f), pose.position) *
-                                        glm::mat4_cast(pose.rotation) *
-                                        glm::translate(glm::mat4(1.0f), box.offset) *
-                                        glm::scale(glm::mat4(1.0f), box.halfExtents * 2.0f);
-                m_flat->setMat4("uModel", model);
-                m_primitiveCube->draw();
-            });
-        wireScene.each<Transform, SphereCollider>(
-            [this, &wireScene](Entity entity, Transform&, SphereCollider& sphere) {
-                if (!m_primitiveSphere) {
-                    return;
-                }
-                const WorldPose pose = worldPoseOf(wireScene, entity);
-                const glm::mat4 model = glm::translate(glm::mat4(1.0f), pose.position) *
-                                        glm::mat4_cast(pose.rotation) *
-                                        glm::translate(glm::mat4(1.0f), sphere.offset) *
-                                        glm::scale(glm::mat4(1.0f), glm::vec3(sphere.radius * 2.0f));
-                m_flat->setMat4("uModel", model);
-                m_primitiveSphere->draw();
-            });
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glEnable(GL_DEPTH_TEST);
     }
+
+    const Lighting* lighting = runtime.tryResource<Lighting>();
+    const EnvironmentLight* environment = runtime.tryResource<EnvironmentLight>();
+
+    // Directional lights keep authored order because they have no position to rank.
+    Lighting selectedLights;
+    if (lighting != nullptr && (lighting->pointPositions.size() > kMaxPointLights ||
+                                lighting->spotPositions.size() > kMaxSpotLights)) {
+        selectedLights = *lighting;
+        if (selectedLights.pointPositions.size() > kMaxPointLights) {
+            const std::vector<std::size_t> keep =
+                selectNearestLights(selectedLights.pointPositions, view.position, kMaxPointLights);
+            keepIndices(selectedLights.pointPositions, keep);
+            keepIndices(selectedLights.pointColors, keep);
+            keepIndices(selectedLights.pointAttenuations, keep);
+        }
+        if (selectedLights.spotPositions.size() > kMaxSpotLights) {
+            const std::vector<std::size_t> keep =
+                selectNearestLights(selectedLights.spotPositions, view.position, kMaxSpotLights);
+            keepIndices(selectedLights.spotPositions, keep);
+            keepIndices(selectedLights.spotDirections, keep);
+            keepIndices(selectedLights.spotColors, keep);
+            keepIndices(selectedLights.spotAttenuations, keep);
+            keepIndices(selectedLights.spotCones, keep);
+        }
+        lighting = &selectedLights;
+    }
+
+    AssetManager* assets = runtime.tryResource<AssetManager>();
+    if (assets != nullptr) {
+        // Resolve models when the caller did not install the asset resolve system.
+        runtime.scene().each<ModelRenderer>([assets](Entity, ModelRenderer& renderer) {
+            if (!renderer.handle.valid()) {
+                renderer.handle = assets->find<ModelAsset>(renderer.model);
+            }
+        });
+    }
+
+    Scene& scene = runtime.scene();
+    // A post-process pass owns tone mapping, while the direct path keeps it in the lit shader.
+    const int hdrOutput = activePostProcess(scene) != nullptr ? 1 : 0;
+    const bool shadows = m_depth.has_value() && m_shadowMap.has_value() &&
+                         m_cameraUbo.has_value() && lighting != nullptr &&
+                         !lighting->directionalDirections.empty();
+    FrameContext frame{
+        .renderer = *this,
+        .runtime = runtime,
+        .scene = scene,
+        .view = view,
+        .assets = assets,
+        .lighting = lighting,
+        .environment = environment,
+        .viewProjection = viewProjection,
+        .lightSpace = glm::mat4(1.0f),
+        .hdrOutput = hdrOutput,
+        .shadows = shadows,
+    };
+
+    drawShadowMap(frame);
+
+    // Keep the sampler complete even when environment lighting is disabled.
+    if (const gl::Cubemap* environmentCubemap =
+            environment != nullptr ? &environment->irradiance
+                                   : (m_fallbackCubemap ? &*m_fallbackCubemap : nullptr)) {
+        environmentCubemap->bind(kEnvTextureUnit);
+    }
+
+    drawBuiltInMaterials(frame);
+    drawMaterialComponents(frame);
+    drawTerrain(frame);
+    drawWater(frame);
+    drawParticles(frame);
+    drawDebugColliders(frame);
 }
 
 Entity RenderSystem::pick(Runtime& runtime, int x, int y) {
